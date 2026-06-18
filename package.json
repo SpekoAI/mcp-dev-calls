@@ -1,0 +1,22 @@
+{
+  "name": "mcp-dev-calls",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Speko \"AI calls for devs\" demo — a Claude Code MCP (mcp/) that finds businesses and places real, disclosed phone calls via a backing demo server (server/) using SPEKO_API_KEY + @spekoai/sdk.",
+  "type": "module",
+  "license": "MIT",
+  "author": "SpekoAI",
+  "homepage": "https://github.com/SpekoAI/mcp-dev-calls",
+  "repository": { "type": "git", "url": "git+https://github.com/SpekoAI/mcp-dev-calls.git" },
+  "workspaces": ["server", "mcp"],
+  "engines": { "node": ">=20" },
+  "scripts": {
+    "build": "npm run build --workspaces",
+    "typecheck": "npm run typecheck --workspaces",
+    "test": "npm run test --workspaces --if-present",
+    "dev:server": "npm run dev --workspace server",
+    "dev:mcp": "npm run dev --workspace mcp",
+    "start:server": "npm run start --workspace server",
+    "start:mcp": "npm run start --workspace mcp"
+  }
+}

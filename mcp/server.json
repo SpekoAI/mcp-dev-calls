@@ -1,0 +1,33 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "ai.speko/mcp-calls",
+  "title": "Speko — AI Calls for Devs",
+  "description": "Place real, disclosed outbound phone calls to businesses straight from your coding agent.",
+  "repository": { "url": "https://github.com/SpekoAI/mcp-dev-calls", "source": "github" },
+  "version": "0.1.0",
+  "websiteUrl": "https://speko.ai",
+  "packages": [
+    {
+      "registryType": "npm",
+      "identifier": "@spekoai/mcp-calls",
+      "version": "0.1.0",
+      "transport": { "type": "stdio" },
+      "environmentVariables": [
+        {
+          "name": "SPEKO_MCP_SERVER_URL",
+          "description": "Base URL of the Speko demo backing server (holds the keys + rails). Defaults to http://127.0.0.1:8787.",
+          "isRequired": false,
+          "isSecret": false,
+          "format": "string"
+        },
+        {
+          "name": "MCP_INTERNAL_KEY",
+          "description": "Optional shared secret sent as the x-internal-key header; must match the demo server's MCP_INTERNAL_KEY.",
+          "isRequired": false,
+          "isSecret": true,
+          "format": "string"
+        }
+      ]
+    }
+  ]
+}
