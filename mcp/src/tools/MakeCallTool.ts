@@ -29,14 +29,28 @@ function summarize(s: Record<string, unknown>): string {
   const status = typeof s.status === "string" ? s.status : "unknown";
   const callId = typeof s.call_id === "string" ? s.call_id : null;
   const outcome = typeof s.outcome === "string" ? s.outcome : null;
+  const reason = typeof s.reason === "string" ? s.reason : null;
+  const connected = s.connected === true;
+  const answered = s.answered === true;
+
   if (status === "not_placed") {
     return (
+      reason ??
       "The call was NOT placed: this Speko deployment has no outbound caller-ID/SIP configured. " +
-      "Run check_call_readiness, configure a caller ID, then retry make_call."
+        "Run check_call_readiness, configure a caller ID, then retry make_call."
+    );
+  }
+  if (status === "not_connected") {
+    return (
+      (reason ?? "The call did not connect — no telephony leg reached the carrier, so the phone never rang.") +
+      " This is a deployment-level outbound-trunk gap, not a request error; re-dialing will not help until it is fixed."
     );
   }
   if (status === "timeout") {
-    return `Reached the wait limit; the call may still be in progress${callId ? ` (call_id '${callId}')` : ""}. Check again shortly.`;
+    return `Reached the wait limit; the call may still be in progress${callId ? ` (call_id '${callId}')` : ""}. Check again with get_call.`;
+  }
+  if (connected && !answered) {
+    return reason ?? `The call connected but no one responded${callId ? ` (call_id '${callId}')` : ""}.`;
   }
   if (outcome) return outcome;
   return `Call ${callId ?? ""} finished with status '${status}' and no OUTCOME line.`.trim();

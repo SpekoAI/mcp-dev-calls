@@ -76,6 +76,10 @@ Then, in Claude Code:
 `lookup_business` mints a dial token → `make_call` places the disclosed call and streams progress
 while it rings → the `OUTCOME:` line lands back in your terminal.
 
+> **Telephony note:** real calls require the Speko deployment's outbound SIP trunk / caller-ID to be
+> configured. If `make_call` returns `not_connected` (the AI agent starts but the phone never rings),
+> run `check_call_readiness` — the demo reports this honestly rather than faking a result.
+
 ---
 
 ## Tools
@@ -83,7 +87,7 @@ while it rings → the `OUTCOME:` line lands back in your terminal.
 | Tool | What it does |
 | --- | --- |
 | `lookup_business(name, location?)` | Resolve a business → dialable candidates + a signed `dial_token` per callable one. The only path that can authorize `make_call`. |
-| `make_call(dial_token, objective, caller_name, context?)` | Place the disclosed, objective-scoped call. Waits for completion, streams progress, returns the `OUTCOME` line + transcript. |
+| `make_call(dial_token, objective, caller_name, context?)` | Place the disclosed, objective-scoped call. Waits for completion, streams progress, returns the `OUTCOME` line + transcript. Reports `connected`/`answered` honestly — a call the platform never actually puts on the wire (no telephony leg) comes back as `not_connected`, never a fake success. |
 | `check_call_readiness()` | Read-only preflight — auth, credit balance, outbound caller-ID. Never dials. |
 | `call_me(message, mode)` | _v2 — deferred until the platform exposes a verified personal phone._ |
 
@@ -111,12 +115,13 @@ mcp-dev-calls/
 ├── server/           # the backing API (Express; holds keys + rails)
 │   ├── src/
 │   │   ├── index.ts          # HTTP bootstrap
-│   │   ├── routes.ts         # POST /lookup · POST /call · GET /readiness
+│   │   ├── routes.ts         # POST /lookup · POST /call · GET /readiness · GET /call/:id
 │   │   ├── lookup/           # Google Places + Twilio + demo fallback
 │   │   ├── safety/           # dial tokens · objective screen · disclosure prompt
-│   │   ├── speko/            # @spekoai/sdk wrapper
-│   │   └── calls/            # make_call orchestration · readiness
+│   │   ├── speko/            # @spekoai/sdk wrapper (+ raw session read)
+│   │   └── calls/            # make_call · readiness · get_call · connection assessment
 │   └── test/                 # unit tests for the safety-critical logic
+├── scripts/          # place-call.mjs (one-shot demo runner) · inspect-call.mjs (diagnostics)
 ├── .env.example      # both tiers
 └── package.json      # npm workspaces root
 ```

@@ -22,6 +22,9 @@ export const SLOW_POLL_SECONDS = 5;
 // deployment has no SIP/telephony configured (call NOT placed → never poll/retry).
 export const STUB_DIAL_STATUS = "dialing-stub";
 export const NOT_PLACED_STATUS = "not_placed";
+// Dial looked accepted ("dialing"), but the authoritative session shows no SIP leg
+// ever formed (callControlId null, zero carrier minutes) → the phone never rang.
+export const NOT_CONNECTED_STATUS = "not_connected";
 
 // Outbound calls debit prepaid credits; readiness warns below this.
 export const MIN_CALL_BALANCE_USD = 0.5;
@@ -98,6 +101,12 @@ export const MAKE_CALL_DIAL_NEXT_STEP =
 
 export const CHECK_READINESS_NEXT_STEP =
   "Run check_call_readiness for a read-only report of auth, credit balance, and outbound caller-ID before placing a call.";
+
+export const NOT_CONNECTED_NEXT_STEP =
+  "The Speko session and AI agent started but no telephony leg reached the carrier (callControlId null, no " +
+  "carrier minutes), so the phone never rang. This is a deployment-level outbound-trunk gap on api.speko.dev " +
+  "(the LiveKit outbound trunk / Telnyx outbound SIP connection for the caller-ID), not a fault in the request — " +
+  "re-dialing will not help until the deployment's outbound SIP trunk is configured for the from-number.";
 
 export const AUTH_NEXT_STEP =
   "Check the demo server's SPEKO_API_KEY (set it in the repo-root .env) and retry.";
