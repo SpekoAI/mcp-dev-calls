@@ -33,10 +33,33 @@ import { objectiveBlockedReason } from "../safety/objective.js";
 import { buildFirstMessage, buildSystemPrompt } from "../safety/prompt.js";
 import { MAX_CALLER_NAME_CHARS } from "../constants.js";
 import { isAuthFailure, type SpekoClient } from "../speko/client.js";
-import type { CallSummary, MakeCallInput } from "../types.js";
+import type { CallSummary, MakeCallInput, SessionDetail } from "../types.js";
+import { shapeCallSummary } from "./summary.js";
 
 const clamp = (n: number, lo: number, hi: number): number => Math.min(Math.max(n, lo), hi);
 const defaultSleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
+
+/**
+ * Resolve the outbound caller-ID to dial `from`. An explicit config value wins;
+ * otherwise pick the account's first outbound-ready owned number (preferring a
+ * bidirectional/outbound line over an inbound-only one). Returns undefined when
+ * nothing is resolvable, so the dial can still fall back to the deployment's
+ * server-side default if one exists.
+ */
+async function resolveFromNumber(deps: MakeCallDeps): Promise<string | undefined> {
+  if (deps.cfg.fromNumber) return deps.cfg.fromNumber;
+  let numbers;
+  try {
+    numbers = await deps.client.listPhoneNumbers();
+  } catch {
+    return undefined;
+  }
+  const ready = numbers.filter(
+    (n) => Boolean(n.setupStatus?.outboundReady) && typeof n.e164 === "string" && n.e164.length > 0,
+  );
+  const preferred = ready.find((n) => n.direction === "both" || n.direction === "outbound");
+  return (preferred ?? ready[0])?.e164 ?? undefined;
+}
 
 export interface MakeCallDeps {
   client: SpekoClient;
@@ -100,8 +123,11 @@ export async function makeCall(input: MakeCallInput, deps: MakeCallDeps): Promis
       : "the business";
   const durationCap = clamp(input.maxDurationSeconds ?? MAX_CALL_SECONDS, MIN_CALL_SECONDS, MAX_CALL_SECONDS);
 
+  const fromNumber = await resolveFromNumber(deps);
+
   const body: VoiceDialParams = {
     to: e164,
+    ...(fromNumber ? { from: fromNumber } : {}),
     intent: { language: DIAL_INTENT_LANGUAGE },
     firstMessage: buildFirstMessage(caller),
     systemPrompt: buildSystemPrompt(input.objective, input.context ?? null, businessName, caller),
@@ -116,12 +142,28 @@ export async function makeCall(input: MakeCallInput, deps: MakeCallDeps): Promis
   return runPhoneCall(body, durationCap, deps, sleep);
 }
 
+/** A CallSummary skeleton with the honest defaults (nothing connected/answered yet). */
+function baseSummary(callId: string | null, to: string | null, from: string | null): CallSummary {
+  return {
+    status: "",
+    call_id: callId,
+    duration_seconds: 0,
+    connected: false,
+    answered: false,
+    caller_id: from,
+    dialed_number: to,
+    outcome: null,
+    transcript: null,
+  };
+}
+
 async function runPhoneCall(
   body: VoiceDialParams,
   maxSeconds: number,
   deps: MakeCallDeps,
   sleep: (ms: number) => Promise<void>,
 ): Promise<CallSummary> {
+  const to = body.to ?? null;
   let dial;
   try {
     dial = await deps.client.dial(body);
@@ -134,10 +176,25 @@ async function runPhoneCall(
   }
 
   const callId = dial.sessionId || null;
+  const from = typeof dial.from === "string" && dial.from ? dial.from : (body.from ?? null);
   let status = String(dial.status ?? "").toLowerCase();
+  const dialCallControlId = String(dial.callControlId ?? "").trim();
 
-  if (status === STUB_DIAL_STATUS) {
-    return { status: NOT_PLACED_STATUS, call_id: callId, duration_seconds: 0, outcome: null, transcript: null };
+  // Diagnostic log (server stdout; the MCP runs this as a separate process).
+  console.log(
+    `[dial] session=${callId ?? "-"} status=${status} callControlId=${dialCallControlId || "(none)"} to=${to ?? "-"} from=${from ?? "-"}`,
+  );
+
+  // No telephony leg at dial time: stub deployment OR no call-control id returned →
+  // the platform never created an outbound SIP call, so nothing will ring.
+  if (status === STUB_DIAL_STATUS || !dialCallControlId) {
+    return {
+      ...baseSummary(callId, to, from),
+      status: NOT_PLACED_STATUS,
+      reason:
+        "The dial was accepted but no telephony leg was created (no outbound SIP trunk / caller-ID configured " +
+        "for this deployment), so the phone never rang.",
+    };
   }
   if (callId == null) {
     throw new AppError(
@@ -166,9 +223,32 @@ async function runPhoneCall(
   }
 
   if (!TERMINAL_STATUSES.has(status)) {
-    return { status: "timeout", call_id: callId, duration_seconds: elapsed, outcome: null, transcript: null };
+    return {
+      ...baseSummary(callId, to, from),
+      status: "timeout",
+      duration_seconds: elapsed,
+      connected: true,
+      reason: "Reached the wait limit before the call reached a terminal state; it may still be in progress.",
+    };
   }
 
+  return finalize(callId, to, from, status, elapsed, deps);
+}
+
+/**
+ * Turn a terminal call into an honest summary: pull the transcript + outcome, then
+ * read the authoritative session to decide whether a real telephony leg ever formed.
+ * A platform "ended" with no SIP leg (no callControlId, no carrier minutes, no caller
+ * turn) is reported as not_connected — never as a successful call.
+ */
+async function finalize(
+  callId: string,
+  to: string | null,
+  from: string | null,
+  status: string,
+  elapsed: number,
+  deps: MakeCallDeps,
+): Promise<CallSummary> {
   let transcript: unknown = null;
   let transcriptError: string | undefined;
   let outcome: string | null = null;
@@ -182,13 +262,26 @@ async function runPhoneCall(
     transcriptError = (e as Error).message;
   }
 
-  const summary: CallSummary = {
+  let session: SessionDetail | null = null;
+  try {
+    session = await deps.client.getSession(callId);
+  } catch {
+    // Best effort — without it we can't disprove a connection, so we don't claim one failed.
+  }
+
+  const summary = shapeCallSummary({
+    callId,
+    to,
+    from,
     status,
-    call_id: callId,
-    duration_seconds: elapsed,
-    outcome,
     transcript,
-  };
-  if (transcriptError !== undefined) summary.transcript_error = transcriptError;
+    outcome,
+    transcriptError,
+    session,
+    fallbackDuration: elapsed,
+  });
+  console.log(
+    `[result] session=${callId} platformStatus=${status} -> reported=${summary.status} connected=${summary.connected} answered=${summary.answered}`,
+  );
   return summary;
 }

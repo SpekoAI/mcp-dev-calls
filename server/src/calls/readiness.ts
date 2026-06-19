@@ -66,6 +66,14 @@ export async function checkReadiness(client: SpekoClient): Promise<ReadinessRepo
         "server-default caller ID (the 'from' field is optional), so try a call first.",
     );
   }
+  if (anyOutboundReady && authOk) {
+    nextSteps.push(
+      "Note: a number reporting outboundReady does NOT guarantee the deployment's outbound SIP trunk is wired. " +
+        "If make_call returns not_connected (the session/agent start but the phone never rings), the platform's " +
+        "LiveKit outbound trunk / Telnyx outbound SIP connection for the caller-ID still needs configuring — " +
+        "place one real test call to confirm.",
+    );
+  }
   for (const row of owned) {
     if (row.setup_status && row.setup_status !== "ready" && row.issues.length) {
       const label = row.e164 || "an owned number";
@@ -76,7 +84,8 @@ export async function checkReadiness(client: SpekoClient): Promise<ReadinessRepo
   let headline: string;
   if (!authOk) headline = "Ready to call: no - authentication failed.";
   else if (!creditsSufficient) headline = "Ready to call: with caveats - see next_steps.";
-  else if (anyOutboundReady) headline = "Ready to call: yes.";
+  else if (anyOutboundReady)
+    headline = "Ready to call: caller ID available (place one test call to confirm the outbound trunk connects).";
   else
     headline =
       "Ready to call: yes (relying on the deployment's server-default caller ID; if a call returns " +

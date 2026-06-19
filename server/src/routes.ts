@@ -1,5 +1,6 @@
 import type { NextFunction, Request, RequestHandler, Response, Router } from "express";
 import { z } from "zod";
+import { describeCall } from "./calls/getCall.js";
 import { makeCall } from "./calls/makeCall.js";
 import { checkReadiness } from "./calls/readiness.js";
 import type { ServerContext } from "./http/context.js";
@@ -74,6 +75,19 @@ export function registerRoutes(router: Router, ctx: ServerContext): void {
     asyncHandler(async (_req, res) => {
       const report = await checkReadiness(ctx.client);
       res.json(report);
+    }),
+  );
+
+  // get_call — recovery/diagnosis for an existing call. Read-only; never re-dials.
+  router.get(
+    "/call/:id",
+    asyncHandler(async (req, res) => {
+      const id = String(req.params.id ?? "").trim();
+      if (!id) {
+        throw new AppError("Missing call id.", { statusCode: 400, nextStep: "Call GET /call/<call_id>." });
+      }
+      const summary = await describeCall(id, ctx.client);
+      res.json(summary);
     }),
   );
 }

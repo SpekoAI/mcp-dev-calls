@@ -56,6 +56,12 @@ export interface AppConfig {
   /** Optional shared secret the MCP tier must present (header `x-internal-key`). */
   internalKey: string | undefined;
   speko: { apiKey: string; baseUrl: string | undefined };
+  /**
+   * Explicit outbound caller-ID (E.164). When set, every dial uses it as `from`.
+   * When unset, make_call auto-resolves the account's first outbound-ready number,
+   * so the demo works without the prod TELNYX_DEFAULT_FROM_NUMBER default.
+   */
+  fromNumber: string | undefined;
   dialTokenSecret: string;
   googlePlacesApiKey: string | undefined;
   twilio: { sid: string; token: string } | undefined;
@@ -94,6 +100,8 @@ export function loadConfig(): AppConfig {
         (process.env.SPEKOAI_API_URL || process.env.SPEKO_API_BASE || process.env.SPEKOAI_BASE_URL || "").trim() ||
         undefined,
     },
+    fromNumber:
+      (process.env.SPEKO_FROM_NUMBER || process.env.TELNYX_DEFAULT_FROM_NUMBER || "").trim() || undefined,
     dialTokenSecret,
     googlePlacesApiKey: (process.env.GOOGLE_PLACES_API_KEY ?? "").trim() || undefined,
     twilio: twilioSid && twilioToken ? { sid: twilioSid, token: twilioToken } : undefined,

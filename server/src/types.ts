@@ -20,9 +20,31 @@ export interface CallSummary {
   status: string;
   call_id: string | null;
   duration_seconds: number;
+  /** True only when a real outbound telephony leg reached the carrier (the phone actually rang). */
+  connected: boolean;
+  /** True only when the remote party actually spoke (a non-agent transcript turn exists). */
+  answered: boolean;
+  /** Caller-ID the call dialed from (E.164), as resolved/returned by the platform. */
+  caller_id: string | null;
+  /** Destination the call dialed to (E.164). */
+  dialed_number: string | null;
   outcome: string | null;
   transcript: unknown;
   transcript_error?: string;
+  /** Human-readable explanation when the call did not connect / was not placed. */
+  reason?: string;
+}
+
+/**
+ * Loose subset of `GET /v1/sessions/{id}` — the authoritative record of whether a
+ * real telephony leg was ever created. `phoneCall.callControlId` is null and there
+ * are no carrier usage rows when the SIP leg never formed (no ring).
+ */
+export interface SessionDetail {
+  status?: string;
+  durationSeconds?: number;
+  phoneCall?: { callControlId?: string | null; phoneNumberId?: string | null } | null;
+  usage?: Array<{ provider?: string; metric?: string; quantity?: number; cost?: number }>;
 }
 
 export interface OwnedNumber {
