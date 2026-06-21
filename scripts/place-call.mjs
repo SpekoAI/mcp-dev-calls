@@ -12,24 +12,35 @@ const post = async (path, body) => {
     headers: { "content-type": "application/json" },
     body: JSON.stringify(body),
   });
-  return r.json();
+  const data = await r.json().catch(() => ({}));
+  return { ok: r.ok, status: r.status, data };
 };
 
-const lookup = await post("/lookup", { name: "Sakura Sushi" });
+const { ok: lookupOk, data: lookup } = await post("/lookup", { name: "Sakura Sushi" });
 const cand = lookup?.candidates?.[0];
-if (!cand?.dial_token) {
-  console.error("No dial token returned:\n" + JSON.stringify(lookup, null, 2));
+if (!lookupOk || !cand?.dial_token) {
+  console.error("Lookup failed:\n" + JSON.stringify(lookup, null, 2));
   process.exit(1);
 }
 console.log(`→ target: ${cand.name}  ${cand.phone}  (${cand.line_type}, allowed=${cand.allowed})`);
 console.log("→ dialing… caller-ID auto-resolved server-side; polling until the call ends\n");
 
-const call = await post("/call", {
+const { ok: callOk, status: callStatus, data: call } = await post("/call", {
   dial_token: cand.dial_token,
   objective: "Reserve a table for 4 people tonight at 8:00 PM under the name Amirlan, and confirm the booking.",
   caller_name: "Amirlan",
   context: "Party of 4, tonight at 8pm. If 8pm is unavailable, ask for the closest available time.",
 });
+
+// A pre-dial rejection (quiet hours, blocked objective, expired token, bad caller-ID,
+// etc.) returns an {error,next_step} envelope. That is NOT "no call leg" — nothing was
+// ever placed — so report it as a distinct, honest outcome.
+if (!callOk || call.error) {
+  console.log(`\n⛔ REJECTED before dialing — nothing was placed (HTTP ${callStatus})`);
+  console.log(`  reason : ${call.error ?? "unknown error"}`);
+  if (call.next_step) console.log(`  next   : ${call.next_step}`);
+  process.exit(2);
+}
 
 // Honest verdict first, raw payload second.
 const ring =

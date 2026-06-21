@@ -10,6 +10,7 @@
  */
 import type { BusinessCandidate } from "../types.js";
 import { dialBlockedReason, lineTypeBlockedReason, mintDialToken } from "../safety/dialToken.js";
+import { offsetFromE164 } from "../safety/timezone.js";
 
 const DEFAULT_LINE_TYPE = "voip";
 const DEFAULT_ADDRESS = "(demo target)";
@@ -38,7 +39,9 @@ export function demoLookupCandidate(
   const businessName = (process.env.SPEKO_DEMO_BUSINESS ?? "").trim() || input.name;
   const lineType = (process.env.SPEKO_DEMO_LINE_TYPE ?? DEFAULT_LINE_TYPE).trim() || DEFAULT_LINE_TYPE;
   const address = (process.env.SPEKO_DEMO_ADDRESS ?? "").trim() || DEFAULT_ADDRESS;
-  const utcOffsetMinutes = parseOffset(process.env.SPEKO_DEMO_UTC_OFFSET);
+  // Explicit override wins; otherwise auto-derive the callee's offset from the number
+  // so quiet hours is evaluated against the right region without hand-set config.
+  const utcOffsetMinutes = parseOffset(process.env.SPEKO_DEMO_UTC_OFFSET) ?? offsetFromE164(e164);
 
   const blockedReason = dialBlockedReason(e164) ?? lineTypeBlockedReason(lineType);
   if (blockedReason) {
