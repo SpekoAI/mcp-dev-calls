@@ -62,6 +62,17 @@ export interface AppConfig {
    * so the demo works without the prod TELNYX_DEFAULT_FROM_NUMBER default.
    */
   fromNumber: string | undefined;
+  /** Optional TTS voice id. Intentionally NOT applied to dials — naturalness comes from
+   * the TTS MODEL pin below, not a voice id (pinning a raw voice id caused silent audio). */
+  voice: string | undefined;
+  /** TTS speed multiplier; defaults to 1.0 at dial time. */
+  ttsSpeed: number | undefined;
+  /** provider:model pin for TTS. Default = most natural real-time ElevenLabs model (verified). */
+  ttsPin: string;
+  /** provider pin for STT. Default = Deepgram (fast streaming, ~366ms TTFP). */
+  sttPin: string;
+  /** Routing goal. Default = latency (best for a live call: keeps gpt-5 + fast STT). */
+  optimizeFor: "balanced" | "accuracy" | "latency" | "cost";
   dialTokenSecret: string;
   googlePlacesApiKey: string | undefined;
   twilio: { sid: string; token: string } | undefined;
@@ -102,6 +113,21 @@ export function loadConfig(): AppConfig {
     },
     fromNumber:
       (process.env.SPEKO_FROM_NUMBER || process.env.TELNYX_DEFAULT_FROM_NUMBER || "").trim() || undefined,
+    voice: (process.env.SPEKO_DEMO_VOICE ?? "").trim() || undefined,
+    ttsSpeed: (() => {
+      const n = Number(process.env.SPEKO_DEMO_TTS_SPEED);
+      return Number.isFinite(n) && n > 0 ? n : undefined;
+    })(),
+    ttsPin: (process.env.SPEKO_TTS_PIN ?? "").trim() || "elevenlabs:eleven_turbo_v2_5",
+    sttPin: (process.env.SPEKO_STT_PIN ?? "").trim() || "deepgram",
+    optimizeFor: (() => {
+      const v = (process.env.SPEKO_OPTIMIZE_FOR ?? "").trim();
+      return (["balanced", "accuracy", "latency", "cost"].includes(v) ? v : "latency") as
+        | "balanced"
+        | "accuracy"
+        | "latency"
+        | "cost";
+    })(),
     dialTokenSecret,
     googlePlacesApiKey: (process.env.GOOGLE_PLACES_API_KEY ?? "").trim() || undefined,
     twilio: twilioSid && twilioToken ? { sid: twilioSid, token: twilioToken } : undefined,
