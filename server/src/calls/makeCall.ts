@@ -9,6 +9,7 @@ import type { AppConfig } from "../config.js";
 import {
   AUTH_NEXT_STEP,
   DIAL_INTENT_LANGUAGE,
+  DIAL_STT_KEYWORDS,
   FAST_POLLS,
   FAST_POLL_SECONDS,
   MAKE_CALL_DIAL_NEXT_STEP,
@@ -128,7 +129,18 @@ export async function makeCall(input: MakeCallInput, deps: MakeCallDeps): Promis
   const body: VoiceDialParams = {
     to: e164,
     ...(fromNumber ? { from: fromNumber } : {}),
-    intent: { language: DIAL_INTENT_LANGUAGE },
+    // optimizeFor=latency is best for a LIVE call: the selector keeps gpt-5 (best time-to-
+    // first-token) + a fast streaming STT, avoiding the multi-second dead air the other modes
+    // route to. Benchmark-driven via Speko's selector.
+    intent: { language: DIAL_INTENT_LANGUAGE, optimizeFor: deps.cfg.optimizeFor },
+    // A specific `voice` (cfg.voice) is safe ONLY because it's an ElevenLabs voice matching the
+    // ElevenLabs TTS pin below — always verify a voice with scripts/verify-tts.mjs first. A voice
+    // id from a different provider (Cartesia/OpenAI) routes wrong and produces SILENT audio.
+    ...(deps.cfg.voice ? { voice: deps.cfg.voice } : {}),
+    constraints: { allowedProviders: { tts: [deps.cfg.ttsPin], stt: [deps.cfg.sttPin] } },
+    sttOptions: { keywords: [caller, businessName, ...DIAL_STT_KEYWORDS] },
+    ttsOptions: { speed: deps.cfg.ttsSpeed ?? 1.0 },
+    llm: { temperature: 0.5, maxTokens: 200 },
     firstMessage: buildFirstMessage(caller),
     systemPrompt: buildSystemPrompt(input.objective, input.context ?? null, businessName, caller),
     metadata: {

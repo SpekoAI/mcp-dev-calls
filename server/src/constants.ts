@@ -47,6 +47,10 @@ export const OUTCOME_MARKER = "OUTCOME:";
 // voice.dial requires agentId or intent; ad-hoc calls pin a minimal intent.
 export const DIAL_INTENT_LANGUAGE = "en";
 
+// Base proper-noun/vocab hints to bias the STT (merged with caller + business name
+// at call time). Casing matters for proper nouns.
+export const DIAL_STT_KEYWORDS = ["reservation", "table for", "tonight", "8 PM"] as const;
+
 // ── Validation bounds ────────────────────────────────────────────────────────
 export const MAX_CALLER_NAME_CHARS = 80;
 export const OBJECTIVE_MIN_CHARS = 8;
