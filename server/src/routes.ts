@@ -1,5 +1,6 @@
 import type { NextFunction, Request, RequestHandler, Response, Router } from "express";
 import { z } from "zod";
+import { callNumber } from "./calls/callNumber.js";
 import { describeCall } from "./calls/getCall.js";
 import { makeCall } from "./calls/makeCall.js";
 import { checkReadiness } from "./calls/readiness.js";
@@ -17,6 +18,16 @@ const callSchema = z.object({
   objective: z.string().min(1),
   caller_name: z.string().min(1),
   context: z.string().optional(),
+  max_duration_seconds: z.number().int().optional(),
+});
+
+const callNumberSchema = z.object({
+  phone_number: z.string().min(1),
+  objective: z.string().min(1),
+  caller_name: z.string().min(1),
+  context: z.string().optional(),
+  recipient_name: z.string().optional(),
+  utc_offset_minutes: z.number().int().optional(),
   max_duration_seconds: z.number().int().optional(),
 });
 
@@ -62,6 +73,28 @@ export function registerRoutes(router: Router, ctx: ServerContext): void {
           objective: b.objective,
           callerName: b.caller_name,
           context: b.context ?? null,
+          maxDurationSeconds: b.max_duration_seconds,
+        },
+        { client: ctx.client, cfg: ctx.cfg, bearerHash: ctx.bearerHash },
+      );
+      res.json(summary);
+    }),
+  );
+
+  // call_number — direct personal dial (opt-in via SPEKO_ALLOW_DIRECT_DIAL). Allows mobiles;
+  // keeps disclosure + quiet hours + objective screen + emergency/premium block.
+  router.post(
+    "/call-number",
+    asyncHandler(async (req, res) => {
+      const b = parse(callNumberSchema, req.body);
+      const summary = await callNumber(
+        {
+          phoneNumber: b.phone_number,
+          objective: b.objective,
+          callerName: b.caller_name,
+          context: b.context ?? null,
+          recipientName: b.recipient_name ?? null,
+          utcOffsetMinutes: b.utc_offset_minutes,
           maxDurationSeconds: b.max_duration_seconds,
         },
         { client: ctx.client, cfg: ctx.cfg, bearerHash: ctx.bearerHash },

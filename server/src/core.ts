@@ -13,6 +13,8 @@ export { buildContext } from "./http/context.js";
 export type { ServerContext } from "./http/context.js";
 export { lookupBusiness } from "./lookup/index.js";
 export { makeCall } from "./calls/makeCall.js";
+export { callNumber } from "./calls/callNumber.js";
+export type { CallNumberInput } from "./calls/callNumber.js";
 export { checkReadiness } from "./calls/readiness.js";
 export { describeCall } from "./calls/getCall.js";
 export { AppError, RejectionError } from "./lib/errors.js";
