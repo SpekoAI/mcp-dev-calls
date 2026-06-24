@@ -67,6 +67,13 @@ export interface MakeCallDeps {
   cfg: AppConfig;
   bearerHash: string;
   sleep?: (ms: number) => Promise<void>;
+  /**
+   * Server-side ONLY — set by the direct-dial (`call_number`) path, which is itself
+   * gated by cfg.allowDirectDial. Skips the business-lines-only check so personal calls
+   * can ring mobiles. NEVER plumbed from agent-supplied input, so the business make_call
+   * tool can't use it to bypass the mobile block.
+   */
+  allowAnyLineType?: boolean;
 }
 
 export async function makeCall(input: MakeCallInput, deps: MakeCallDeps): Promise<CallSummary> {
@@ -87,10 +94,12 @@ export async function makeCall(input: MakeCallInput, deps: MakeCallDeps): Promis
   const dialReason = dialBlockedReason(e164);
   if (dialReason) throw new RejectionError(dialReason, MAKE_CALL_NEXT_STEP);
 
-  const lineReason = lineTypeBlockedReason(
-    typeof payload.line_type === "string" ? payload.line_type : null,
-  );
-  if (lineReason) throw new RejectionError(lineReason, MAKE_CALL_NEXT_STEP);
+  if (!deps.allowAnyLineType) {
+    const lineReason = lineTypeBlockedReason(
+      typeof payload.line_type === "string" ? payload.line_type : null,
+    );
+    if (lineReason) throw new RejectionError(lineReason, MAKE_CALL_NEXT_STEP);
+  }
 
   const offset = typeof payload.utc_offset_minutes === "number" ? payload.utc_offset_minutes : null;
   const quietReason = quietHoursReason(offset);
