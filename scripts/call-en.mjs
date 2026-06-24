@@ -29,9 +29,10 @@ const VOICE = (process.argv[3] || process.env.SPEKO_CALL_VOICE_EN || "l4Coq6695J
 const MODEL_ARG = (process.argv[4] || process.env.SPEKO_CALL_MODEL || "v3").trim();
 const MODEL = MODEL_ARG === "turbo" ? "eleven_turbo_v2_5" : MODEL_ARG === "v3" ? "eleven_v3" : MODEL_ARG;
 const STT_PIN = (process.env.SPEKO_STT_PIN ?? "deepgram:nova-3").trim(); // fast + accurate streaming STT (validated)
-// LLM intentionally UNPINNED: this org only has the OpenAI gpt-5 family available
-// (Anthropic/claude-haiku-4-5 from the benchmark is NOT provisioned — pinning it hard-fails
-// every call with "No LLM provider available"). Unpinned lets gpt-5 → mini → nano fail over.
+// LLM pinned to Groq: OpenAI's gpt-5 family (the selector default) is 502-ing "no output"
+// platform-wide, so unpinned calls go silent. groq/llama-3.3-70b is the healthy, fast LLM
+// provisioned on the key. Override with SPEKO_LLM_PIN once OpenAI recovers.
+const LLM_PIN = (process.env.SPEKO_LLM_PIN ?? "groq:llama-3.3-70b-versatile").trim();
 const DETAIL = (process.env.SPEKO_CALL_DETAIL ?? "").trim();
 
 const FIRST_MESSAGE =
@@ -108,7 +109,7 @@ try {
     voice: VOICE,
     systemPrompt: SYSTEM_PROMPT,
     firstMessage: FIRST_MESSAGE,
-    constraints: { allowedProviders: { tts: [`elevenlabs:${MODEL}`], stt: [STT_PIN] } },
+    constraints: { allowedProviders: { tts: [`elevenlabs:${MODEL}`], stt: [STT_PIN], llm: [LLM_PIN] } },
     ttsOptions: { speed: 1.0 },
     llm: { temperature: 0.8, maxTokens: 90 }, // higher temp = less templated; low cap = brevity backstop
     telephony: { amd: { mode: "agent" } },
