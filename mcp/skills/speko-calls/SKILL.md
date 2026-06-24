@@ -51,7 +51,15 @@ objective as a single transactional question and retry, or tell the user it isn'
 - The `OUTCOME:` line is the answer (e.g. *"table for 4 at 8pm, booked under Amirlan"*).
   Relay it plainly and offer the transcript.
 
+## Personal calls — `call_number` (opt-in)
+If the user wants to call a **specific number they give you** (e.g. a friend), use
+`call_number(phone_number, objective, caller_name, recipient_name?)` — not the business
+flow. It needs the operator to have set `SPEKO_ALLOW_DIRECT_DIAL=1` (if off, it returns
+how to enable it). Mobiles are allowed here; the AI disclosure, quiet hours, and no-spam
+screen still apply. Only ever call a number the user **explicitly provides and has
+consent to call** — never one you guessed. For businesses, use `lookup_business` instead.
+
 ## Don't
-- Don't invent or hardcode phone numbers — only server-minted `dial_token`s dial.
+- Don't invent or guess phone numbers — `make_call` dials only a server-minted `dial_token`; `call_number` dials only a number the user explicitly gave you.
 - Don't retry after a pre-dial rejection without fixing the objective first.
 - Don't promise a call will connect — report what actually happened.

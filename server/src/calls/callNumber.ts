@@ -1,0 +1,82 @@
+/**
+ * Direct-dial path for PERSONAL calls (the `call_number` tool). Mints a short-lived
+ * signed token for an arbitrary E.164 and runs the SAME make_call flow with exactly one
+ * relaxation — mobiles are allowed (friends' phones). Gated by cfg.allowDirectDial.
+ *
+ * Everything else still applies: the non-removable AI disclosure, quiet hours
+ * (08:00–21:00 destination-local, fail-closed), the no-sell/no-spam objective screen,
+ * and the emergency/premium-number block. The allowAnyLineType flag is set HERE
+ * (server-side, behind the opt-in), never from agent-supplied input.
+ */
+import type { AppConfig } from "../config.js";
+import { RejectionError } from "../lib/errors.js";
+import { dialBlockedReason, mintDialToken } from "../safety/dialToken.js";
+import { offsetFromE164 } from "../safety/timezone.js";
+import type { SpekoClient } from "../speko/client.js";
+import type { CallSummary } from "../types.js";
+import { makeCall } from "./makeCall.js";
+
+export interface CallNumberInput {
+  phoneNumber: string;
+  objective: string;
+  callerName: string;
+  context?: string | null;
+  recipientName?: string | null;
+  utcOffsetMinutes?: number | null;
+  maxDurationSeconds?: number;
+}
+
+export interface CallNumberDeps {
+  client: SpekoClient;
+  cfg: AppConfig;
+  bearerHash: string;
+  sleep?: (ms: number) => Promise<void>;
+}
+
+export async function callNumber(input: CallNumberInput, deps: CallNumberDeps): Promise<CallSummary> {
+  if (!deps.cfg.allowDirectDial) {
+    throw new RejectionError(
+      "Direct dialing is OFF. call_number can ring any number (including mobiles) for personal calls, " +
+        "but it is disabled by default. Turn it on by setting SPEKO_ALLOW_DIRECT_DIAL=1 — doing so " +
+        "confirms you have consent to call this number and take responsibility for compliance. The call " +
+        "still opens with the AI disclosure and respects quiet hours either way.",
+      "Set SPEKO_ALLOW_DIRECT_DIAL=1 in the MCP's env and restart, then retry — or use lookup_business for a business.",
+    );
+  }
+
+  const e164 = typeof input.phoneNumber === "string" ? input.phoneNumber.trim() : "";
+  const blocked = dialBlockedReason(e164);
+  if (blocked) {
+    throw new RejectionError(blocked, "Pass a valid E.164 number (e.g. +77011234567) that you have consent to call.");
+  }
+
+  // Quiet-hours offset: explicit override wins; else derive from the number (+7 → Asia/Almaty,
+  // etc.). null → make_call's quiet-hours rail fails closed and blocks.
+  const offset = typeof input.utcOffsetMinutes === "number" ? input.utcOffsetMinutes : offsetFromE164(e164);
+
+  const token = mintDialToken({
+    e164,
+    lineType: "personal", // cosmetic; the business-line check is skipped for the direct path
+    businessName: (input.recipientName && input.recipientName.trim()) || "your contact",
+    utcOffsetMinutes: offset,
+    bearerHash: deps.bearerHash,
+    secret: deps.cfg.dialTokenSecret,
+  });
+
+  return makeCall(
+    {
+      dialToken: token,
+      objective: input.objective,
+      callerName: input.callerName,
+      context: input.context ?? null,
+      maxDurationSeconds: input.maxDurationSeconds,
+    },
+    {
+      client: deps.client,
+      cfg: deps.cfg,
+      bearerHash: deps.bearerHash,
+      sleep: deps.sleep,
+      allowAnyLineType: true, // set server-side only, behind cfg.allowDirectDial
+    },
+  );
+}
