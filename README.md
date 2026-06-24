@@ -49,29 +49,38 @@ Why split it? Two reasons: secrets and rails **must** live somewhere trusted (yo
 ## Quickstart
 
 ```bash
-# 1. install (npm workspaces: installs both tiers)
-npm install
-
-# 2. configure
-cp .env.example .env       # then fill in SPEKO_API_KEY + SPEKO_DIAL_TOKEN_SECRET
-                           # (leave SPEKO_DEMO=1 to dial one consented target without Google/Twilio)
-
-# 3. build both tiers
-npm run build
-
-# 4. start the backing server (holds the keys + rails)
-npm run dev:server         # → http://127.0.0.1:8787
-
-# 5. add the MCP to Claude Code (in another shell)
-claude mcp add speko-calls -- node "$(pwd)/mcp/dist/index.js"
+# one command: opens the dashboard for an API key, verifies it, writes the MCP into
+# your Claude Code / Claude Desktop config, and installs the companion skill.
+npx @spekoai/mcp-calls@latest init
 ```
 
-Then, in Claude Code:
+That's the whole setup. The published package runs **single-process** — give it your
+`SPEKO_API_KEY` and it calls `api.speko.dev` directly (no separate server to boot).
+
+Then, in your agent:
 
 ```
-> check_call_readiness
 > "call Sakura Sushi and ask if they have a table for 4 at 8pm — my name is Amirlan"
 ```
+
+<details><summary>Manual / CI setup (skip the wizard)</summary>
+
+```bash
+# Claude Code
+claude mcp add speko-calls --scope user --env SPEKO_API_KEY=sk_... -- npx -y @spekoai/mcp-calls
+```
+
+```jsonc
+// Claude Desktop — claude_desktop_config.json
+{ "mcpServers": { "speko-calls": {
+  "command": "npx", "args": ["-y", "@spekoai/mcp-calls"],
+  "env": { "SPEKO_API_KEY": "sk_..." }
+} } }
+```
+
+To route through a hosted/remote backing server instead of running in-process, set
+`SPEKO_MCP_SERVER_URL` (then `SPEKO_API_KEY` lives on that server, not in your client).
+</details>
 
 `lookup_business` mints a dial token → `make_call` places the disclosed call and streams progress
 while it rings → the `OUTCOME:` line lands back in your terminal.
