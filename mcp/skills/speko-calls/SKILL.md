@@ -6,7 +6,6 @@ description: >-
   hours/availability/pricing, or chase an order. Teaches the lookup → dial_token →
   make_call workflow, the mandatory AI disclosure, the business-lines-only + quiet-hours
   rails, and how to report the call OUTCOME honestly. Not for personal/consumer calls.
-disable-model-invocation: true
 ---
 
 # Speko Calls — placing real, disclosed business calls
