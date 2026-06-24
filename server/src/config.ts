@@ -67,12 +67,31 @@ export interface AppConfig {
   voice: string | undefined;
   /** TTS speed multiplier; defaults to 1.0 at dial time. */
   ttsSpeed: number | undefined;
-  /** provider:model pin for TTS. Default = most natural real-time ElevenLabs model (verified). */
+  /** provider:model pin for TTS. Default = elevenlabs:eleven_flash_v2_5 — our switchboard's
+   * live pick (lowest latency, best EN CER). No measured EN-naturalness number yet, so no
+   * "verified"/"most natural" claim until the head-to-head harness runs. */
   ttsPin: string;
-  /** provider pin for STT. Default = Deepgram (fast streaming, ~366ms TTFP). */
+  /** provider pin for STT. Default = deepgram:nova-3 — clean win across every source.
+   * (Streaming first-partial ≈ 1.3s; the ~366ms figure is the serial p50, not first-partial.) */
   sttPin: string;
-  /** Routing goal. Default = latency (best for a live call: keeps gpt-5 + fast STT). */
+  /**
+   * Comma-separated provider:model LLM FAILOVER CHAIN. Default =
+   * groq:llama-3.3-70b-versatile (primary — healthy + fast) → openai:gpt-4.1-mini
+   * (tool-heavy fallback). gpt-5 (the old selector default) was 502-ing platform-wide and
+   * isn't even in our TTFT race; with a chain, one provider outage no longer breaks every
+   * call. Override with SPEKO_LLM_PIN (comma-separated for cross-provider failover).
+   */
+  llmPin: string;
+  /** Routing goal. Default = latency (best for a live call: fast STT + low TTFT LLM). */
   optimizeFor: "balanced" | "accuracy" | "latency" | "cost";
+  /**
+   * Opt-in (SPEKO_ALLOW_DIRECT_DIAL=1): let `call_number` dial ANY number — including
+   * mobiles — for personal calls. OFF by default: the product is business-lines-only
+   * unless the operator explicitly opts in and owns consent + TCPA for those contacts.
+   * Even when on, the AI disclosure, quiet hours, no-spam screen, and emergency/premium
+   * block all still apply.
+   */
+  allowDirectDial: boolean;
   dialTokenSecret: string;
   googlePlacesApiKey: string | undefined;
   twilio: { sid: string; token: string } | undefined;
@@ -118,8 +137,9 @@ export function loadConfig(): AppConfig {
       const n = Number(process.env.SPEKO_DEMO_TTS_SPEED);
       return Number.isFinite(n) && n > 0 ? n : undefined;
     })(),
-    ttsPin: (process.env.SPEKO_TTS_PIN ?? "").trim() || "elevenlabs:eleven_turbo_v2_5",
-    sttPin: (process.env.SPEKO_STT_PIN ?? "").trim() || "deepgram",
+    ttsPin: (process.env.SPEKO_TTS_PIN ?? "").trim() || "elevenlabs:eleven_flash_v2_5",
+    sttPin: (process.env.SPEKO_STT_PIN ?? "").trim() || "deepgram:nova-3",
+    llmPin: (process.env.SPEKO_LLM_PIN ?? "").trim() || "groq:llama-3.3-70b-versatile,openai:gpt-4.1-mini",
     optimizeFor: (() => {
       const v = (process.env.SPEKO_OPTIMIZE_FOR ?? "").trim();
       return (["balanced", "accuracy", "latency", "cost"].includes(v) ? v : "latency") as
@@ -128,6 +148,7 @@ export function loadConfig(): AppConfig {
         | "latency"
         | "cost";
     })(),
+    allowDirectDial: ["1", "true", "yes"].includes((process.env.SPEKO_ALLOW_DIRECT_DIAL ?? "").trim().toLowerCase()),
     dialTokenSecret,
     googlePlacesApiKey: (process.env.GOOGLE_PLACES_API_KEY ?? "").trim() || undefined,
     twilio: twilioSid && twilioToken ? { sid: twilioSid, token: twilioToken } : undefined,

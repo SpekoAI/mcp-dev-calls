@@ -93,6 +93,20 @@ export class InProcessBackend implements Backend {
           { client: ctx.client, cfg: ctx.cfg, bearerHash: ctx.bearerHash },
         );
       }
+      if (path === "/call-number") {
+        return await core.callNumber(
+          {
+            phoneNumber: String(b.phone_number ?? ""),
+            objective: String(b.objective ?? ""),
+            callerName: String(b.caller_name ?? ""),
+            context: (b.context as string | undefined) ?? null,
+            recipientName: (b.recipient_name as string | undefined) ?? null,
+            utcOffsetMinutes: typeof b.utc_offset_minutes === "number" ? b.utc_offset_minutes : undefined,
+            maxDurationSeconds: typeof b.max_duration_seconds === "number" ? b.max_duration_seconds : undefined,
+          },
+          { client: ctx.client, cfg: ctx.cfg, bearerHash: ctx.bearerHash },
+        );
+      }
       throw new DemoServerError(`Unknown backend path: POST ${path}`);
     } catch (e) {
       throw normalizeError(e);

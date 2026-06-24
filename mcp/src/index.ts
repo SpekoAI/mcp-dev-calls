@@ -11,7 +11,9 @@ import { MCPServer } from "mcp-framework";
 import { runInit } from "./cli/init.js";
 import { loadEnv } from "./lib/env.js";
 import CallMeTool from "./tools/CallMeTool.js";
+import CallNumberTool from "./tools/CallNumberTool.js";
 import CheckCallReadinessTool from "./tools/CheckCallReadinessTool.js";
+import GetCallTool from "./tools/GetCallTool.js";
 import LookupBusinessTool from "./tools/LookupBusinessTool.js";
 import MakeCallTool from "./tools/MakeCallTool.js";
 
@@ -25,13 +27,15 @@ loadEnv();
 
 const server = new MCPServer({
   name: "speko-calls",
-  version: "0.1.0",
+  version: "0.2.1",
   transport: { type: "stdio" },
 });
 
 server.addTool(LookupBusinessTool);
 server.addTool(MakeCallTool);
+server.addTool(CallNumberTool);
 server.addTool(CheckCallReadinessTool);
+server.addTool(GetCallTool);
 server.addTool(CallMeTool);
 
 await server.start();

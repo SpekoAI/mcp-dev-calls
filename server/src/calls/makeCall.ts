@@ -67,6 +67,13 @@ export interface MakeCallDeps {
   cfg: AppConfig;
   bearerHash: string;
   sleep?: (ms: number) => Promise<void>;
+  /**
+   * Server-side ONLY — set by the direct-dial (`call_number`) path, which is itself
+   * gated by cfg.allowDirectDial. Skips the business-lines-only check so personal calls
+   * can ring mobiles. NEVER plumbed from agent-supplied input, so the business make_call
+   * tool can't use it to bypass the mobile block.
+   */
+  allowAnyLineType?: boolean;
 }
 
 export async function makeCall(input: MakeCallInput, deps: MakeCallDeps): Promise<CallSummary> {
@@ -87,10 +94,12 @@ export async function makeCall(input: MakeCallInput, deps: MakeCallDeps): Promis
   const dialReason = dialBlockedReason(e164);
   if (dialReason) throw new RejectionError(dialReason, MAKE_CALL_NEXT_STEP);
 
-  const lineReason = lineTypeBlockedReason(
-    typeof payload.line_type === "string" ? payload.line_type : null,
-  );
-  if (lineReason) throw new RejectionError(lineReason, MAKE_CALL_NEXT_STEP);
+  if (!deps.allowAnyLineType) {
+    const lineReason = lineTypeBlockedReason(
+      typeof payload.line_type === "string" ? payload.line_type : null,
+    );
+    if (lineReason) throw new RejectionError(lineReason, MAKE_CALL_NEXT_STEP);
+  }
 
   const offset = typeof payload.utc_offset_minutes === "number" ? payload.utc_offset_minutes : null;
   const quietReason = quietHoursReason(offset);
@@ -137,7 +146,15 @@ export async function makeCall(input: MakeCallInput, deps: MakeCallDeps): Promis
     // ElevenLabs TTS pin below — always verify a voice with scripts/verify-tts.mjs first. A voice
     // id from a different provider (Cartesia/OpenAI) routes wrong and produces SILENT audio.
     ...(deps.cfg.voice ? { voice: deps.cfg.voice } : {}),
-    constraints: { allowedProviders: { tts: [deps.cfg.ttsPin], stt: [deps.cfg.sttPin] } },
+    constraints: {
+      allowedProviders: {
+        tts: [deps.cfg.ttsPin],
+        stt: [deps.cfg.sttPin],
+        ...(deps.cfg.llmPin
+          ? { llm: deps.cfg.llmPin.split(",").map((m) => m.trim()).filter(Boolean) }
+          : {}),
+      },
+    },
     sttOptions: { keywords: [caller, businessName, ...DIAL_STT_KEYWORDS] },
     ttsOptions: { speed: deps.cfg.ttsSpeed ?? 1.0 },
     llm: { temperature: 0.5, maxTokens: 200 },

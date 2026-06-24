@@ -2,8 +2,8 @@
 
 **Place real, _disclosed_ phone calls to businesses — straight from your coding agent.**
 
-> _"call Sakura Sushi and ask if they have a table for 4 at 8pm — my name is Amirlan"_
-> → the agent dials, opens with _"Hi, this is an AI assistant calling on behalf of Amirlan…"_,
+> _"call Sakura Sushi and ask if they have a table for 4 at 8pm — my name is John"_
+> → the agent dials, opens with _"Hi, this is an AI assistant calling on behalf of John…"_,
 > and the `OUTCOME:` (booked / not available) lands back in your terminal.
 
 A [Model Context Protocol](https://modelcontextprotocol.io) server for Claude Code, Claude
@@ -44,6 +44,8 @@ backing server instead of running in-process, set `SPEKO_MCP_SERVER_URL`.
 | --- | --- |
 | `lookup_business(name, location?)` | Resolve a business → dialable candidates + a signed `dial_token` per callable one. The only path that can authorize a call. |
 | `make_call(dial_token, objective, caller_name, context?)` | Place the disclosed, objective-scoped call; wait for it to finish; return the `OUTCOME` + transcript. Honest `connected`/`answered`/`not_connected`. |
+| `call_number(phone_number, objective, caller_name)` | Disclosed PERSONAL call to a specific number (e.g. a friend) — mobiles allowed. Opt-in via `SPEKO_ALLOW_DIRECT_DIAL=1`. |
+| `get_call(call_id)` | Read-only: re-check a call's status, `OUTCOME`, and transcript. Never dials. |
 | `check_call_readiness()` | Read-only preflight: auth, credit balance, outbound caller-ID. Never dials. |
 
 ## Safety
