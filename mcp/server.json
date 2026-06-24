@@ -14,17 +14,17 @@
       "transport": { "type": "stdio" },
       "environmentVariables": [
         {
-          "name": "SPEKO_MCP_SERVER_URL",
-          "description": "Base URL of the Speko demo backing server (holds the keys + rails). Defaults to http://127.0.0.1:8787.",
-          "isRequired": false,
-          "isSecret": false,
+          "name": "SPEKO_API_KEY",
+          "description": "Your Speko API key (sk_...). Get one at https://platform.speko.dev. The MCP runs single-process and calls api.speko.dev directly. Easiest setup: `npx @spekoai/mcp-calls init`.",
+          "isRequired": true,
+          "isSecret": true,
           "format": "string"
         },
         {
-          "name": "MCP_INTERNAL_KEY",
-          "description": "Optional shared secret sent as the x-internal-key header; must match the demo server's MCP_INTERNAL_KEY.",
+          "name": "SPEKO_MCP_SERVER_URL",
+          "description": "Optional: route through a hosted/remote Speko backing server instead of running in-process. When set, the API key lives on that server, not here.",
           "isRequired": false,
-          "isSecret": true,
+          "isSecret": false,
           "format": "string"
         }
       ]

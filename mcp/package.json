@@ -1,7 +1,7 @@
 {
   "name": "@spekoai/mcp-calls",
   "version": "0.1.0",
-  "description": "Place real, disclosed phone calls to businesses straight from your coding agent — the Speko \"AI calls for devs\" MCP. A thin mcp-framework server that delegates lookup, rails, and dialing to the demo backing server.",
+  "description": "Place real, disclosed phone calls to businesses straight from your coding agent — the Speko \"AI calls for devs\" MCP. Single self-contained package: `npx @spekoai/mcp-calls init` to set up.",
   "mcpName": "ai.speko/mcp-calls",
   "type": "module",
   "license": "MIT",
@@ -16,7 +16,7 @@
   "files": ["dist", "server.json", "README.md", "skills"],
   "publishConfig": { "access": "public" },
   "scripts": {
-    "build": "tsc -p tsconfig.json && node scripts/postbuild.mjs",
+    "build": "tsup && node scripts/postbuild.mjs",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "dev": "tsx watch src/index.ts",
     "start": "node dist/index.js",
@@ -24,12 +24,14 @@
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.29.0",
-    "@spekoai/mcp-calls-demo-server": "^0.1.0",
+    "@spekoai/sdk": "^0.4.3",
     "mcp-framework": "^0.2.22",
     "zod": "^3.25.76"
   },
   "devDependencies": {
+    "@spekoai/mcp-calls-demo-server": "^0.1.0",
     "@types/node": "^22.10.0",
+    "tsup": "^8.3.0",
     "tsx": "^4.19.0",
     "typescript": "^5.7.0"
   }
