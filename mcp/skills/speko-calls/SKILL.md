@@ -31,7 +31,7 @@ way to pass a raw phone number — that's a safety boundary, not a limitation.
 - **Confirm the business and the objective with the user.** A call is a real-world action.
 - Pass the user's name as `caller_name` (the disclosure says "on behalf of `<caller_name>`").
 - Write `objective` as ONE clear transactional goal:
-  *"Ask if there's a table for 4 at 8pm tonight and book it under Amirlan."*
+  *"Ask if there's a table for 4 at 8pm tonight and book it under John."*
 
 ## The rails (enforced server-side — you cannot override them)
 - **Business lines only** — mobiles are blocked (carrier line-type check).
@@ -48,7 +48,7 @@ objective as a single transactional question and retry, or tell the user it isn'
   on the wire (no telephony leg), it returns **`not_connected`** — do **not** report that
   as success. Run `check_call_readiness` and tell the user the deployment's outbound
   trunk / caller-ID may need setup.
-- The `OUTCOME:` line is the answer (e.g. *"table for 4 at 8pm, booked under Amirlan"*).
+- The `OUTCOME:` line is the answer (e.g. *"table for 4 at 8pm, booked under John"*).
   Relay it plainly and offer the transcript.
 
 ## Personal calls — `call_number` (opt-in)

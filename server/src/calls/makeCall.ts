@@ -150,7 +150,9 @@ export async function makeCall(input: MakeCallInput, deps: MakeCallDeps): Promis
       allowedProviders: {
         tts: [deps.cfg.ttsPin],
         stt: [deps.cfg.sttPin],
-        ...(deps.cfg.llmPin ? { llm: [deps.cfg.llmPin] } : {}),
+        ...(deps.cfg.llmPin
+          ? { llm: deps.cfg.llmPin.split(",").map((m) => m.trim()).filter(Boolean) }
+          : {}),
       },
     },
     sttOptions: { keywords: [caller, businessName, ...DIAL_STT_KEYWORDS] },

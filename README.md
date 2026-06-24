@@ -3,8 +3,8 @@
 **Find a business and place a real, _disclosed_ phone call to it — straight from your coding agent.**
 
 > _"call Sakura Sushi and ask if they have a table for 4 at 8pm"_
-> → `"Hi, this is an AI assistant calling on behalf of Amirlan…"`
-> → `OUTCOME: table for 4 at 8pm, booked under Amirlan` — back in your terminal.
+> → `"Hi, this is an AI assistant calling on behalf of John…"`
+> → `OUTCOME: table for 4 at 8pm, booked under John` — back in your terminal.
 
 This repo is a **demo**. It shows how a developer can wire a Claude Code MCP to Speko's
 calling platform: get an API key from [platform.speko.dev](https://platform.speko.dev),
@@ -60,7 +60,7 @@ That's the whole setup. The published package runs **single-process** — give i
 Then, in your agent:
 
 ```
-> "call Sakura Sushi and ask if they have a table for 4 at 8pm — my name is Amirlan"
+> "call Sakura Sushi and ask if they have a table for 4 at 8pm — my name is John"
 ```
 
 <details><summary>Manual / CI setup (skip the wizard)</summary>
@@ -97,6 +97,8 @@ while it rings → the `OUTCOME:` line lands back in your terminal.
 | --- | --- |
 | `lookup_business(name, location?)` | Resolve a business → dialable candidates + a signed `dial_token` per callable one. The only path that can authorize `make_call`. |
 | `make_call(dial_token, objective, caller_name, context?)` | Place the disclosed, objective-scoped call. Waits for completion, streams progress, returns the `OUTCOME` line + transcript. Reports `connected`/`answered` honestly — a call the platform never actually puts on the wire (no telephony leg) comes back as `not_connected`, never a fake success. |
+| `call_number(phone_number, objective, caller_name)` | Disclosed PERSONAL call to a specific number (e.g. a friend) — mobiles allowed. Opt-in via `SPEKO_ALLOW_DIRECT_DIAL=1`. |
+| `get_call(call_id)` | Read-only: re-check an existing call's status, `OUTCOME`, and transcript. Never dials. |
 | `check_call_readiness()` | Read-only preflight — auth, credit balance, outbound caller-ID. Never dials. |
 | `call_me(message, mode)` | _v2 — deferred until the platform exposes a verified personal phone._ |
 
