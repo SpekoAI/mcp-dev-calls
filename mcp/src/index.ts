@@ -10,6 +10,16 @@
 import { MCPServer } from "mcp-framework";
 import { loadEnv } from "./lib/env.js";
 
+// Bin dispatch: `speko-calls init|setup|login` runs the onboarding wizard (which may log
+// freely to stdout). The default, no-arg invocation is the stdio MCP server — MCP clients
+// spawn the bare command, and in serve mode stdout is RESERVED for JSON-RPC.
+const cmd = process.argv[2];
+if (cmd === "init" || cmd === "setup" || cmd === "login") {
+  const { runInit } = await import("./cli/init.js");
+  await runInit(process.argv.slice(3));
+  process.exit(0);
+}
+
 loadEnv();
 
 const server = new MCPServer({
