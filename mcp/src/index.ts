@@ -25,7 +25,7 @@ loadEnv();
 
 const server = new MCPServer({
   name: "speko-calls",
-  version: "0.1.0",
+  version: "0.1.1",
   transport: { type: "stdio" },
 });
 

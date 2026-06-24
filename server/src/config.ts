@@ -71,7 +71,13 @@ export interface AppConfig {
   ttsPin: string;
   /** provider pin for STT. Default = Deepgram (fast streaming, ~366ms TTFP). */
   sttPin: string;
-  /** Routing goal. Default = latency (best for a live call: keeps gpt-5 + fast STT). */
+  /**
+   * provider:model pin for the LLM. Default = groq/llama-3.3-70b-versatile — the OpenAI
+   * gpt-5 family (the selector default) was 502-ing "No output generated" platform-wide;
+   * Groq is the healthy, fast option. Override with SPEKO_LLM_PIN once OpenAI recovers.
+   */
+  llmPin: string;
+  /** Routing goal. Default = latency (best for a live call: fast STT + low TTFT LLM). */
   optimizeFor: "balanced" | "accuracy" | "latency" | "cost";
   dialTokenSecret: string;
   googlePlacesApiKey: string | undefined;
@@ -120,6 +126,7 @@ export function loadConfig(): AppConfig {
     })(),
     ttsPin: (process.env.SPEKO_TTS_PIN ?? "").trim() || "elevenlabs:eleven_turbo_v2_5",
     sttPin: (process.env.SPEKO_STT_PIN ?? "").trim() || "deepgram",
+    llmPin: (process.env.SPEKO_LLM_PIN ?? "").trim() || "groq:llama-3.3-70b-versatile",
     optimizeFor: (() => {
       const v = (process.env.SPEKO_OPTIMIZE_FOR ?? "").trim();
       return (["balanced", "accuracy", "latency", "cost"].includes(v) ? v : "latency") as
