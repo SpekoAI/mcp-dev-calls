@@ -8,11 +8,11 @@ const schema = z.object({
     .describe("Number to call, E.164 (e.g. +77011234567). A real number the user has consent to call."),
   objective: z
     .string()
-    .describe("What to say / accomplish, e.g. 'Tell Karim that Amirlan says happy birthday and misses him.'"),
+    .describe("What to say / accomplish, e.g. 'Tell Sam that John says happy birthday and misses him.'"),
   caller_name: z
     .string()
     .describe("Name of the human the call is on behalf of (1-80 chars); spoken in the AI-disclosure opening."),
-  recipient_name: z.string().optional().describe("Who you're calling, used in the greeting (e.g. 'Karim')."),
+  recipient_name: z.string().optional().describe("Who you're calling, used in the greeting (e.g. 'Sam')."),
   context: z.string().optional().describe("Optional extra context for the message."),
   utc_offset_minutes: z
     .number()
