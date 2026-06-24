@@ -67,14 +67,19 @@ export interface AppConfig {
   voice: string | undefined;
   /** TTS speed multiplier; defaults to 1.0 at dial time. */
   ttsSpeed: number | undefined;
-  /** provider:model pin for TTS. Default = most natural real-time ElevenLabs model (verified). */
+  /** provider:model pin for TTS. Default = elevenlabs:eleven_flash_v2_5 — our switchboard's
+   * live pick (lowest latency, best EN CER). No measured EN-naturalness number yet, so no
+   * "verified"/"most natural" claim until the head-to-head harness runs. */
   ttsPin: string;
-  /** provider pin for STT. Default = Deepgram (fast streaming, ~366ms TTFP). */
+  /** provider pin for STT. Default = deepgram:nova-3 — clean win across every source.
+   * (Streaming first-partial ≈ 1.3s; the ~366ms figure is the serial p50, not first-partial.) */
   sttPin: string;
   /**
-   * provider:model pin for the LLM. Default = groq/llama-3.3-70b-versatile — the OpenAI
-   * gpt-5 family (the selector default) was 502-ing "No output generated" platform-wide;
-   * Groq is the healthy, fast option. Override with SPEKO_LLM_PIN once OpenAI recovers.
+   * Comma-separated provider:model LLM FAILOVER CHAIN. Default =
+   * groq:llama-3.3-70b-versatile (primary — healthy + fast) → openai:gpt-4.1-mini
+   * (tool-heavy fallback). gpt-5 (the old selector default) was 502-ing platform-wide and
+   * isn't even in our TTFT race; with a chain, one provider outage no longer breaks every
+   * call. Override with SPEKO_LLM_PIN (comma-separated for cross-provider failover).
    */
   llmPin: string;
   /** Routing goal. Default = latency (best for a live call: fast STT + low TTFT LLM). */
@@ -132,9 +137,9 @@ export function loadConfig(): AppConfig {
       const n = Number(process.env.SPEKO_DEMO_TTS_SPEED);
       return Number.isFinite(n) && n > 0 ? n : undefined;
     })(),
-    ttsPin: (process.env.SPEKO_TTS_PIN ?? "").trim() || "elevenlabs:eleven_turbo_v2_5",
-    sttPin: (process.env.SPEKO_STT_PIN ?? "").trim() || "deepgram",
-    llmPin: (process.env.SPEKO_LLM_PIN ?? "").trim() || "groq:llama-3.3-70b-versatile",
+    ttsPin: (process.env.SPEKO_TTS_PIN ?? "").trim() || "elevenlabs:eleven_flash_v2_5",
+    sttPin: (process.env.SPEKO_STT_PIN ?? "").trim() || "deepgram:nova-3",
+    llmPin: (process.env.SPEKO_LLM_PIN ?? "").trim() || "groq:llama-3.3-70b-versatile,openai:gpt-4.1-mini",
     optimizeFor: (() => {
       const v = (process.env.SPEKO_OPTIMIZE_FOR ?? "").trim();
       return (["balanced", "accuracy", "latency", "cost"].includes(v) ? v : "latency") as

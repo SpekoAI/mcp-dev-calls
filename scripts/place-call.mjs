@@ -27,8 +27,8 @@ console.log("→ dialing… caller-ID auto-resolved server-side; polling until t
 
 const { ok: callOk, status: callStatus, data: call } = await post("/call", {
   dial_token: cand.dial_token,
-  objective: "Reserve a table for 4 people tonight at 8:00 PM under the name Amirlan, and confirm the booking.",
-  caller_name: "Amirlan",
+  objective: "Reserve a table for 4 people tonight at 8:00 PM under the name John, and confirm the booking.",
+  caller_name: "John",
   context: "Party of 4, tonight at 8pm. If 8pm is unavailable, ask for the closest available time.",
 });
 

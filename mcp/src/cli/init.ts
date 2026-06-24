@@ -130,7 +130,9 @@ function desktopConfigPath(): string {
 }
 
 /** Add to Claude Code via its CLI. Returns true on success; prints the manual command otherwise. */
-function configureClaudeCode(key: string, scope: string): boolean {
+function configureClaudeCode(key: string, scope: string, extraEnv: Record<string, string> = {}): boolean {
+  const envArgs = ["--env", `SPEKO_API_KEY=${key}`];
+  for (const [k, v] of Object.entries(extraEnv)) envArgs.push("--env", `${k}=${v}`);
   const manual = `claude mcp add ${SERVER_NAME} --scope ${scope} --env SPEKO_API_KEY=<your-key> -- npx -y ${PKG}`;
   if (!claudeCliPresent()) {
     console.log(c.yellow("  • Claude Code CLI not found on PATH. Run this yourself once installed:"));
@@ -141,7 +143,7 @@ function configureClaudeCode(key: string, scope: string): boolean {
   spawnSync("claude", ["mcp", "remove", SERVER_NAME, "--scope", scope], { stdio: "ignore" });
   const r = spawnSync(
     "claude",
-    ["mcp", "add", SERVER_NAME, "--scope", scope, "--env", `SPEKO_API_KEY=${key}`, "--", "npx", "-y", PKG],
+    ["mcp", "add", SERVER_NAME, "--scope", scope, ...envArgs, "--", "npx", "-y", PKG],
     { stdio: "inherit" },
   );
   if (r.status === 0) {
@@ -154,7 +156,7 @@ function configureClaudeCode(key: string, scope: string): boolean {
 }
 
 /** Safe read-merge-write of Claude Desktop's JSON (backs up first; never blind-appends). */
-function configureClaudeDesktop(key: string): boolean {
+function configureClaudeDesktop(key: string, extraEnv: Record<string, string> = {}): boolean {
   const path = desktopConfigPath();
   try {
     let cfg: Record<string, unknown> = {};
@@ -171,7 +173,7 @@ function configureClaudeDesktop(key: string): boolean {
       mkdirSync(dirname(path), { recursive: true });
     }
     const servers = (cfg.mcpServers && typeof cfg.mcpServers === "object" ? cfg.mcpServers : {}) as Record<string, unknown>;
-    servers[SERVER_NAME] = { command: "npx", args: ["-y", PKG], env: { SPEKO_API_KEY: key } };
+    servers[SERVER_NAME] = { command: "npx", args: ["-y", PKG], env: { SPEKO_API_KEY: key, ...extraEnv } };
     cfg.mcpServers = servers;
     writeFileSync(path, `${JSON.stringify(cfg, null, 2)}\n`);
     console.log(c.green(`  ✓ Updated Claude Desktop config (${path}).`));
@@ -267,10 +269,30 @@ export async function runInit(argv: string[]): Promise<void> {
     target = ans || def;
   }
 
+  // 3.5) Optional demo setup. Without Google Places/Twilio keys, lookup_business can't
+  // resolve a real business, so a bare key can't run "call <a business>". Offer demo mode:
+  // it dials ONE number you control, so "call Sakura Sushi" works (and rings your phone).
+  const extraEnv: Record<string, string> = {};
+  if (!f.yes) {
+    const demo = (await ask('\n  Set up a quick DEMO so "call <a business>" works right away — rings a number you control? [y/N] ')).toLowerCase();
+    if (demo === "y" || demo === "yes") {
+      const num = (await ask("  Number to ring, E.164 (e.g. +15551234567): ")).replace(/\s/g, "");
+      if (/^\+?[1-9]\d{6,14}$/.test(num)) {
+        const biz = (await ask("  Business name to say on the call (default: Sakura Sushi): ")).trim() || "Sakura Sushi";
+        extraEnv.SPEKO_DEMO = "1";
+        extraEnv.SPEKO_DEMO_E164 = num.startsWith("+") ? num : `+${num}`;
+        extraEnv.SPEKO_DEMO_BUSINESS = biz;
+        console.log(c.dim(`    Demo on: "call ${biz}" will ring ${extraEnv.SPEKO_DEMO_E164}.`));
+      } else {
+        console.log(c.yellow("  • Skipping demo — that didn't look like an E.164 number."));
+      }
+    }
+  }
+
   // 4) Write config.
   console.log("");
-  if (target === "code" || target === "both") configureClaudeCode(key, f.scope);
-  if (target === "desktop" || target === "both") configureClaudeDesktop(key);
+  if (target === "code" || target === "both") configureClaudeCode(key, f.scope, extraEnv);
+  if (target === "desktop" || target === "both") configureClaudeDesktop(key, extraEnv);
 
   // 5) Skill.
   installSkill();

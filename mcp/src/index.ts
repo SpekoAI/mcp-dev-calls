@@ -13,6 +13,7 @@ import { loadEnv } from "./lib/env.js";
 import CallMeTool from "./tools/CallMeTool.js";
 import CallNumberTool from "./tools/CallNumberTool.js";
 import CheckCallReadinessTool from "./tools/CheckCallReadinessTool.js";
+import GetCallTool from "./tools/GetCallTool.js";
 import LookupBusinessTool from "./tools/LookupBusinessTool.js";
 import MakeCallTool from "./tools/MakeCallTool.js";
 
@@ -34,6 +35,7 @@ server.addTool(LookupBusinessTool);
 server.addTool(MakeCallTool);
 server.addTool(CallNumberTool);
 server.addTool(CheckCallReadinessTool);
+server.addTool(GetCallTool);
 server.addTool(CallMeTool);
 
 await server.start();
