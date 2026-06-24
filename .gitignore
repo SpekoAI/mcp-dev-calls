@@ -1,0 +1,27 @@
+node_modules/
+dist/
+coverage/
+*.log
+.env
+.env.local
+.DS_Store
+# MCP registry publish credentials
+.mcpregistry_github_token
+.mcpregistry_registry_token
+
+# Generated audio samples (voice/TTS previews — may contain personal/test content)
+voice-samples/
+
+# Personal / scratch call scripts — contain REAL phone numbers + private messages.
+# NEVER commit these to the shared repo.
+scripts/call-farida.mjs
+scripts/call-karim.mjs
+scripts/call-nuriman.mjs
+scripts/call-adam-birthday.mjs
+scripts/call-adam-birthday-ru.mjs
+scripts/call.mjs
+scripts/call-prank.mjs
+scripts/call-prank-reveal.mjs
+scripts/call-prank-ru.mjs
+scripts/call-prank-disclosed-ru.mjs
+scripts/test-ambient-call.mjs

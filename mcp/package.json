@@ -1,0 +1,38 @@
+{
+  "name": "@spekoai/mcp-calls",
+  "version": "0.1.0",
+  "description": "Place real, disclosed phone calls to businesses straight from your coding agent — the Speko \"AI calls for devs\" MCP. Single self-contained package: `npx @spekoai/mcp-calls init` to set up.",
+  "mcpName": "ai.speko/mcp-calls",
+  "type": "module",
+  "license": "MIT",
+  "author": "SpekoAI",
+  "homepage": "https://github.com/SpekoAI/mcp-dev-calls",
+  "repository": { "type": "git", "url": "git+https://github.com/SpekoAI/mcp-dev-calls.git" },
+  "bugs": { "url": "https://github.com/SpekoAI/mcp-dev-calls/issues" },
+  "keywords": ["speko", "voice-ai", "mcp", "model-context-protocol", "phone", "calls", "claude-code", "mcp-framework"],
+  "engines": { "node": ">=20" },
+  "bin": { "speko-calls": "dist/index.js" },
+  "main": "dist/index.js",
+  "files": ["dist", "server.json", "README.md", "skills"],
+  "publishConfig": { "access": "public" },
+  "scripts": {
+    "build": "tsup && node scripts/postbuild.mjs",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "dev": "tsx watch src/index.ts",
+    "start": "node dist/index.js",
+    "prepublishOnly": "npm run build"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.29.0",
+    "@spekoai/sdk": "^0.4.3",
+    "mcp-framework": "^0.2.22",
+    "zod": "^3.25.76"
+  },
+  "devDependencies": {
+    "@spekoai/mcp-calls-demo-server": "^0.1.0",
+    "@types/node": "^22.10.0",
+    "tsup": "^8.3.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.7.0"
+  }
+}
