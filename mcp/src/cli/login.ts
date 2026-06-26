@@ -96,6 +96,25 @@ async function registerClient(registrationEndpoint: string, redirectUri: string)
   return j.client_id;
 }
 
+/** Fetch the org's idempotent MCP key from api.speko.dev using a bearer JWT. */
+async function fetchOrgKey(bearer: string): Promise<string> {
+  const r = await fetch(`${API_BASE}/v1/api-keys/organization-credentials`, {
+    headers: { authorization: `Bearer ${bearer}` },
+    signal: AbortSignal.timeout(15_000),
+  });
+  if (r.status === 403) {
+    throw new Error("your account has no organization yet — finish signup at platform.speko.dev, then retry");
+  }
+  if (!r.ok) {
+    const body = await r.text().catch(() => "");
+    throw new Error(`couldn't fetch your API key (HTTP ${r.status})${body ? `: ${body.slice(0, 160)}` : ""}`);
+  }
+  const j = (await r.json()) as { mcpApiKey?: { key?: string } };
+  const key = j.mcpApiKey?.key;
+  if (!key) throw new Error("API-key response was missing mcpApiKey.key");
+  return key;
+}
+
 interface Loopback {
   server: Server;
   redirectUri: string;
@@ -185,6 +204,10 @@ export async function browserLogin(log: (msg: string) => void = () => {}): Promi
 
     const code = await waitForCode;
 
+    // The `resource` (RFC 8707) is REQUIRED: it's what makes the provider mint a
+    // verifiable JWT access token. Omit it and you get an opaque token that
+    // api.speko.dev can't verify (→ 401). The value must be the issuer itself —
+    // any other value is rejected ("requested resource invalid").
     const tok = await fetch(disc.token_endpoint, {
       method: "POST",
       headers: { "content-type": "application/x-www-form-urlencoded" },
@@ -194,25 +217,23 @@ export async function browserLogin(log: (msg: string) => void = () => {}): Promi
         redirect_uri: redirectUri,
         client_id: clientId,
         code_verifier: verifier,
+        resource: disc.issuer,
       }),
       signal: AbortSignal.timeout(20_000),
     });
-    if (!tok.ok) throw new Error(`token exchange failed (HTTP ${tok.status})`);
-    const tj = (await tok.json()) as { access_token?: string };
+    if (!tok.ok) {
+      const body = await tok.text().catch(() => "");
+      throw new Error(`token exchange failed (HTTP ${tok.status})${body ? `: ${body.slice(0, 200)}` : ""}`);
+    }
+    const tj = (await tok.json()) as { access_token?: string; id_token?: string };
     if (!tj.access_token) throw new Error("token endpoint returned no access_token");
 
-    const keyRes = await fetch(`${API_BASE}/v1/api-keys/organization-credentials`, {
-      headers: { authorization: `Bearer ${tj.access_token}` },
-      signal: AbortSignal.timeout(15_000),
+    // Prefer the JWT access token; fall back to the id_token (also a valid JWT for
+    // this issuer) if the access token isn't accepted for any reason.
+    return await fetchOrgKey(tj.access_token).catch((e: unknown) => {
+      if (tj.id_token && tj.id_token !== tj.access_token) return fetchOrgKey(tj.id_token);
+      throw e;
     });
-    if (keyRes.status === 403) {
-      throw new Error("your account has no organization yet — finish signup at platform.speko.dev, then retry");
-    }
-    if (!keyRes.ok) throw new Error(`couldn't fetch your API key (HTTP ${keyRes.status})`);
-    const kj = (await keyRes.json()) as { mcpApiKey?: { key?: string } };
-    const key = kj.mcpApiKey?.key;
-    if (!key) throw new Error("API-key response was missing mcpApiKey.key");
-    return key;
   } finally {
     server.close();
   }
