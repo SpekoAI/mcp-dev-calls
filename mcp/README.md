@@ -15,9 +15,12 @@ Desktop, and any MCP client. Powered by [Speko](https://speko.ai).
 npx @spekoai/mcp-calls@latest init
 ```
 
-The wizard opens the Speko dashboard for an API key, verifies it, writes the MCP into your
-client config (Claude Code or Claude Desktop), and installs a companion skill. Then just ask
-your agent to call a business.
+The wizard signs you in **with your browser** (OAuth — no key to copy or paste), fetches your
+key automatically, writes the MCP into your client config (Claude Code or Claude Desktop), and
+installs a companion skill. Then just ask your agent to call a business.
+
+Already have a key, or on a headless box? `--token sk_...` or `--paste` skips the browser.
+Re-authenticate anytime with `npx @spekoai/mcp-calls login`.
 
 It runs **single-process**: give it your `SPEKO_API_KEY` and it calls `api.speko.dev`
 directly — no separate server to run.

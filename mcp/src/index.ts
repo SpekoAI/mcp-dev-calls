@@ -19,7 +19,7 @@ import MakeCallTool from "./tools/MakeCallTool.js";
 
 const cmd = process.argv[2];
 if (cmd === "init" || cmd === "setup" || cmd === "login") {
-  await runInit(process.argv.slice(3));
+  await runInit(process.argv.slice(3), cmd);
   process.exit(0);
 }
 
@@ -27,7 +27,7 @@ loadEnv();
 
 const server = new MCPServer({
   name: "speko-calls",
-  version: "0.2.2",
+  version: "0.3.0",
   transport: { type: "stdio" },
 });
 
