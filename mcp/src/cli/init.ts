@@ -15,6 +15,7 @@ import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from
 import { homedir, platform } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { browserLogin } from "./login.js";
 
 const API_BASE = (process.env.SPEKOAI_API_URL || "https://api.speko.dev").replace(/\/+$/, "");
 const DASHBOARD = "https://platform.speko.dev";
@@ -36,10 +37,11 @@ interface Flags {
   scope: string; // user | project | local
   yes: boolean;
   printConfig: boolean;
+  paste: boolean; // force manual key entry, skip browser login
 }
 
 function parseFlags(argv: string[]): Flags {
-  const f: Flags = { scope: "user", yes: false, printConfig: false };
+  const f: Flags = { scope: "user", yes: false, printConfig: false, paste: false };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === "--token") f.token = argv[++i];
@@ -47,6 +49,7 @@ function parseFlags(argv: string[]): Flags {
     else if (a === "--scope") f.scope = argv[++i] ?? "user";
     else if (a === "--yes" || a === "-y") f.yes = true;
     else if (a === "--print-config") f.printConfig = true;
+    else if (a === "--paste" || a === "--manual") f.paste = true;
   }
   return f;
 }
@@ -209,23 +212,36 @@ function installSkill(): boolean {
   }
 }
 
-export async function runInit(argv: string[]): Promise<void> {
+export async function runInit(argv: string[], mode: "init" | "setup" | "login" = "init"): Promise<void> {
   const f = parseFlags(argv);
-  console.log(c.bold("\n  Speko Calls — setup\n"));
-  console.log("  This MCP places " + c.bold("real, disclosed") + " outbound phone calls to " + c.bold("businesses") + ",");
-  console.log("  straight from your coding agent. Every call opens with an AI disclosure;");
-  console.log("  business lines only; quiet hours 08:00–21:00 in the destination's local time.\n");
+  const quick = mode === "login"; // `login` = focused re-auth: skip intro + demo prompts
+  console.log(c.bold(quick ? "\n  Speko Calls — sign in\n" : "\n  Speko Calls — setup\n"));
+  if (!quick) {
+    console.log("  This MCP places " + c.bold("real, disclosed") + " outbound phone calls to " + c.bold("businesses") + ",");
+    console.log("  straight from your coding agent. Every call opens with an AI disclosure;");
+    console.log("  business lines only; quiet hours 08:00–21:00 in the destination's local time.\n");
 
-  if (!f.yes) {
-    const ok = (await ask("  Continue? [Y/n] ")).toLowerCase();
-    if (ok === "n" || ok === "no") {
-      console.log("  Aborted.");
-      return;
+    if (!f.yes) {
+      const ok = (await ask("  Continue? [Y/n] ")).toLowerCase();
+      if (ok === "n" || ok === "no") {
+        console.log("  Aborted.");
+        return;
+      }
     }
   }
 
-  // 1) Get a key: flag > env > dashboard + paste.
+  // 1) Get a key: flag > env > browser login (default) > manual paste (fallback).
   let key = (f.token ?? process.env.SPEKO_API_KEY ?? "").trim();
+  if (!key && !f.paste) {
+    console.log("\n  Sign in to connect — this opens your browser. " + c.dim("No key to copy or paste."));
+    try {
+      key = await browserLogin((m) => console.log(c.dim("  " + m)));
+      console.log(c.green("  ✓ Signed in — fetched your API key automatically."));
+    } catch (e) {
+      console.log(c.yellow(`  • Browser sign-in didn't complete (${(e as Error).message}).`));
+      console.log("  Falling back to manual key entry. " + c.dim("(Use --paste to skip the browser next time.)"));
+    }
+  }
   if (!key) {
     console.log(`\n  Opening ${c.cyan(DASHBOARD)} — sign in and create an API key (starts with "sk_").`);
     console.log(c.dim(`  (If it doesn't open: visit ${DASHBOARD} and copy your key.)\n`));
@@ -273,7 +289,7 @@ export async function runInit(argv: string[]): Promise<void> {
   // resolve a real business, so a bare key can't run "call <a business>". Offer demo mode:
   // it dials ONE number you control, so "call Sakura Sushi" works (and rings your phone).
   const extraEnv: Record<string, string> = {};
-  if (!f.yes) {
+  if (!quick && !f.yes) {
     const demo = (await ask('\n  Set up a quick DEMO so "call <a business>" works right away — rings a number you control? [y/N] ')).toLowerCase();
     if (demo === "y" || demo === "yes") {
       const num = (await ask("  Number to ring, E.164 (e.g. +15551234567): ")).replace(/\s/g, "");
