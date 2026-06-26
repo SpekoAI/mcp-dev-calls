@@ -276,14 +276,8 @@ export async function runInit(argv: string[], mode: "init" | "setup" | "login" =
     return;
   }
 
-  // 3) Pick client(s).
-  let target = (f.client ?? "").toLowerCase();
-  if (!target) {
-    const hasCode = claudeCliPresent();
-    const def = hasCode ? "code" : "desktop";
-    const ans = (await ask(`\n  Configure which client? [code/desktop/both] (${def}) `)).toLowerCase();
-    target = ans || def;
-  }
+  // 3) Configure BOTH clients by default (Claude Code + Desktop). --client code|desktop narrows it.
+  const target = (f.client || "both").toLowerCase();
 
   // 3.5) Optional demo setup. Without Google Places/Twilio keys, lookup_business can't
   // resolve a real business, so a bare key can't run "call <a business>". Offer demo mode:
