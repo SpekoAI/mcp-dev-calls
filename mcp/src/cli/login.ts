@@ -204,10 +204,15 @@ export async function browserLogin(log: (msg: string) => void = () => {}): Promi
 
     const code = await waitForCode;
 
-    // The `resource` (RFC 8707) is REQUIRED: it's what makes the provider mint a
-    // verifiable JWT access token. Omit it and you get an opaque token that
-    // api.speko.dev can't verify (→ 401). The value must be the issuer itself —
-    // any other value is rejected ("requested resource invalid").
+    // NB: we deliberately do NOT send an RFC 8707 `resource`. With one, better-auth
+    // validates it against a deployment-specific allow-list (validAudiences, set in
+    // the server's env — not knowable client-side); a value not on the list is a hard
+    // 400 "requested resource invalid" that also burns the auth code. Without it the
+    // token request always succeeds. We then authenticate with the `id_token`, which —
+    // because we request `openid` scope — is unconditionally a JWT signed by this
+    // issuer. api.speko.dev verifies issuer + sub and ignores audience/token-type, so
+    // the id_token is accepted for the org-key fetch. (The access token is opaque
+    // without `resource`, so it's only a last-ditch fallback.)
     const tok = await fetch(disc.token_endpoint, {
       method: "POST",
       headers: { "content-type": "application/x-www-form-urlencoded" },
@@ -217,7 +222,6 @@ export async function browserLogin(log: (msg: string) => void = () => {}): Promi
         redirect_uri: redirectUri,
         client_id: clientId,
         code_verifier: verifier,
-        resource: disc.issuer,
       }),
       signal: AbortSignal.timeout(20_000),
     });
@@ -226,14 +230,9 @@ export async function browserLogin(log: (msg: string) => void = () => {}): Promi
       throw new Error(`token exchange failed (HTTP ${tok.status})${body ? `: ${body.slice(0, 200)}` : ""}`);
     }
     const tj = (await tok.json()) as { access_token?: string; id_token?: string };
-    if (!tj.access_token) throw new Error("token endpoint returned no access_token");
-
-    // Prefer the JWT access token; fall back to the id_token (also a valid JWT for
-    // this issuer) if the access token isn't accepted for any reason.
-    return await fetchOrgKey(tj.access_token).catch((e: unknown) => {
-      if (tj.id_token && tj.id_token !== tj.access_token) return fetchOrgKey(tj.id_token);
-      throw e;
-    });
+    const bearer = tj.id_token ?? tj.access_token;
+    if (!bearer) throw new Error("token endpoint returned neither an id_token nor an access_token");
+    return await fetchOrgKey(bearer);
   } finally {
     server.close();
   }
