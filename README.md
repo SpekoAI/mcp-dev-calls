@@ -97,7 +97,7 @@ while it rings → the `OUTCOME:` line lands back in your terminal.
 
 | Tool | What it does |
 | --- | --- |
-| `lookup_business(name, location?)` | Resolve a business → dialable candidates + a signed `dial_token` per callable one. The only path that can authorize `make_call`. |
+| `lookup_business(name, location?, phone_number?)` | Resolve a business → dialable candidates + a signed `dial_token` per callable one (the only path that can authorize `make_call`). Pass `phone_number` (E.164 — e.g. found via the agent's web search) to skip the directory lookup; still carrier-verified as a business line. |
 | `make_call(dial_token, objective, caller_name, context?)` | Place the disclosed, objective-scoped call. Waits for completion, streams progress, returns the `OUTCOME` line + transcript. Reports `connected`/`answered` honestly — a call the platform never actually puts on the wire (no telephony leg) comes back as `not_connected`, never a fake success. |
 | `call_number(phone_number, objective, caller_name)` | Disclosed PERSONAL call to a specific number (e.g. a friend) — mobiles allowed. On by default (set `SPEKO_ALLOW_DIRECT_DIAL=0` to restrict to business lines). |
 | `get_call(call_id)` | Read-only: re-check an existing call's status, `OUTCOME`, and transcript. Never dials. |
