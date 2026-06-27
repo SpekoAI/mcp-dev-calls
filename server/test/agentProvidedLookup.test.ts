@@ -246,6 +246,7 @@ describe("agent-provided lookup", () => {
     );
     const c = out.candidates[0];
     expect(c.allowed).toBe(false);
+    expect(c.dial_token).toBeNull(); // no token minted on the blocked path
     expect(c.blocked_reason).toMatch(/timezone|utc_offset/i);
   });
 });
