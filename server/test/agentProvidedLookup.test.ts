@@ -50,6 +50,7 @@ describe("agent-provided lookup", () => {
       if (saved[k] === undefined) delete process.env[k];
       else process.env[k] = saved[k];
     }
+    vi.useRealTimers(); // catch-all: never leak fake timers to other tests
     vi.clearAllMocks();
   });
 
@@ -120,12 +121,14 @@ describe("agent-provided lookup", () => {
   });
 
   // Cross-tool round-trip: the token minted by the agent-provided path must be accepted by
-  // make_call (which independently re-checks the line type + quiet hours from the token bytes)
-  // and must dial the EXACT agent-provided number with the non-removable AI disclosure.
-  it("agent-provided token round-trips through make_call: accepted, dials the right number, discloses", async () => {
-    vi.useFakeTimers();
-    vi.setSystemTime(new Date("2026-06-27T18:00:00.000Z")); // ~10am-2pm across US zones → business hours
+  // make_call (which independently re-checks line type + quiet hours from the token bytes),
+  // dial the EXACT number with the non-removable AI disclosure, and — with a realistic
+  // connected session + a caller turn — be reported as a connected, answered call.
+  it("agent-provided token round-trips through make_call: accepted, dials, discloses, connects", async () => {
     try {
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date("2026-06-27T18:00:00.000Z")); // ~10am-2pm across US zones → business hours
+
       const config = cfg({
         twilio: { sid: "s", token: "t" },
         ttsPin: "elevenlabs:eleven_flash_v2_5",
@@ -151,10 +154,18 @@ describe("agent-provided lookup", () => {
         },
         getCall: async () => ({
           status: "ended",
-          transcript: [{ role: "assistant", content: "OUTCOME: booked" }],
-          report: { outcome: "booked" },
+          transcript: [
+            { source: "agent", text: "Hi, this is Bruce's AI assistant — table for 4 at 8pm tonight?" },
+            { source: "user", text: "Yep, 8pm works — booked under Bruce." },
+          ],
+          report: { outcome: "Table for 4 at 8pm, booked under Bruce" },
         }),
-        getSession: async () => ({}),
+        // Realistic connected session: a callControlId + carrier usage prove a real outbound leg.
+        getSession: async () => ({
+          phoneCall: { callControlId: "cc123" },
+          usage: [{ provider: "telnyx", metric: "telephony_minutes" }],
+          durationSeconds: 42,
+        }),
       };
 
       const summary = await makeCall(
@@ -162,7 +173,7 @@ describe("agent-provided lookup", () => {
         { client: fakeClient as unknown as SpekoClient, cfg: config, bearerHash: BEARER_HASH, sleep: async () => {} },
       );
 
-      // The agent-provided token was accepted (no rejection) and dialed correctly.
+      // Token accepted (no rejection) and dialed the EXACT agent-provided number.
       expect(dialed).not.toBeNull();
       const body = dialed as Record<string, unknown>;
       expect(body.to).toBe("+14155550123");
@@ -170,7 +181,11 @@ describe("agent-provided lookup", () => {
       expect(String(body.firstMessage)).toMatch(/AI assistant/i);
       expect(String(body.firstMessage)).toContain("Bruce");
       expect(body.systemPrompt).toBeTypeOf("string");
+      // Full happy path: connected (callControlId + carrier usage) → answered (caller turn) → outcome.
       expect(summary.call_id).toBe("sess1");
+      expect(summary.connected).toBe(true);
+      expect(summary.answered).toBe(true);
+      expect(String(summary.outcome)).toContain("booked");
     } finally {
       vi.useRealTimers();
     }
