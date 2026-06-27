@@ -99,7 +99,7 @@ while it rings → the `OUTCOME:` line lands back in your terminal.
 | --- | --- |
 | `lookup_business(name, location?)` | Resolve a business → dialable candidates + a signed `dial_token` per callable one. The only path that can authorize `make_call`. |
 | `make_call(dial_token, objective, caller_name, context?)` | Place the disclosed, objective-scoped call. Waits for completion, streams progress, returns the `OUTCOME` line + transcript. Reports `connected`/`answered` honestly — a call the platform never actually puts on the wire (no telephony leg) comes back as `not_connected`, never a fake success. |
-| `call_number(phone_number, objective, caller_name)` | Disclosed PERSONAL call to a specific number (e.g. a friend) — mobiles allowed. Opt-in via `SPEKO_ALLOW_DIRECT_DIAL=1`. |
+| `call_number(phone_number, objective, caller_name)` | Disclosed PERSONAL call to a specific number (e.g. a friend) — mobiles allowed. On by default (set `SPEKO_ALLOW_DIRECT_DIAL=0` to restrict to business lines). |
 | `get_call(call_id)` | Read-only: re-check an existing call's status, `OUTCOME`, and transcript. Never dials. |
 | `check_call_readiness()` | Read-only preflight — auth, credit balance, outbound caller-ID. Never dials. |
 | `call_me(message, mode)` | _v2 — deferred until the platform exposes a verified personal phone._ |
