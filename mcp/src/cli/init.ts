@@ -220,14 +220,6 @@ export async function runInit(argv: string[], mode: "init" | "setup" | "login" =
     console.log("  This MCP places " + c.bold("real, disclosed") + " outbound phone calls to " + c.bold("businesses") + ",");
     console.log("  straight from your coding agent. Every call opens with an AI disclosure;");
     console.log("  business lines only; quiet hours 08:00–21:00 in the destination's local time.\n");
-
-    if (!f.yes) {
-      const ok = (await ask("  Continue? [Y/n] ")).toLowerCase();
-      if (ok === "n" || ok === "no") {
-        console.log("  Aborted.");
-        return;
-      }
-    }
   }
 
   // 1) Get a key: flag > env > browser login (default) > manual paste (fallback).
