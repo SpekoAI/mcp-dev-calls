@@ -191,9 +191,14 @@ function configureClaudeDesktop(key: string, extraEnv: Record<string, string> = 
 /** Copy the bundled SKILL.md into ~/.claude/skills/speko-calls so the agent gets the playbook. */
 function installSkill(): boolean {
   try {
-    const here = dirname(fileURLToPath(import.meta.url)); // dist/cli
-    const src = resolve(here, "..", "..", "skills", SERVER_NAME, "SKILL.md");
-    if (!existsSync(src)) {
+    const here = dirname(fileURLToPath(import.meta.url));
+    // The package ships skills/ as a sibling of dist/. From the bundled dist/index.js the
+    // skill is one level up; the two-levels-up path covers a non-bundled dev (dist/cli) layout.
+    const src = [
+      resolve(here, "..", "skills", SERVER_NAME, "SKILL.md"),
+      resolve(here, "..", "..", "skills", SERVER_NAME, "SKILL.md"),
+    ].find((p) => existsSync(p));
+    if (!src) {
       console.log(c.yellow("  • Bundled skill not found in package; skipping skill install."));
       return false;
     }
