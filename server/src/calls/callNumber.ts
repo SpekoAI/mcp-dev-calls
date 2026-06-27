@@ -37,9 +37,10 @@ export interface CallNumberDeps {
 export async function callNumber(input: CallNumberInput, deps: CallNumberDeps): Promise<CallSummary> {
   if (!deps.cfg.allowDirectDial) {
     throw new RejectionError(
-      "Direct dialing has been disabled on this deployment (SPEKO_ALLOW_DIRECT_DIAL is set to off), so " +
-        "call_number is restricted to business lines only. It is on by default.",
-      "Unset SPEKO_ALLOW_DIRECT_DIAL (or set it to 1) in the MCP's env and restart, then retry — or use lookup_business for a business.",
+      "Direct dialing has been turned off on this deployment (SPEKO_ALLOW_DIRECT_DIAL is set to off), so " +
+        "call_number is disabled and cannot place this call. (Direct dialing is on by default.)",
+      "To call a business, use lookup_business + make_call instead. To use call_number, unset " +
+        "SPEKO_ALLOW_DIRECT_DIAL (or set it to 1) in the MCP's env and restart, then retry.",
     );
   }
 
