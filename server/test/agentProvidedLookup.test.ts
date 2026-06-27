@@ -5,8 +5,10 @@ vi.mock("../src/lookup/twilio.js", () => ({
   carrierLineType: vi.fn(async () => "landline"),
 }));
 
+import { makeCall } from "../src/calls/makeCall.js";
 import type { AppConfig } from "../src/config.js";
 import { lookupBusiness } from "../src/lookup/index.js";
+import type { SpekoClient } from "../src/speko/client.js";
 import { carrierLineType } from "../src/lookup/twilio.js";
 import { verifyDialToken } from "../src/safety/dialToken.js";
 
@@ -115,5 +117,62 @@ describe("agent-provided lookup", () => {
     await expect(
       lookupBusiness({ name: "X", phoneNumber: "" }, { cfg: cfg(), bearerHash: BEARER_HASH }),
     ).rejects.toThrow(/directory|configured|phone_number/i);
+  });
+
+  // Cross-tool round-trip: the token minted by the agent-provided path must be accepted by
+  // make_call (which independently re-checks the line type + quiet hours from the token bytes)
+  // and must dial the EXACT agent-provided number with the non-removable AI disclosure.
+  it("agent-provided token round-trips through make_call: accepted, dials the right number, discloses", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-06-27T18:00:00.000Z")); // ~10am-2pm across US zones → business hours
+    try {
+      const config = cfg({
+        twilio: { sid: "s", token: "t" },
+        ttsPin: "elevenlabs:eleven_flash_v2_5",
+        sttPin: "deepgram:nova-3",
+        llmPin: "",
+        optimizeFor: "latency",
+        ttsSpeed: 1.0,
+      } as Partial<AppConfig>);
+
+      const look = await lookupBusiness(
+        { name: "Sakura Sushi", phoneNumber: "+14155550123" },
+        { cfg: config, bearerHash: BEARER_HASH },
+      );
+      const token = look.candidates[0].dial_token as string;
+      expect(token).toBeTypeOf("string");
+
+      let dialed: Record<string, unknown> | null = null;
+      const fakeClient = {
+        listPhoneNumbers: async () => [],
+        dial: async (body: Record<string, unknown>) => {
+          dialed = body;
+          return { sessionId: "sess1", status: "dialing", callControlId: "cc123", from: "+15551112222" };
+        },
+        getCall: async () => ({
+          status: "ended",
+          transcript: [{ role: "assistant", content: "OUTCOME: booked" }],
+          report: { outcome: "booked" },
+        }),
+        getSession: async () => ({}),
+      };
+
+      const summary = await makeCall(
+        { dialToken: token, objective: "Do you have a table for 4 at 8pm tonight?", callerName: "Bruce", context: null },
+        { client: fakeClient as unknown as SpekoClient, cfg: config, bearerHash: BEARER_HASH, sleep: async () => {} },
+      );
+
+      // The agent-provided token was accepted (no rejection) and dialed correctly.
+      expect(dialed).not.toBeNull();
+      const body = dialed as Record<string, unknown>;
+      expect(body.to).toBe("+14155550123");
+      // Disclosure is always present + names the caller (buildFirstMessage is pure).
+      expect(String(body.firstMessage)).toMatch(/AI assistant/i);
+      expect(String(body.firstMessage)).toContain("Bruce");
+      expect(body.systemPrompt).toBeTypeOf("string");
+      expect(summary.call_id).toBe("sess1");
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
