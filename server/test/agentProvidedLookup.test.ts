@@ -1,8 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-// Mock the carrier line-type check so we can drive it without hitting Twilio.
+// Mock the carrier line-type check + Google Places so we drive both without network.
 vi.mock("../src/lookup/twilio.js", () => ({
   carrierLineType: vi.fn(async () => "landline"),
+}));
+vi.mock("../src/lookup/places.js", () => ({
+  searchPlaces: vi.fn(async () => []),
 }));
 
 import { makeCall } from "../src/calls/makeCall.js";
@@ -10,6 +13,7 @@ import type { AppConfig } from "../src/config.js";
 import { lookupBusiness } from "../src/lookup/index.js";
 import type { SpekoClient } from "../src/speko/client.js";
 import { carrierLineType } from "../src/lookup/twilio.js";
+import { searchPlaces } from "../src/lookup/places.js";
 import { verifyDialToken } from "../src/safety/dialToken.js";
 
 const SECRET = "test-agent-secret";
@@ -43,6 +47,7 @@ describe("agent-provided lookup", () => {
     }
     process.env.SPEKO_DIAL_TOKEN_SECRET = SECRET;
     vi.mocked(carrierLineType).mockResolvedValue("landline");
+    vi.mocked(searchPlaces).mockResolvedValue([]);
   });
 
   afterEach(() => {
@@ -212,5 +217,35 @@ describe("agent-provided lookup", () => {
     expect(c.dial_token).toBeTypeOf("string");
     const payload = verifyDialToken(c.dial_token as string, { expectedBearerHash: BEARER_HASH, secret: SECRET });
     expect(payload.utc_offset_minutes).toBe(-300);
+  });
+
+  // utc_offset_minutes must ALSO be honored on the Google Places path: if Places omits an
+  // offset, the caller's value fills the gap (otherwise the candidate is unrecoverably blocked).
+  it("fills a Places candidate's missing offset from utc_offset_minutes (recoverable on the Places path too)", async () => {
+    vi.mocked(searchPlaces).mockResolvedValue([
+      { name: "Joe's Pizza", address: "New York, NY", e164: "+12125550100", utcOffsetMinutes: null },
+    ]);
+    const out = await lookupBusiness(
+      { name: "Joe's Pizza", location: "New York", utcOffsetMinutes: -300 },
+      { cfg: cfg({ twilio: { sid: "s", token: "t" }, googlePlacesApiKey: "g" }), bearerHash: BEARER_HASH },
+    );
+    expect(out.source).toBe("google_places");
+    const c = out.candidates[0];
+    expect(c.allowed).toBe(true);
+    const payload = verifyDialToken(c.dial_token as string, { expectedBearerHash: BEARER_HASH, secret: SECRET });
+    expect(payload.utc_offset_minutes).toBe(-300);
+  });
+
+  it("blocks a Places candidate with no offset and no utc_offset_minutes (not a make_call surprise)", async () => {
+    vi.mocked(searchPlaces).mockResolvedValue([
+      { name: "Joe's Pizza", address: "New York, NY", e164: "+12125550100", utcOffsetMinutes: null },
+    ]);
+    const out = await lookupBusiness(
+      { name: "Joe's Pizza", location: "New York" },
+      { cfg: cfg({ twilio: { sid: "s", token: "t" }, googlePlacesApiKey: "g" }), bearerHash: BEARER_HASH },
+    );
+    const c = out.candidates[0];
+    expect(c.allowed).toBe(false);
+    expect(c.blocked_reason).toMatch(/timezone|utc_offset/i);
   });
 });
