@@ -48,9 +48,8 @@ async function verifyAndMint(
   // would then be blocked.
   if (!blocked && c.utcOffsetMinutes == null) {
     blocked =
-      "Couldn't determine the destination's local timezone from this number, so quiet hours " +
-      "(08:00-21:00 local) can't be enforced. Pass utc_offset_minutes (e.g. -300 for US Eastern, " +
-      "-480 for US Pacific), or look the business up by name + location.";
+      "Couldn't determine the destination's local timezone, so quiet hours (08:00-21:00 local) " +
+      "can't be enforced. Pass utc_offset_minutes (e.g. -300 for US Eastern, -480 for US Pacific) to proceed.";
   }
   if (blocked) {
     return {
@@ -127,6 +126,14 @@ export async function lookupBusiness(
 
   const query = [input.name, input.location].filter((s) => s && String(s).trim()).join(" ");
   const places = await searchPlaces(query, cfg.googlePlacesApiKey);
-  const candidates = await Promise.all(places.map((p) => verifyAndMint(p, cfg, deps.bearerHash)));
+  // If Places omits a business's UTC offset, fall back to a caller-supplied utc_offset_minutes
+  // (an explicit override) so a missing offset is recoverable on this path too — not an
+  // unfixable block. The Places-provided offset, when present, always wins.
+  const fallbackOffset = typeof input.utcOffsetMinutes === "number" ? input.utcOffsetMinutes : null;
+  const candidates = await Promise.all(
+    places.map((p) =>
+      verifyAndMint({ ...p, utcOffsetMinutes: p.utcOffsetMinutes ?? fallbackOffset }, cfg, deps.bearerHash),
+    ),
+  );
   return { candidates, source: "google_places" };
 }
