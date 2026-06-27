@@ -1,8 +1,9 @@
 /**
  * Direct-dial path for PERSONAL calls (the `call_number` tool). Mints a short-lived
  * signed token for an arbitrary E.164 and runs the SAME make_call flow with exactly one
- * relaxation — mobiles are allowed (friends' phones). ON by default; a deployment can
- * restrict to business lines only with SPEKO_ALLOW_DIRECT_DIAL=0.
+ * relaxation — mobiles are allowed (friends' phones). ON by default; setting
+ * SPEKO_ALLOW_DIRECT_DIAL=0 disables this path entirely (businesses remain reachable
+ * via lookup_business + make_call).
  *
  * Everything else still applies: the non-removable AI disclosure, quiet hours
  * (08:00–21:00 destination-local, fail-closed), the no-sell/no-spam objective screen,

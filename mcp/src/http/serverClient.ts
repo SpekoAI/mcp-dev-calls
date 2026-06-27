@@ -77,7 +77,11 @@ export class InProcessBackend implements Backend {
     try {
       if (path === "/lookup") {
         return await core.lookupBusiness(
-          { name: String(b.name ?? ""), location: (b.location as string | undefined) ?? null },
+          {
+            name: String(b.name ?? ""),
+            location: (b.location as string | undefined) ?? null,
+            phoneNumber: (b.phone_number as string | undefined) ?? null,
+          },
           { cfg: ctx.cfg, bearerHash: ctx.bearerHash },
         );
       }
