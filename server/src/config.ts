@@ -85,11 +85,11 @@ export interface AppConfig {
   /** Routing goal. Default = latency (best for a live call: fast STT + low TTFT LLM). */
   optimizeFor: "balanced" | "accuracy" | "latency" | "cost";
   /**
-   * Opt-in (SPEKO_ALLOW_DIRECT_DIAL=1): let `call_number` dial ANY number — including
-   * mobiles — for personal calls. OFF by default: the product is business-lines-only
-   * unless the operator explicitly opts in and owns consent + TCPA for those contacts.
-   * Even when on, the AI disclosure, quiet hours, no-spam screen, and emergency/premium
-   * block all still apply.
+   * Lets `call_number` dial ANY number — including mobiles — for personal calls.
+   * ON by default (it's a first-class feature). Set SPEKO_ALLOW_DIRECT_DIAL=0 (or
+   * false/no/off) to restrict a deployment to business lines only. Either way the AI
+   * disclosure, quiet hours, no-spam objective screen, and emergency/premium block all
+   * still apply — only the business-line-type check is relaxed.
    */
   allowDirectDial: boolean;
   dialTokenSecret: string;
@@ -148,7 +148,7 @@ export function loadConfig(): AppConfig {
         | "latency"
         | "cost";
     })(),
-    allowDirectDial: ["1", "true", "yes"].includes((process.env.SPEKO_ALLOW_DIRECT_DIAL ?? "").trim().toLowerCase()),
+    allowDirectDial: !["0", "false", "no", "off"].includes((process.env.SPEKO_ALLOW_DIRECT_DIAL ?? "").trim().toLowerCase()),
     dialTokenSecret,
     googlePlacesApiKey: (process.env.GOOGLE_PLACES_API_KEY ?? "").trim() || undefined,
     twilio: twilioSid && twilioToken ? { sid: twilioSid, token: twilioToken } : undefined,

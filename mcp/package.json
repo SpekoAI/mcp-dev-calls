@@ -16,7 +16,7 @@
   "files": ["dist", "server.json", "README.md", "skills"],
   "publishConfig": { "access": "public" },
   "scripts": {
-    "build": "tsup && node scripts/postbuild.mjs",
+    "build": "npm --prefix ../server run build && tsup && node scripts/postbuild.mjs",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "dev": "tsx watch src/index.ts",
     "start": "node dist/index.js",
