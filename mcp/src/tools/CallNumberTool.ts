@@ -58,10 +58,9 @@ export default class CallNumberTool extends MCPTool {
   name = "call_number";
   description =
     "Place a disclosed PERSONAL call to a specific phone number (e.g. a friend) — NOT a business lookup. " +
-    "Requires the operator to have opted in (SPEKO_ALLOW_DIRECT_DIAL=1); otherwise it returns how to enable it. " +
-    "Every call opens with the non-removable AI disclosure, and quiet hours + the no-sell/no-spam screen still " +
-    "apply (mobiles are allowed here, unlike make_call). Use lookup_business + make_call for businesses; use this " +
-    "only for a number the user explicitly provides and has consent to call.";
+    "Available by default. Every call opens with the non-removable AI disclosure, and quiet hours + the " +
+    "no-sell/no-spam screen still apply (mobiles are allowed here, unlike make_call). Use lookup_business + " +
+    "make_call for businesses; use this only for a number the user explicitly provides and has consent to call.";
   schema = schema;
   override annotations = {
     title: "Call a Number",

@@ -1,12 +1,13 @@
 /**
  * Direct-dial path for PERSONAL calls (the `call_number` tool). Mints a short-lived
  * signed token for an arbitrary E.164 and runs the SAME make_call flow with exactly one
- * relaxation — mobiles are allowed (friends' phones). Gated by cfg.allowDirectDial.
+ * relaxation — mobiles are allowed (friends' phones). ON by default; a deployment can
+ * restrict to business lines only with SPEKO_ALLOW_DIRECT_DIAL=0.
  *
  * Everything else still applies: the non-removable AI disclosure, quiet hours
  * (08:00–21:00 destination-local, fail-closed), the no-sell/no-spam objective screen,
  * and the emergency/premium-number block. The allowAnyLineType flag is set HERE
- * (server-side, behind the opt-in), never from agent-supplied input.
+ * (server-side), never from agent-supplied input.
  */
 import type { AppConfig } from "../config.js";
 import { RejectionError } from "../lib/errors.js";
@@ -36,11 +37,9 @@ export interface CallNumberDeps {
 export async function callNumber(input: CallNumberInput, deps: CallNumberDeps): Promise<CallSummary> {
   if (!deps.cfg.allowDirectDial) {
     throw new RejectionError(
-      "Direct dialing is OFF. call_number can ring any number (including mobiles) for personal calls, " +
-        "but it is disabled by default. Turn it on by setting SPEKO_ALLOW_DIRECT_DIAL=1 — doing so " +
-        "confirms you have consent to call this number and take responsibility for compliance. The call " +
-        "still opens with the AI disclosure and respects quiet hours either way.",
-      "Set SPEKO_ALLOW_DIRECT_DIAL=1 in the MCP's env and restart, then retry — or use lookup_business for a business.",
+      "Direct dialing has been disabled on this deployment (SPEKO_ALLOW_DIRECT_DIAL is set to off), so " +
+        "call_number is restricted to business lines only. It is on by default.",
+      "Unset SPEKO_ALLOW_DIRECT_DIAL (or set it to 1) in the MCP's env and restart, then retry — or use lookup_business for a business.",
     );
   }
 
