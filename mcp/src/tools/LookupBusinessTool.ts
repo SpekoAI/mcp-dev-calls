@@ -13,6 +13,15 @@ const schema = z.object({
         "When provided, this skips the directory lookup and verifies this exact number — it's still carrier-checked " +
         "as a business line before any call. Omit it to resolve by name + location instead.",
     ),
+  utc_offset_minutes: z
+    .number()
+    .int()
+    .optional()
+    .describe(
+      "Destination UTC offset in minutes for quiet-hours (e.g. -300 US Eastern, -480 US Pacific, 0 UK). " +
+        "Pass this alongside phone_number when you know the business's region but its number isn't auto-recognized " +
+        "(otherwise the offset is derived from the number).",
+    ),
 });
 
 interface Candidate {
@@ -48,6 +57,7 @@ export default class LookupBusinessTool extends MCPTool {
       name: input.name,
       location: input.location,
       phone_number: input.phone_number,
+      utc_offset_minutes: input.utc_offset_minutes,
     })) as LookupResponse;
 
     const candidates = out.candidates ?? [];
