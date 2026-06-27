@@ -42,6 +42,16 @@ async function verifyAndMint(
     lineType = cfg.twilio ? await carrierLineType(c.e164, cfg.twilio) : null;
     blocked = lineTypeBlockedReason(lineType);
   }
+  // Quiet hours can only be enforced if we know the destination's timezone. If the offset is
+  // unknown, block HERE (at lookup) with an actionable reason instead of minting a token that
+  // make_call would later reject — so lookup_business never claims "callable" for a call that
+  // would then be blocked.
+  if (!blocked && c.utcOffsetMinutes == null) {
+    blocked =
+      "Couldn't determine the destination's local timezone from this number, so quiet hours " +
+      "(08:00-21:00 local) can't be enforced. Pass utc_offset_minutes (e.g. -300 for US Eastern, " +
+      "-480 for US Pacific), or look the business up by name + location.";
+  }
   if (blocked) {
     return {
       name: c.name,
@@ -75,7 +85,7 @@ async function verifyAndMint(
 }
 
 export async function lookupBusiness(
-  input: { name: string; location?: string | null; phoneNumber?: string | null },
+  input: { name: string; location?: string | null; phoneNumber?: string | null; utcOffsetMinutes?: number | null },
   deps: LookupDeps,
 ): Promise<LookupResult> {
   if (demoEnabled()) {
@@ -97,7 +107,8 @@ export async function lookupBusiness(
         name: input.name,
         address: (input.location ?? "").trim(),
         e164: provided,
-        utcOffsetMinutes: offsetFromE164(provided),
+        utcOffsetMinutes:
+          typeof input.utcOffsetMinutes === "number" ? input.utcOffsetMinutes : offsetFromE164(provided),
       },
       cfg,
       deps.bearerHash,

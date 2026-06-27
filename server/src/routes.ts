@@ -12,6 +12,7 @@ const lookupSchema = z.object({
   name: z.string().min(1),
   location: z.string().optional(),
   phone_number: z.string().optional(),
+  utc_offset_minutes: z.number().int().optional(),
 });
 
 const callSchema = z.object({
@@ -55,9 +56,14 @@ export function registerRoutes(router: Router, ctx: ServerContext): void {
   router.post(
     "/lookup",
     asyncHandler(async (req, res) => {
-      const { name, location, phone_number } = parse(lookupSchema, req.body);
+      const { name, location, phone_number, utc_offset_minutes } = parse(lookupSchema, req.body);
       const out = await lookupBusiness(
-        { name, location: location ?? null, phoneNumber: phone_number ?? null },
+        {
+          name,
+          location: location ?? null,
+          phoneNumber: phone_number ?? null,
+          utcOffsetMinutes: utc_offset_minutes ?? null,
+        },
         { cfg: ctx.cfg, bearerHash: ctx.bearerHash },
       );
       res.json(out);
