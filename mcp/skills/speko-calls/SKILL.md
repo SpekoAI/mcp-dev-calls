@@ -18,11 +18,12 @@ and **never dial a raw number directly**.
 ## Workflow — always in this order
 1. **`check_call_readiness()`** — read-only preflight (auth, credit balance, outbound
    caller-ID). Run first if unsure the account can dial. Never dials.
-2. **`lookup_business(name, location?, phone_number?)`** — resolves the business to dialable
-   candidates, each with a **signed, single-use `dial_token`**. This is the ONLY thing that can
-   authorize a call. If you can find the business's official phone number via web search, pass
-   it as `phone_number` (E.164) to skip the directory lookup — it's still carrier-verified as a
-   business line before any call.
+2. **`lookup_business(name, location?, phone_number?, utc_offset_minutes?)`** — resolves the business
+   to dialable candidates, each with a **signed, single-use `dial_token`**. This is the ONLY thing that
+   can authorize a call. If you can find the business's official phone number via web search, pass it as
+   `phone_number` (E.164) to skip the directory lookup — it's still carrier-verified as a business line.
+   If the number's region isn't auto-recognized for quiet-hours, also pass `utc_offset_minutes`
+   (e.g. -300 US Eastern) — you know the business's city from your search.
 3. **`make_call(dial_token, objective, caller_name, context?)`** — places the disclosed
    call, waits while it rings, returns the `OUTCOME:` line + transcript.
 

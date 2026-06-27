@@ -81,6 +81,7 @@ export class InProcessBackend implements Backend {
             name: String(b.name ?? ""),
             location: (b.location as string | undefined) ?? null,
             phoneNumber: (b.phone_number as string | undefined) ?? null,
+            utcOffsetMinutes: typeof b.utc_offset_minutes === "number" ? b.utc_offset_minutes : null,
           },
           { cfg: ctx.cfg, bearerHash: ctx.bearerHash },
         );

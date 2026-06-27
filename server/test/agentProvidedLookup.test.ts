@@ -175,4 +175,27 @@ describe("agent-provided lookup", () => {
       vi.useRealTimers();
     }
   });
+
+  it("blocks at lookup when the timezone can't be determined (unlisted region, no utc_offset)", async () => {
+    const out = await lookupBusiness(
+      { name: "Mystery Diner", phoneNumber: "+19995551234" }, // 999 not in the NANP table → null offset
+      { cfg: cfg({ twilio: { sid: "s", token: "t" } }), bearerHash: BEARER_HASH },
+    );
+    const c = out.candidates[0];
+    expect(c.allowed).toBe(false);
+    expect(c.dial_token).toBeNull();
+    expect(c.blocked_reason).toMatch(/timezone|quiet hours|utc_offset/i);
+  });
+
+  it("accepts an unlisted-region number when utc_offset_minutes is provided (escape hatch)", async () => {
+    const out = await lookupBusiness(
+      { name: "Mystery Diner", phoneNumber: "+19995551234", utcOffsetMinutes: -300 },
+      { cfg: cfg({ twilio: { sid: "s", token: "t" } }), bearerHash: BEARER_HASH },
+    );
+    const c = out.candidates[0];
+    expect(c.allowed).toBe(true);
+    expect(c.dial_token).toBeTypeOf("string");
+    const payload = verifyDialToken(c.dial_token as string, { expectedBearerHash: BEARER_HASH, secret: SECRET });
+    expect(payload.utc_offset_minutes).toBe(-300);
+  });
 });

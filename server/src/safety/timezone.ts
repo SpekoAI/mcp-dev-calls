@@ -12,7 +12,8 @@
  * SPEKO_DEMO_UTC_OFFSET for those.
  */
 
-// Representative US/Canada area code -> IANA zone. Unlisted NANP falls back to Eastern.
+// Representative US/Canada area code -> IANA zone. Unlisted NANP returns null (fails closed —
+// see zoneFromE164), so an unknown region is never silently assumed to be Eastern.
 const NANP_AREA_TZ: Readonly<Record<string, string>> = {
   // Pacific
   "206": "America/Los_Angeles", "213": "America/Los_Angeles", "310": "America/Los_Angeles",
