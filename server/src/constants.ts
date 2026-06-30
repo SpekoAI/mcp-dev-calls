@@ -16,7 +16,7 @@ export const MIN_CALL_SECONDS = 30;
 
 export const FAST_POLLS = 5;
 export const FAST_POLL_SECONDS = 2;
-export const SLOW_POLL_SECONDS = 5;
+export const SLOW_POLL_SECONDS = 2;
 
 // voice.dial returns "dialing" on a real dial or "dialing-stub" when the
 // deployment has no SIP/telephony configured (call NOT placed → never poll/retry).
