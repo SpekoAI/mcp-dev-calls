@@ -42,7 +42,36 @@ export const TERMINAL_STATUSES: ReadonlySet<string> = new Set([
   "hangup",
 ]);
 
+// GENUINE call endings. NOTE: "failed"/"error" are deliberately EXCLUDED — the platform
+// flips the call status to "failed" the instant a first-audio SLA times out (~10-15s), even
+// when the call is still live and a full conversation follows. Finalizing on "failed" was
+// reporting working calls as not_connected. We instead wait for the room teardown event.
+export const HARD_TERMINAL_STATUSES: ReadonlySet<string> = new Set([
+  "completed",
+  "ended",
+  "no_answer",
+  "no-answer",
+  "busy",
+  "canceled",
+  "cancelled",
+  "hangup",
+]);
+
+// The authoritative "the call is really over" signals from GET /v1/calls/{id}/events.
+export const ROOM_END_EVENTS: ReadonlySet<string> = new Set(["room_finished", "call.end_tool.completed"]);
+
+// Genuine non-recoverable failures (the agent never dispatched / the SIP dial failed). Unlike a
+// first-audio timeout, these never recover, so stop polling immediately.
+export const HARD_FAILURE_EVENTS: ReadonlySet<string> = new Set(["agent.dispatch_failed", "sip.dial_failed"]);
+
 export const OUTCOME_MARKER = "OUTCOME:";
+
+// The platform call-report `outcome` sometimes carries a bare status word (e.g. "failed",
+// "completed") rather than a real transactional answer. On a connected call that reads as a
+// misleading headline ("outcome: failed" on a call that worked), so these are filtered out and
+// we fall back to a transcript OUTCOME: marker / the transcript itself.
+export const BARE_OUTCOME_RE =
+  /^(failed|abandoned|completed?|error|no[_-]?answer|busy|canceled|cancelled|ended|success|unknown|in[_-]?progress|dialing)$/i;
 
 // voice.dial requires agentId or intent; ad-hoc calls pin a minimal intent.
 export const DIAL_INTENT_LANGUAGE = "en";

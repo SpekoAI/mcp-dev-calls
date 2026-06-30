@@ -1,11 +1,13 @@
 /**
- * Connection assessment — the truth layer. A Speko `status: "ended"` does NOT mean
- * a phone rang: the platform creates a LiveKit room + LLM agent (which emits the
- * greeting) even when no outbound SIP leg is established. The only reliable proof a
- * real call reached the carrier is the session's `phoneCall.callControlId` plus
- * carrier usage rows. We distinguish three things make_call used to conflate:
- *   - connected: an outbound telephony leg actually reached the carrier
- *   - answered:  the remote party actually spoke (a non-agent transcript turn)
+ * Connection assessment — the truth layer. A Speko `status` of "ended"/"failed" does NOT by
+ * itself tell you whether a real call happened: the platform spins up a LiveKit room + LLM
+ * agent even when nothing connects, and conversely flags a LIVE call "failed" on a first-audio
+ * timeout. On this deployment `phoneCall.callControlId` and carrier-usage rows are structurally
+ * null/zero even on SUCCESSFUL calls, so they are WEAK signals. The STRONG, reliable proof that
+ * a real two-way call happened is a transcript turn from the other party (source='user'). We
+ * distinguish three things make_call used to conflate:
+ *   - answered:  the remote party actually spoke (a non-agent transcript turn) — the ground truth
+ *   - connected: a real leg formed (answered, with callControlId/carrier as weak corroboration)
  *   - outcome:   what was accomplished, only meaningful once answered
  */
 import { extractReply } from "../lib/transcript.js";
@@ -39,7 +41,8 @@ export function assessConnection(session: SessionDetail | null, transcript: unkn
   const ccidRaw = session.phoneCall?.callControlId;
   const callControlId = typeof ccidRaw === "string" && ccidRaw.trim() ? ccidRaw : null;
   const carrierBilled = Array.isArray(session.usage) && session.usage.some(isCarrierUsage);
-  // A real outbound call always has a callControlId; carrier minutes are extra proof.
-  const connected = Boolean(callControlId) || carrierBilled || answered;
+  // `answered` (a caller turn) is the ground truth; callControlId/carrier only corroborate and
+  // are often absent even on real calls here, so connected falls back to answered.
+  const connected = answered || Boolean(callControlId) || carrierBilled;
   return { connected, answered, callControlId, carrierBilled };
 }

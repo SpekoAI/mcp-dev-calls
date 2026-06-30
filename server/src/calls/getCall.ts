@@ -4,7 +4,7 @@
  * from metadata) plus the authoritative session, and shapes the same summary
  * make_call would. Safe to call repeatedly; never places a call.
  */
-import { AUTH_NEXT_STEP } from "../constants.js";
+import { AUTH_NEXT_STEP, BARE_OUTCOME_RE } from "../constants.js";
 import { AppError } from "../lib/errors.js";
 import { extractOutcome } from "../lib/transcript.js";
 import { isAuthFailure, type SpekoClient } from "../speko/client.js";
@@ -32,9 +32,11 @@ export async function describeCall(callId: string, client: SpekoClient): Promise
   const transcript = detail.transcript ?? null;
   const to = strField(detail.metadata, "to") ?? strField(detail.metadata, "dialedNumber");
   const from = strField(detail.metadata, "from");
-  const reportOutcome = detail.report?.outcome;
-  const outcome =
-    typeof reportOutcome === "string" && reportOutcome.trim() ? reportOutcome.trim() : extractOutcome(transcript);
+  const reportOutcome = typeof detail.report?.outcome === "string" ? detail.report.outcome.trim() : "";
+  // Ignore bare platform status words ("failed"/"completed"/...); prefer a substantive outcome
+  // or a transcript OUTCOME: marker.
+  const substantive = reportOutcome && !BARE_OUTCOME_RE.test(reportOutcome) ? reportOutcome : "";
+  const outcome = substantive || extractOutcome(transcript);
 
   let session: SessionDetail | null = null;
   try {

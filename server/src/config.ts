@@ -67,9 +67,11 @@ export interface AppConfig {
   voice: string | undefined;
   /** TTS speed multiplier; defaults to 1.0 at dial time. */
   ttsSpeed: number | undefined;
-  /** provider:model pin for TTS. Default = elevenlabs:eleven_flash_v2_5 — our switchboard's
-   * live pick (lowest latency, best EN CER). No measured EN-naturalness number yet, so no
-   * "verified"/"most natural" claim until the head-to-head harness runs. */
+  /** provider:model pin for TTS. Default = elevenlabs:eleven_flash_v2_5 — PROVEN to produce
+   * audible audio on a live connected call (2026-06-30). eleven_turbo_v2_5 is more natural and
+   * passes the /synthesize preflight, but SILENTLY produced no agent audio in the live worker
+   * on the same date (the live TTS path differs from /synthesize) — do NOT default to it until
+   * re-verified on a real call. Override with SPEKO_TTS_PIN. */
   ttsPin: string;
   /** provider pin for STT. Default = deepgram:nova-3 — clean win across every source.
    * (Streaming first-partial ≈ 1.3s; the ~366ms figure is the serial p50, not first-partial.) */

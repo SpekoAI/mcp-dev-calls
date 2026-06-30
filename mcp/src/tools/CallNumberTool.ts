@@ -57,10 +57,12 @@ function summarize(s: Record<string, unknown>): string {
 export default class CallNumberTool extends MCPTool {
   name = "call_number";
   description =
-    "Place a disclosed PERSONAL call to a specific phone number (e.g. a friend) — NOT a business lookup. " +
-    "Available by default. Every call opens with the non-removable AI disclosure, and quiet hours + the " +
-    "no-sell/no-spam screen still apply (mobiles are allowed here, unlike make_call). Use lookup_business + " +
-    "make_call for businesses; use this only for a number the user explicitly provides and has consent to call.";
+    "Place a disclosed call to a phone number you HAVE or FOUND (e.g. via web search) — the DEFAULT path for " +
+    "calling any business or person. Works with just the user's Speko key, no extra setup. Every call opens " +
+    "with the non-removable AI disclosure; quiet hours and the no-sell/no-spam screen still apply (mobiles " +
+    "allowed). lookup_business + make_call is the OPTIONAL verified-directory path (it needs the server's " +
+    "carrier/directory keys); prefer call_number when you already have or found the number. Only dial a number " +
+    "the user asked you to call or explicitly provided — never one you invented.";
   schema = schema;
   override annotations = {
     title: "Call a Number",

@@ -76,7 +76,7 @@ describe("shapeCallSummary", () => {
     expect(s.answered).toBe(false);
     expect(s.duration_seconds).toBe(0);
     expect(s.outcome).toBeNull(); // never report an outcome for a call that did not connect
-    expect(s.reason).toMatch(/never rang/i);
+    expect(s.reason).toMatch(/never heard|did not truly connect|no real two-way/i);
     expect(s.caller_id).toBe("+13392308385");
     expect(s.dialed_number).toBe("+77771110474");
   });
@@ -103,6 +103,28 @@ describe("shapeCallSummary", () => {
     expect(s.answered).toBe(false);
     expect(s.duration_seconds).toBe(18); // real session duration, not poll elapsed
     expect(s.reason).toMatch(/never spoke|no answer/i);
+  });
+
+  it("normalizes a connected-but-no-answer call's stale status to no_answer", () => {
+    const session: SessionDetail = {
+      status: "failed",
+      durationSeconds: 12,
+      phoneCall: { callControlId: "v3:def" },
+      usage: [{ provider: "telnyx", metric: "outbound_minutes", quantity: 1 }],
+    };
+    const s = shapeCallSummary({
+      callId: "c2b",
+      to: "+12025550199",
+      from: "+13392308385",
+      status: "dialing", // stale dial status the event-driven poll loop never refreshes
+      transcript: AGENT_ONLY_TRANSCRIPT,
+      outcome: null,
+      session,
+      fallbackDuration: 15,
+    });
+    expect(s.connected).toBe(true);
+    expect(s.answered).toBe(false);
+    expect(s.status).toBe("no_answer"); // not the stale "dialing"
   });
 
   it("reports a normal connected + answered call with its outcome", () => {
