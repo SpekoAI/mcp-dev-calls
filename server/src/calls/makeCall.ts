@@ -8,21 +8,24 @@ import type { VoiceDialParams } from "@spekoai/sdk";
 import type { AppConfig } from "../config.js";
 import {
   AUTH_NEXT_STEP,
+  BARE_OUTCOME_RE,
   DIAL_INTENT_LANGUAGE,
   DIAL_STT_KEYWORDS,
   FAST_POLLS,
   FAST_POLL_SECONDS,
+  HARD_FAILURE_EVENTS,
+  HARD_TERMINAL_STATUSES,
   MAKE_CALL_DIAL_NEXT_STEP,
   MAKE_CALL_NEXT_STEP,
   MAX_CALL_SECONDS,
   MIN_CALL_SECONDS,
   NOT_PLACED_STATUS,
+  ROOM_END_EVENTS,
   SLOW_POLL_SECONDS,
   STUB_DIAL_STATUS,
-  TERMINAL_STATUSES,
 } from "../constants.js";
 import { AppError, RejectionError } from "../lib/errors.js";
-import { extractOutcome } from "../lib/transcript.js";
+import { extractOutcome, extractReply } from "../lib/transcript.js";
 import {
   DialTokenError,
   dialBlockedReason,
@@ -138,9 +141,10 @@ export async function makeCall(input: MakeCallInput, deps: MakeCallDeps): Promis
   const body: VoiceDialParams = {
     to: e164,
     ...(fromNumber ? { from: fromNumber } : {}),
-    // optimizeFor=latency is best for a LIVE call: the selector keeps gpt-5 (best time-to-
-    // first-token) + a fast streaming STT, avoiding the multi-second dead air the other modes
-    // route to. Benchmark-driven via Speko's selector.
+    // optimizeFor=latency is best for a LIVE call: it routes to a fast streaming STT + a low
+    // time-to-first-token LLM, avoiding the multi-second dead air the balanced/accuracy modes
+    // introduce. The actual LLM/TTS/STT models are pinned below via constraints
+    // (cfg.llmPin / cfg.ttsPin / cfg.sttPin), not left to the selector.
     intent: { language: DIAL_INTENT_LANGUAGE, optimizeFor: deps.cfg.optimizeFor },
     // A specific `voice` (cfg.voice) is safe ONLY because it's an ElevenLabs voice matching the
     // ElevenLabs TTS pin below — always verify a voice with scripts/verify-tts.mjs first. A voice
@@ -186,7 +190,7 @@ function baseSummary(callId: string | null, to: string | null, from: string | nu
   };
 }
 
-async function runPhoneCall(
+export async function runPhoneCall(
   body: VoiceDialParams,
   maxSeconds: number,
   deps: MakeCallDeps,
@@ -232,32 +236,55 @@ async function runPhoneCall(
     );
   }
 
+  // Poll until the call REALLY ends. The platform flips `status` to "failed" the moment a
+  // first-audio SLA times out (~10-15s) even when the call is live and a full conversation
+  // follows — so the authoritative end signal is the room-teardown EVENT, not the status.
+  // (Finalizing on the premature "failed" was reporting working calls as not_connected.)
   let elapsed = 0;
   let polls = 0;
-  while (!TERMINAL_STATUSES.has(status) && elapsed < maxSeconds) {
+  let ended = false;
+  while (elapsed < maxSeconds) {
     const interval = polls < FAST_POLLS ? FAST_POLL_SECONDS : SLOW_POLL_SECONDS;
     await sleep(interval * 1000);
     elapsed += interval;
     polls += 1;
+    let events: Array<Record<string, unknown>>;
     try {
-      const d = await deps.client.getCall(callId);
-      status = String(d.status ?? "").toLowerCase();
-    } catch (e) {
-      // Already dialed: never advise a retry (would re-dial); hand back the call_id.
-      throw new AppError((e as Error).message, {
-        statusCode: 502,
-        nextStep: `Do not dial again; the call (call_id '${callId}') may still be in progress. Check it with get_call('${callId}').`,
-      });
+      events = await deps.client.getEvents(callId);
+    } catch {
+      // Events endpoint hiccup — fall back to the call status so we never hang silently.
+      try {
+        const d = await deps.client.getCall(callId);
+        status = String(d.status ?? "").toLowerCase();
+      } catch (e) {
+        // Already dialed: never advise a retry (would re-dial); hand back the call_id.
+        throw new AppError((e as Error).message, {
+          statusCode: 502,
+          nextStep: `Do not dial again; the call (call_id '${callId}') may still be in progress. Check it with get_call('${callId}').`,
+        });
+      }
+      if (HARD_TERMINAL_STATUSES.has(status)) {
+        ended = true;
+        break;
+      }
+      continue;
+    }
+    const types = new Set(events.map((e) => String(e.event_type ?? e.type ?? "").toLowerCase()));
+    // Room teardown = the call is genuinely over; a hard failure (agent never dispatched /
+    // SIP dial failed) never recovers. A bare "failed" status without these is ignored.
+    if ([...ROOM_END_EVENTS].some((t) => types.has(t)) || [...HARD_FAILURE_EVENTS].some((t) => types.has(t))) {
+      ended = true;
+      break;
     }
   }
 
-  if (!TERMINAL_STATUSES.has(status)) {
+  if (!ended) {
     return {
       ...baseSummary(callId, to, from),
       status: "timeout",
       duration_seconds: elapsed,
       connected: true,
-      reason: "Reached the wait limit before the call reached a terminal state; it may still be in progress.",
+      reason: "Reached the wait limit before the call ended; it may still be in progress.",
     };
   }
 
@@ -278,17 +305,28 @@ async function finalize(
   elapsed: number,
   deps: MakeCallDeps,
 ): Promise<CallSummary> {
+  const sleep = deps.sleep ?? defaultSleep;
   let transcript: unknown = null;
   let transcriptError: string | undefined;
   let outcome: string | null = null;
-  try {
-    const detail = await deps.client.getCall(callId);
-    transcript = detail.transcript ?? null;
-    const reportOutcome = detail.report?.outcome;
-    outcome =
-      typeof reportOutcome === "string" && reportOutcome.trim() ? reportOutcome.trim() : extractOutcome(transcript);
-  } catch (e) {
-    transcriptError = (e as Error).message;
+  // The transcript can lag the room-teardown event by a moment; re-fetch briefly until the
+  // caller's turns appear (or attempts run out) so a real conversation isn't under-reported
+  // as not_connected just because we read it a beat too early.
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    try {
+      const detail = await deps.client.getCall(callId);
+      transcript = detail.transcript ?? null;
+      const reportOutcome = typeof detail.report?.outcome === "string" ? detail.report.outcome.trim() : "";
+      // Ignore bare platform status words ("failed"/"completed"/...) — prefer a substantive report
+      // outcome, else an OUTCOME: marker in the transcript.
+      const substantive = reportOutcome && !BARE_OUTCOME_RE.test(reportOutcome) ? reportOutcome : "";
+      outcome = substantive || extractOutcome(transcript);
+      transcriptError = undefined;
+    } catch (e) {
+      transcriptError = (e as Error).message;
+    }
+    if (extractReply(transcript) !== null) break;
+    if (attempt < 2) await sleep(3000);
   }
 
   let session: SessionDetail | null = null;

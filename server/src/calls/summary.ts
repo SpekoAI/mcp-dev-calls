@@ -9,8 +9,8 @@ import type { CallSummary, SessionDetail } from "../types.js";
 import { assessConnection } from "./assess.js";
 
 const NOT_CONNECTED_REASON =
-  "The session and AI agent started, but no telephony leg reached the carrier (callControlId null, no " +
-  "carrier minutes) — the phone never rang.";
+  "No real two-way call took place — the AI agent started but the other party was never heard " +
+  "(no answer, voicemail, or the call did not truly connect).";
 const NO_ANSWER_REASON =
   "The call connected but the other party never spoke (no answer / voicemail / hung up before responding).";
 
@@ -50,7 +50,15 @@ export function shapeCallSummary(input: ShapeInput): CallSummary {
     summary.status = NOT_CONNECTED_STATUS;
     summary.reason = NOT_CONNECTED_REASON;
   } else if (connected && !assessment.answered) {
+    // Connected but the other party never spoke (voicemail / no pickup). Normalize the status
+    // so a stale "dialing" never leaks through (the event-driven poll loop doesn't refresh it).
+    summary.status = "no_answer";
     summary.reason = NO_ANSWER_REASON;
+  } else if (connected && assessment.answered) {
+    // The platform can mark a call "failed" (a first-audio SLA flag) even when a full
+    // conversation happened. A call the other party actually spoke on IS a completed call —
+    // normalize so we never surface "failed" for a real two-way conversation.
+    summary.status = "completed";
   }
   return summary;
 }
