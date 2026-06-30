@@ -26,16 +26,20 @@ There are **two ways to dial**:
 
 ## Find the number yourself (the hero flow)
 When the user names a *kind* of place ("the best taco spot in the Bay Area"), don't ask them
-for a number — find it and call it:
-1. **Web-search** for the specific business; read its official site/listing for the phone
-   number and city.
-2. **`call_number(phone_number=<E.164>, objective, caller_name, utc_offset_minutes?)`** places
-   the disclosed call. Pass `utc_offset_minutes` if the region isn't auto-recognized — you know
-   the city from your search (e.g. `-480` Bay Area / US Pacific, `-300` US Eastern, `0` UK).
-3. **Confirm the pick + objective with the user before dialing** — a call is a real-world action.
+for a number — find it and call it. **Be decisive — don't stall the user with options.**
+1. **Web-search** and pick the SINGLE best match; don't make the user choose from a list. Read
+   its official site/listing for the full phone number and its city.
+2. **`call_number(phone_number=<+E.164>, objective, caller_name)`** places the disclosed call.
+   Use a full international number with a leading `+` and country code (`+14152857117`, not
+   `(415) 285-7117`). The destination timezone auto-derives from common area codes; if the tool
+   says it couldn't determine the timezone (an unusual area code, or a toll-free
+   800/888/877/866 number), re-run with `utc_offset_minutes` for the business's city
+   (US Pacific is `-420` in summer / `-480` in winter, US Eastern `-240`/`-300`, UK `+60`/`0`).
+3. One quick inline confirm ("calling La Taqueria, +1 415-285-7117, to ask if they have carnitas
+   — go?"), then dial. A call is a real-world action, so keep the gate to a single yes/no.
 
 Example: *"find the best taco place in the Bay Area and ask if they're open and have carnitas"*
-→ search → `call_number(...)` → relay the `OUTCOME`.
+→ search → pick La Taqueria → `call_number(...)` → relay the `OUTCOME`.
 
 ## Writing the objective
 One plain, transactional goal in everyday words:
@@ -44,8 +48,10 @@ One plain, transactional goal in everyday words:
 - **info:** *"Ask if they're open now and how long the wait is for a table for 2."*
 
 Pass the user's name as `caller_name` (the disclosure says *"I'm \<caller_name\>'s AI assistant"*).
-Avoid words the no-spam screen refuses — *sell, promote, discount, deal, survey, donate,
-fundraise, campaign, marketing, advertise.* Just say it plainly ("order…", "ask if…", "book…").
+Avoid words the no-spam screen refuses — they match as substrings (e.g. "promot" catches
+"promotion"): *sell, sales pitch, promote, discount, sponsor, advertise, marketing, survey,
+donate, fundraise, vote, campaign, debt, warranty, crypto, investment.* Just say it plainly
+("order…", "ask if…", "book…", "check the price of…"). ("deal" is fine.)
 
 ## The verified directory path — `lookup_business` → `make_call`
 1. **`check_call_readiness()`** — read-only preflight (auth, credit, outbound caller-ID). Run

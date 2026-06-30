@@ -5,7 +5,10 @@ import { getServerClient } from "../http/serverClient.js";
 const schema = z.object({
   phone_number: z
     .string()
-    .describe("Number to call, E.164 (e.g. +77011234567). A real number the user has consent to call."),
+    .describe(
+      "Number to call in full international E.164 — leading + and country code (e.g. +14152857117, " +
+        "NOT (415) 285-7117). A number the user asked you to call or explicitly provided.",
+    ),
   objective: z
     .string()
     .describe("What to say / accomplish, e.g. 'Tell Sam that John says happy birthday and misses him.'"),
@@ -77,6 +80,8 @@ export default class CallNumberTool extends MCPTool {
     const client = getServerClient();
 
     let elapsed = 0;
+    // Immediate progress so the terminal isn't silent for the first ~5s while the call places + rings.
+    void this.reportProgress(0, maxWait, "Placing the call…").catch(() => {});
     const timer = setInterval(() => {
       elapsed += HEARTBEAT_MS / 1000;
       void this.reportProgress(elapsed, maxWait, `Call in progress — ${elapsed}s elapsed`).catch(() => {});
