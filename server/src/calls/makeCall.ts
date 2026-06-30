@@ -107,10 +107,15 @@ export async function makeCall(input: MakeCallInput, deps: MakeCallDeps): Promis
   const offset = typeof payload.utc_offset_minutes === "number" ? payload.utc_offset_minutes : null;
   const quietReason = quietHoursReason(offset);
   if (quietReason) {
+    // Path-aware recovery: the call_number (direct) path has no dial_token to re-mint, so guide
+    // it back to call_number + utc_offset_minutes rather than lookup_business/make_call.
+    const direct = deps.allowAnyLineType === true;
     const next =
       offset == null
-        ? MAKE_CALL_NEXT_STEP
-        : "Wait until destination business hours (08:00-21:00 local time) and run make_call again.";
+        ? direct
+          ? "Re-run call_number with utc_offset_minutes for the destination's city (e.g. -420 US Pacific summer, -300 US Eastern)."
+          : MAKE_CALL_NEXT_STEP
+        : `Wait until destination business hours (08:00-21:00 local time) and run ${direct ? "call_number" : "make_call"} again.`;
     throw new RejectionError(quietReason, next);
   }
 

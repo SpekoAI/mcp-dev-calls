@@ -45,7 +45,10 @@ export async function callNumber(input: CallNumberInput, deps: CallNumberDeps): 
     );
   }
 
-  const e164 = typeof input.phoneNumber === "string" ? input.phoneNumber.trim() : "";
+  // Normalize formatting from web-found numbers ("+1 415-285-7117" / "+1 (415) 285-7117" ->
+  // "+14152857117"); the E.164 check below still rejects anything missing a leading + / country
+  // code. Mirrors the agent-provided path in lookup/index.ts so all dial paths normalize alike.
+  const e164 = typeof input.phoneNumber === "string" ? input.phoneNumber.replace(/[^\d+]/g, "") : "";
   const blocked = dialBlockedReason(e164);
   if (blocked) {
     throw new RejectionError(blocked, "Pass a valid E.164 number (e.g. +77011234567) that you have consent to call.");

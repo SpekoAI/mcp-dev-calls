@@ -79,6 +79,8 @@ export default class MakeCallTool extends MCPTool {
     // Heartbeat so the call feels alive in the terminal. The authoritative
     // status lives server-side; here we surface elapsed time (monotonic).
     let elapsed = 0;
+    // Immediate progress so the terminal isn't silent for the first ~5s while the call places + rings.
+    void this.reportProgress(0, maxWait, "Placing the call…").catch(() => {});
     const timer = setInterval(() => {
       elapsed += HEARTBEAT_MS / 1000;
       void this.reportProgress(elapsed, maxWait, `Call in progress — ${elapsed}s elapsed`).catch(() => {});
