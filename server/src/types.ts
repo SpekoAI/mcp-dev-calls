@@ -50,6 +50,13 @@ export interface CallSummary {
  */
 export interface SessionDetail {
   status?: string;
+  /**
+   * Set the moment the call ACTUALLY ends: the platform's Telnyx `call.hangup` webhook
+   * stamps `status='ended', endedAt=now` on the session immediately when either side
+   * hangs up — long before the LiveKit `room_finished` event (the agent can idle in the
+   * room ~45-60s after the phone leg is dead). Authoritative "phone call is over" signal.
+   */
+  endedAt?: string | null;
   durationSeconds?: number;
   phoneCall?: { callControlId?: string | null; phoneNumberId?: string | null } | null;
   usage?: Array<{ provider?: string; metric?: string; quantity?: number; cost?: number }>;
