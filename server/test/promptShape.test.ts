@@ -18,3 +18,11 @@ describe("E2 — caller/callee role anchor", () => {
     expect(sys).toMatch(/never voice their line/i);
   });
 });
+
+describe("A4 — single opening (don't re-greet after the spoken firstMessage)", () => {
+  it("tells the model its opening was already spoken and to wait, not re-open", () => {
+    const sys = buildSystemPrompt("ask about a table for 4 at 8pm", null, "Biz", "Bruce");
+    expect(sys).toMatch(/opening line has ALREADY been spoken/i);
+    expect(sys).toMatch(/wait for them to respond|never talk over/i);
+  });
+});
