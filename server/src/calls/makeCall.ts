@@ -38,7 +38,7 @@ import { buildFirstMessage, buildSystemPrompt } from "../safety/prompt.js";
 import { MAX_CALLER_NAME_CHARS } from "../constants.js";
 import { isAuthFailure, type SpekoClient } from "../speko/client.js";
 import type { CallSummary, MakeCallInput, SessionDetail } from "../types.js";
-import { shapeCallSummary } from "./summary.js";
+import { attachDashboardUrl, shapeCallSummary } from "./summary.js";
 
 const clamp = (n: number, lo: number, hi: number): number => Math.min(Math.max(n, lo), hi);
 const defaultSleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
@@ -177,7 +177,7 @@ export async function makeCall(input: MakeCallInput, deps: MakeCallDeps): Promis
     telephony: { amd: { mode: "agent" } },
   };
 
-  return runPhoneCall(body, durationCap, deps, sleep);
+  return attachDashboardUrl(await runPhoneCall(body, durationCap, deps, sleep), deps.cfg.dashboardBaseUrl);
 }
 
 /** A CallSummary skeleton with the honest defaults (nothing connected/answered yet). */

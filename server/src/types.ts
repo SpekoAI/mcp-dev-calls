@@ -33,6 +33,8 @@ export interface CallSummary {
   transcript_error?: string;
   /** Human-readable explanation when the call did not connect / was not placed. */
   reason?: string;
+  /** Deep link to the call in the Speko dashboard (`${dashboardBaseUrl}/sessions/{call_id}`). */
+  dashboard_url?: string;
 }
 
 /**

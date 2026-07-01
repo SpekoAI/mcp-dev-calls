@@ -9,7 +9,7 @@ import { AppError } from "../lib/errors.js";
 import { extractOutcome } from "../lib/transcript.js";
 import { isAuthFailure, type SpekoClient } from "../speko/client.js";
 import type { CallSummary, SessionDetail } from "../types.js";
-import { shapeCallSummary } from "./summary.js";
+import { attachDashboardUrl, shapeCallSummary } from "./summary.js";
 
 function strField(md: Record<string, unknown> | undefined, key: string): string | null {
   const v = md?.[key];
@@ -22,7 +22,11 @@ function hasTerminalEvent(events: Array<Record<string, unknown>>): boolean {
   return [...ROOM_END_EVENTS].some((t) => types.has(t)) || [...HARD_FAILURE_EVENTS].some((t) => types.has(t));
 }
 
-export async function describeCall(callId: string, client: SpekoClient): Promise<CallSummary> {
+export async function describeCall(
+  callId: string,
+  client: SpekoClient,
+  dashboardBaseUrl?: string,
+): Promise<CallSummary> {
   let detail;
   try {
     detail = await client.getCall(callId);
@@ -74,15 +78,18 @@ export async function describeCall(callId: string, client: SpekoClient): Promise
     // Best effort.
   }
 
-  return shapeCallSummary({
-    callId,
-    to,
-    from,
-    status,
-    transcript,
-    outcome,
-    session,
-    fallbackDuration,
-    isTerminal,
-  });
+  return attachDashboardUrl(
+    shapeCallSummary({
+      callId,
+      to,
+      from,
+      status,
+      transcript,
+      outcome,
+      session,
+      fallbackDuration,
+      isTerminal,
+    }),
+    dashboardBaseUrl,
+  );
 }

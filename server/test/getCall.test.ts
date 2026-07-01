@@ -63,6 +63,28 @@ describe("describeCall — terminality gate (A2: no stale 'completed' on a LIVE 
     expect(s.duration_seconds).toBe(88);
   });
 
+  it("attaches a /sessions/{id} dashboard deep link when a base URL is provided (E3)", async () => {
+    const mk = () =>
+      client({
+        getCall: async () =>
+          ({
+            status: "completed",
+            transcript: withUserTurn,
+            report: null,
+            ended_at: new Date().toISOString(),
+            created_at: new Date(Date.now() - 60_000).toISOString(),
+            duration_seconds: 50,
+            metadata: {},
+          }) as any,
+        getEvents: async () => [{ event_type: "room_finished" }] as any,
+        getSession: async () => ({ phoneCall: { callControlId: null }, usage: [] }) as any,
+      });
+    const withUrl = await describeCall("call-xyz", mk(), "https://platform.speko.dev");
+    expect(withUrl.dashboard_url).toBe("https://platform.speko.dev/sessions/call-xyz");
+    const noUrl = await describeCall("call-xyz", mk());
+    expect(noUrl.dashboard_url).toBeUndefined();
+  });
+
   it("treats ended_at as terminal even when the events endpoint is unavailable", async () => {
     const s = await describeCall(
       "done2",
