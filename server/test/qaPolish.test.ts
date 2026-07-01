@@ -104,3 +104,24 @@ describe("D-INF2 — readiness surfaces inbound answerability", () => {
     expect(r.next_steps.some((s) => /will NOT be answered|no agent/i.test(s))).toBe(true);
   });
 });
+
+describe("M1 — an unreadable session is reported honestly, not as a false no_answer", () => {
+  it("reports not_connected (unconfirmed) when the session is null and nobody was heard", () => {
+    const s = shapeCallSummary({
+      callId: "u1",
+      to: "+1",
+      from: "+1",
+      status: "ended",
+      transcript: { entries: [{ source: "agent", text: "hello?" }] }, // agent-only → not answered
+      outcome: null,
+      session: null, // getSession failed
+      fallbackDuration: 30,
+      isTerminal: true,
+    });
+    expect(s.status).toBe("not_connected");
+    expect(s.connected).toBe(false);
+    expect(s.duration_seconds).toBe(0);
+    expect(s.status).not.toBe("no_answer");
+    expect(s.reason).toMatch(/couldn't be read|confirm/i);
+  });
+});

@@ -18,6 +18,10 @@ const DIAL_FAILED_REASON =
   "Re-dialing will not help until the deployment's outbound trunk / caller-ID is fixed.";
 const NO_ANSWER_REASON =
   "The call connected but the other party never spoke (no answer / voicemail / hung up before responding).";
+const UNCONFIRMED_REASON =
+  "The call ended, but its session couldn't be read to confirm a real connection and no reply from " +
+  "the other party was captured — so a successful call can't be claimed here. Re-check with get_call " +
+  "in a few seconds.";
 const IN_PROGRESS_STATUS = "in_progress";
 const IN_PROGRESS_REASON =
   "The call is still live — it hasn't ended yet, so the transcript and outcome may be incomplete. " +
@@ -102,6 +106,14 @@ export function shapeCallSummary(input: ShapeInput): CallSummary {
   if (assessment.connected === false) {
     summary.status = NOT_CONNECTED_STATUS;
     summary.reason = input.dialFailed ? DIAL_FAILED_REASON : NOT_CONNECTED_REASON;
+  } else if (assessment.connected === null && !assessment.answered) {
+    // Session unreadable AND no caller turn captured → we can't confirm a real connection, so don't
+    // imply the phone rang ("no_answer"). Report it honestly as unconfirmed (not_connected).
+    summary.status = NOT_CONNECTED_STATUS;
+    summary.reason = UNCONFIRMED_REASON;
+    summary.connected = false;
+    summary.duration_seconds = 0;
+    summary.outcome = null;
   } else if (connected && !assessment.answered) {
     // Connected but the other party never spoke (voicemail / no pickup). Normalize the status
     // so a stale "dialing" never leaks through (the event-driven poll loop doesn't refresh it).

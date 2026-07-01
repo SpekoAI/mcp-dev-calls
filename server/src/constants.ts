@@ -16,7 +16,9 @@ export const MIN_CALL_SECONDS = 30;
 
 export const FAST_POLLS = 5;
 export const FAST_POLL_SECONDS = 2;
-export const SLOW_POLL_SECONDS = 2;
+// Back off after the first ~10s so a long (up to MAX_CALL_SECONDS) call doesn't hammer the events
+// endpoint every 2s — the early polls catch fast failures, the slow rate carries a live call.
+export const SLOW_POLL_SECONDS = 10;
 
 // voice.dial returns "dialing" on a real dial or "dialing-stub" when the
 // deployment has no SIP/telephony configured (call NOT placed → never poll/retry).
@@ -28,19 +30,6 @@ export const NOT_CONNECTED_STATUS = "not_connected";
 
 // Outbound calls debit prepaid credits; readiness warns below this.
 export const MIN_CALL_BALANCE_USD = 0.5;
-
-export const TERMINAL_STATUSES: ReadonlySet<string> = new Set([
-  "completed",
-  "ended",
-  "failed",
-  "no_answer",
-  "no-answer",
-  "busy",
-  "canceled",
-  "cancelled",
-  "error",
-  "hangup",
-]);
 
 // GENUINE call endings. NOTE: "failed"/"error" are deliberately EXCLUDED — the platform
 // flips the call status to "failed" the instant a first-audio SLA times out (~10-15s), even
@@ -108,7 +97,7 @@ export const EMERGENCY_NUMBERS: ReadonlySet<string> = new Set([
 
 // ── Objective screen (block-list wins over transactional wording) ────────────
 export const OBJECTIVE_BLOCK_RE =
-  /\bsell\b|sales pitch|promot|discount|sponsor|advertis|marketing|survey|donat|fundrais|vote|campaign|debt|warranty|crypto|investment/i;
+  /\bsell\b|sales pitch|promot|discount|sponsor|advertis|marketing|survey|donat|fundrais|vote|campaign|debt|warranty|crypto|investment|persuad|convinc|solicit|upsell|telemarket/i;
 
 // ── Dial token ───────────────────────────────────────────────────────────────
 export const DIAL_TOKEN_DEFAULT_TTL_SECONDS = 900;
@@ -134,12 +123,6 @@ export const MAKE_CALL_DIAL_NEXT_STEP =
 
 export const CHECK_READINESS_NEXT_STEP =
   "Run check_call_readiness for a read-only report of auth, credit balance, and outbound caller-ID before placing a call.";
-
-export const NOT_CONNECTED_NEXT_STEP =
-  "The Speko session and AI agent started but no telephony leg reached the carrier (callControlId null, no " +
-  "carrier minutes), so the phone never rang. This is a deployment-level outbound-trunk gap on api.speko.dev " +
-  "(the LiveKit outbound trunk / Telnyx outbound SIP connection for the caller-ID), not a fault in the request — " +
-  "re-dialing will not help until the deployment's outbound SIP trunk is configured for the from-number.";
 
 export const AUTH_NEXT_STEP =
   "Check the demo server's SPEKO_API_KEY (set it in the repo-root .env) and retry.";

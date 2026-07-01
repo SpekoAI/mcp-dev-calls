@@ -132,7 +132,10 @@ export function loadConfig(): AppConfig {
   const twilioToken = (process.env.TWILIO_LOOKUP_TOKEN ?? "").trim();
 
   cached = {
-    port: Number(process.env.PORT ?? process.env.SPEKO_MCP_SERVER_PORT ?? 8787),
+    port: (() => {
+      const n = Number(process.env.PORT ?? process.env.SPEKO_MCP_SERVER_PORT ?? 8787);
+      return Number.isInteger(n) && n >= 0 && n <= 65535 ? n : 8787;
+    })(),
     host: (process.env.HOST ?? "127.0.0.1").trim(),
     internalKey: (process.env.MCP_INTERNAL_KEY ?? "").trim() || undefined,
     speko: {

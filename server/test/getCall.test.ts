@@ -109,3 +109,71 @@ describe("describeCall — terminality gate (A2: no stale 'completed' on a LIVE 
     expect(s.duration_seconds).toBe(55);
   });
 });
+
+describe("describeCall — get_call parity fixes (H4 dialed number, H5 trunk reason)", () => {
+  it("surfaces dialed_number/caller_id from metadata (H4)", async () => {
+    const s = await describeCall(
+      "meta1",
+      client({
+        getCall: async () =>
+          ({
+            status: "completed",
+            transcript: withUserTurn,
+            report: null,
+            ended_at: new Date().toISOString(),
+            created_at: new Date(Date.now() - 60_000).toISOString(),
+            duration_seconds: 50,
+            metadata: { to: "+14152857117", from: "+15312160099" },
+          }) as any,
+        getEvents: async () => [{ event_type: "room_finished" }] as any,
+        getSession: async () => ({ phoneCall: { callControlId: "x" }, usage: [] }) as any,
+      }),
+    );
+    expect(s.dialed_number).toBe("+14152857117");
+    expect(s.caller_id).toBe("+15312160099");
+  });
+
+  it("blames the trunk on a hard-failure event, matching make_call (H5)", async () => {
+    const s = await describeCall(
+      "trunk1",
+      client({
+        getCall: async () =>
+          ({
+            status: "failed",
+            transcript: { entries: [{ source: "agent", text: "..." }] }, // agent-only → not answered
+            report: null,
+            ended_at: new Date().toISOString(),
+            created_at: new Date(Date.now() - 5_000).toISOString(),
+            duration_seconds: 0,
+            metadata: {},
+          }) as any,
+        getEvents: async () => [{ event_type: "sip.dial_failed" }] as any,
+        getSession: async () => ({ phoneCall: { callControlId: null }, usage: [] }) as any,
+      }),
+    );
+    expect(s.status).toBe("not_connected");
+    expect(s.reason).toMatch(/trunk|will not help/i);
+  });
+
+  it("reports a plain destination no-answer WITHOUT blaming the trunk (H5)", async () => {
+    const s = await describeCall(
+      "noans1",
+      client({
+        getCall: async () =>
+          ({
+            status: "completed",
+            transcript: { entries: [{ source: "agent", text: "..." }] },
+            report: null,
+            ended_at: new Date().toISOString(),
+            created_at: new Date(Date.now() - 20_000).toISOString(),
+            duration_seconds: 0,
+            metadata: {},
+          }) as any,
+        getEvents: async () => [{ event_type: "room_finished" }] as any,
+        getSession: async () => ({ phoneCall: { callControlId: null }, usage: [] }) as any,
+      }),
+    );
+    expect(s.status).toBe("not_connected");
+    expect(s.reason).not.toMatch(/failed to dial|will not help/i);
+  });
+});

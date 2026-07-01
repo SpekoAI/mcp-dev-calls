@@ -33,8 +33,8 @@ import {
   quietHoursReason,
   verifyDialToken,
 } from "../safety/dialToken.js";
-import { objectiveBlockedReason } from "../safety/objective.js";
-import { buildFirstMessage, buildSystemPrompt } from "../safety/prompt.js";
+import { behaviorBlockedReason, objectiveBlockedReason } from "../safety/objective.js";
+import { buildFirstMessage, buildSystemPrompt, sanitizeName } from "../safety/prompt.js";
 import { MAX_CALLER_NAME_CHARS } from "../constants.js";
 import { isAuthFailure, type SpekoClient } from "../speko/client.js";
 import type { CallSummary, MakeCallInput, SessionDetail } from "../types.js";
@@ -127,10 +127,29 @@ export async function makeCall(input: MakeCallInput, deps: MakeCallDeps): Promis
     );
   }
 
-  const caller = typeof input.callerName === "string" ? input.callerName.trim() : "";
-  if (!caller || caller.length > MAX_CALLER_NAME_CHARS) {
+  // The behavior channel is private steering, never spoken — but it must not become a bypass for
+  // the no-sell/no-spam objective screen, so screen it too (empty behavior is fine).
+  const behaviorReason = behaviorBlockedReason(input.behavior);
+  if (behaviorReason) {
+    throw new RejectionError(
+      behaviorReason,
+      "Remove any selling/promotion/survey/fundraising instructions from behavior and retry make_call.",
+    );
+  }
+
+  const rawCaller = typeof input.callerName === "string" ? input.callerName.trim() : "";
+  if (!rawCaller || rawCaller.length > MAX_CALLER_NAME_CHARS) {
     throw new RejectionError(
       `Invalid caller_name: pass the human's name as a non-empty string of at most ${MAX_CALLER_NAME_CHARS} characters`,
+      MAKE_CALL_NEXT_STEP,
+    );
+  }
+  // Reduce to a real name (strips symbols and any smuggled second sentence) so it can't inject
+  // spoken content into the disclosure opener or a fake rule line into the system prompt.
+  const caller = sanitizeName(rawCaller);
+  if (!caller) {
+    throw new RejectionError(
+      "Invalid caller_name: provide the human's name using letters (it was empty after removing symbols).",
       MAKE_CALL_NEXT_STEP,
     );
   }
@@ -173,6 +192,10 @@ export async function makeCall(input: MakeCallInput, deps: MakeCallDeps): Promis
       source: "speko-mcp-calls-demo",
       objective: input.objective,
       business_name: businessName,
+      // Persist to/from so get_call can report dialed_number/caller_id (CallDetail has no top-level
+      // to/from; the poll/recovery path reads them back from metadata).
+      to: e164,
+      from: fromNumber ?? null,
     },
     telephony: { amd: { mode: "agent" } },
   };
