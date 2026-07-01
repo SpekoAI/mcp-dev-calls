@@ -11,7 +11,7 @@
   "bugs": { "url": "https://github.com/SpekoAI/mcp-dev-calls/issues" },
   "keywords": ["speko", "voice-ai", "mcp", "model-context-protocol", "phone", "calls", "claude-code", "mcp-framework"],
   "engines": { "node": ">=20" },
-  "bin": { "speko-calls": "dist/index.js" },
+  "bin": { "speko": "dist/index.js" },
   "main": "dist/index.js",
   "files": ["dist", "server.json", "README.md", "skills"],
   "publishConfig": { "access": "public" },

@@ -1,5 +1,5 @@
 /**
- * `speko-calls voices [--provider <p>]` — list the voices/providers the router can pick from.
+ * `speko voices [--provider <p>]` — list the voices/providers the router can pick from.
  * The differentiator vs. vercel-labs/ai-cli (which has no voices catalog). Wraps
  * speko.voices.list(). ElevenLabs voices are account-scoped and not returned here.
  */
