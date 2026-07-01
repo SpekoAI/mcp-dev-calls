@@ -25,3 +25,9 @@ scripts/call-prank-reveal.mjs
 scripts/call-prank-ru.mjs
 scripts/call-prank-disclosed-ru.mjs
 scripts/test-ambient-call.mjs
+
+# speak/transcribe artifacts from local runs
+mcp/*.wav
+mcp/*.mp3
+*.wav
+*.mp3
