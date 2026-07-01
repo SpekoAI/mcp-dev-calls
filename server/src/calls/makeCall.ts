@@ -195,7 +195,36 @@ function baseSummary(callId: string | null, to: string | null, from: string | nu
   };
 }
 
+let callInFlight = false;
+
 export async function runPhoneCall(
+  body: VoiceDialParams,
+  maxSeconds: number,
+  deps: MakeCallDeps,
+  sleep: (ms: number) => Promise<void>,
+): Promise<CallSummary> {
+  // D-INF1 mitigation: the platform currently routes concurrent legs into one LiveKit room
+  // (>2 participants garble each other), so serialize calls within this process. ON by default;
+  // SPEKO_SERIALIZE_CALLS=0 disables it once the platform ships per-call room isolation (#903).
+  const serialize = deps.cfg.serializeCalls === true;
+  if (serialize && callInFlight) {
+    throw new RejectionError(
+      "A call is already in progress on this MCP session, so this one wasn't placed. The platform " +
+        "currently routes simultaneous calls into a shared room where their audio garbles each other, " +
+        "so only one call runs at a time here.",
+      "Wait for the current call to finish (check it with get_call), then place the next one. Concurrent " +
+        "calls are disabled until the platform ships per-call room isolation.",
+    );
+  }
+  if (serialize) callInFlight = true;
+  try {
+    return await runPhoneCallInner(body, maxSeconds, deps, sleep);
+  } finally {
+    if (serialize) callInFlight = false;
+  }
+}
+
+async function runPhoneCallInner(
   body: VoiceDialParams,
   maxSeconds: number,
   deps: MakeCallDeps,
