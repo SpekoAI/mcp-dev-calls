@@ -46,6 +46,40 @@ function findTurnList(transcript: unknown): unknown[] | null {
   return null;
 }
 
+// The B2 symptom: a receptionist speaks its end-call STRUCTURED output aloud — the tool verb
+// (end_call / transfer_call), field labels, and verbalized punctuation ("farewell colon",
+// "reason colon", "type colon"). Matches both the literal tokens and their spoken forms.
+const CONTROL_TOKEN_RE =
+  /\bend_call\b|\btransfer_call\b|\breturn_to_assistant\b|\bend underscore call\b|\b(?:farewell|reason|type)[\s,]+colon\b|\b(?:farewell|reason|type)\s*:/i;
+
+/**
+ * Detect a control/structured-token leak in the OTHER party's (non-agent) speech — the B2 symptom
+ * where a receptionist speaks its end-call tool args / field labels / verbalized punctuation aloud.
+ * Detection only: our package can flag it, but the fix is platform-side (the receptionist runtime).
+ */
+export function detectControlTokenLeak(transcript: unknown): boolean {
+  const turns = findTurnList(transcript);
+  if (!turns) return false;
+  for (const turn of turns) {
+    if (!turn || typeof turn !== "object") continue;
+    const t = turn as Record<string, unknown>;
+    let role = "";
+    for (const key of TURN_ROLE_KEYS) {
+      const value = t[key];
+      if (typeof value === "string" && value) {
+        role = value.toLowerCase();
+        break;
+      }
+    }
+    if (!role || AGENT_ROLES.has(role)) continue; // only the callee's (non-agent) turns
+    for (const key of TURN_TEXT_KEYS) {
+      const text = t[key];
+      if (typeof text === "string" && CONTROL_TOKEN_RE.test(text)) return true;
+    }
+  }
+  return false;
+}
+
 /** Concatenate non-agent (caller) turns from a transcript, best effort. */
 export function extractReply(transcript: unknown): string | null {
   const turns = findTurnList(transcript);

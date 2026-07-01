@@ -23,8 +23,20 @@ function loadConfigOrExit(): AppConfig {
   }
 }
 
+const LOOPBACK_HOSTS = new Set(["127.0.0.1", "::1", "localhost", "::ffff:127.0.0.1"]);
+
 function main(): void {
   const cfg = loadConfigOrExit();
+  // The endpoints place real, credit-debiting calls. Binding a routable interface without the
+  // shared-secret gate would expose unauthenticated call placement, so refuse it. (The default
+  // is 127.0.0.1, and the npx single-process path never opens this server at all.)
+  if (!LOOPBACK_HOSTS.has(cfg.host) && !cfg.internalKey) {
+    process.stderr.write(
+      `[speko-demo-server] refusing to bind non-loopback host '${cfg.host}' without MCP_INTERNAL_KEY — ` +
+        "that would expose unauthenticated call placement. Set MCP_INTERNAL_KEY, or bind HOST=127.0.0.1.\n",
+    );
+    process.exit(1);
+  }
   const app = buildApp(buildContext(cfg));
   app.listen(cfg.port, cfg.host, () => {
     log(`listening on http://${cfg.host}:${cfg.port}  (demo mode: ${cfg.demo.enabled ? "ON" : "off"})`);

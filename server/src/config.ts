@@ -67,9 +67,11 @@ export interface AppConfig {
   voice: string | undefined;
   /** TTS speed multiplier; defaults to 1.0 at dial time. */
   ttsSpeed: number | undefined;
-  /** provider:model pin for TTS. Default = elevenlabs:eleven_flash_v2_5 — our switchboard's
-   * live pick (lowest latency, best EN CER). No measured EN-naturalness number yet, so no
-   * "verified"/"most natural" claim until the head-to-head harness runs. */
+  /** provider:model pin for TTS. Default = elevenlabs:eleven_flash_v2_5 — PROVEN to produce
+   * audible audio on a live connected call (2026-06-30). eleven_turbo_v2_5 is more natural and
+   * passes the /synthesize preflight, but SILENTLY produced no agent audio in the live worker
+   * on the same date (the live TTS path differs from /synthesize) — do NOT default to it until
+   * re-verified on a real call. Override with SPEKO_TTS_PIN. */
   ttsPin: string;
   /** provider pin for STT. Default = deepgram:nova-3 — clean win across every source.
    * (Streaming first-partial ≈ 1.3s; the ~366ms figure is the serial p50, not first-partial.) */
@@ -92,6 +94,15 @@ export interface AppConfig {
    * still apply — only the business-line-type check is relaxed.
    */
   allowDirectDial: boolean;
+  /** Base URL of the Speko dashboard; call summaries expose `${base}/sessions/{call_id}`. */
+  dashboardBaseUrl: string;
+  /**
+   * Serialize outbound calls within this process — reject a 2nd concurrent call while one is
+   * in flight. ON by default: the platform currently routes concurrent legs into a shared
+   * LiveKit room (>2 participants garble each other). Set SPEKO_SERIALIZE_CALLS=0 to disable
+   * once the platform ships per-call room isolation (SpekoAI/platform#903).
+   */
+  serializeCalls: boolean;
   dialTokenSecret: string;
   googlePlacesApiKey: string | undefined;
   twilio: { sid: string; token: string } | undefined;
@@ -121,7 +132,10 @@ export function loadConfig(): AppConfig {
   const twilioToken = (process.env.TWILIO_LOOKUP_TOKEN ?? "").trim();
 
   cached = {
-    port: Number(process.env.PORT ?? process.env.SPEKO_MCP_SERVER_PORT ?? 8787),
+    port: (() => {
+      const n = Number(process.env.PORT ?? process.env.SPEKO_MCP_SERVER_PORT ?? 8787);
+      return Number.isInteger(n) && n >= 0 && n <= 65535 ? n : 8787;
+    })(),
     host: (process.env.HOST ?? "127.0.0.1").trim(),
     internalKey: (process.env.MCP_INTERNAL_KEY ?? "").trim() || undefined,
     speko: {
@@ -149,6 +163,9 @@ export function loadConfig(): AppConfig {
         | "cost";
     })(),
     allowDirectDial: !["0", "false", "no", "off"].includes((process.env.SPEKO_ALLOW_DIRECT_DIAL ?? "").trim().toLowerCase()),
+    dashboardBaseUrl:
+      ((process.env.SPEKO_DASHBOARD_URL ?? process.env.SPEKO_PLATFORM_URL ?? "").trim() || "https://platform.speko.dev").replace(/\/+$/, ""),
+    serializeCalls: !["0", "false", "no", "off"].includes((process.env.SPEKO_SERIALIZE_CALLS ?? "").trim().toLowerCase()),
     dialTokenSecret,
     googlePlacesApiKey: (process.env.GOOGLE_PLACES_API_KEY ?? "").trim() || undefined,
     twilio: twilioSid && twilioToken ? { sid: twilioSid, token: twilioToken } : undefined,

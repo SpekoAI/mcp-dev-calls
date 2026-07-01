@@ -20,6 +20,7 @@ const callSchema = z.object({
   objective: z.string().min(1),
   caller_name: z.string().min(1),
   context: z.string().optional(),
+  behavior: z.string().optional(),
   max_duration_seconds: z.number().int().optional(),
 });
 
@@ -28,6 +29,7 @@ const callNumberSchema = z.object({
   objective: z.string().min(1),
   caller_name: z.string().min(1),
   context: z.string().optional(),
+  behavior: z.string().optional(),
   recipient_name: z.string().optional(),
   utc_offset_minutes: z.number().int().optional(),
   max_duration_seconds: z.number().int().optional(),
@@ -80,6 +82,7 @@ export function registerRoutes(router: Router, ctx: ServerContext): void {
           objective: b.objective,
           callerName: b.caller_name,
           context: b.context ?? null,
+          behavior: b.behavior ?? null,
           maxDurationSeconds: b.max_duration_seconds,
         },
         { client: ctx.client, cfg: ctx.cfg, bearerHash: ctx.bearerHash },
@@ -100,6 +103,7 @@ export function registerRoutes(router: Router, ctx: ServerContext): void {
           objective: b.objective,
           callerName: b.caller_name,
           context: b.context ?? null,
+          behavior: b.behavior ?? null,
           recipientName: b.recipient_name ?? null,
           utcOffsetMinutes: b.utc_offset_minutes,
           maxDurationSeconds: b.max_duration_seconds,
@@ -126,7 +130,7 @@ export function registerRoutes(router: Router, ctx: ServerContext): void {
       if (!id) {
         throw new AppError("Missing call id.", { statusCode: 400, nextStep: "Call GET /call/<call_id>." });
       }
-      const summary = await describeCall(id, ctx.client);
+      const summary = await describeCall(id, ctx.client, ctx.cfg.dashboardBaseUrl);
       res.json(summary);
     }),
   );

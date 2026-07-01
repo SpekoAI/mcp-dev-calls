@@ -8,6 +8,11 @@ describe("zoneFromE164", () => {
   it("maps a US Pacific area code (Bek's 650 number)", () => {
     expect(zoneFromE164("+16508859995")).toBe("America/Los_Angeles");
   });
+  it("maps Bay Area overlay area codes (628 SF / 669 San Jose / 341 Oakland)", () => {
+    expect(zoneFromE164("+16285551234")).toBe("America/Los_Angeles");
+    expect(zoneFromE164("+16695551234")).toBe("America/Los_Angeles");
+    expect(zoneFromE164("+13415551234")).toBe("America/Los_Angeles");
+  });
   it("maps a US Eastern area code", () => {
     expect(zoneFromE164("+12125551234")).toBe("America/New_York");
   });

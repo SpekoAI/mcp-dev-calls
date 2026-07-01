@@ -36,6 +36,61 @@ function combineSignals(a: AbortSignal | undefined, b: AbortSignal): AbortSignal
   return a ? AbortSignal.any([a, b]) : b;
 }
 
+/**
+ * Apply the caller's timeout + abort signal to in-process work. The core functions don't take a
+ * signal, so we can't cancel the underlying work, but we DO return control to the tool instead of
+ * hanging forever — matching the guarantees the HTTP backend gives via fetch(). Honors an already
+ * aborted signal, a timeout, and an abort mid-flight.
+ */
+function withOpts<T>(opts: RequestOptions, work: () => Promise<T>): Promise<T> {
+  const { timeoutMs, signal } = opts;
+  if (signal?.aborted) return Promise.reject(new DemoServerError("The request was aborted before it started."));
+  const base = work();
+  if (timeoutMs == null && !signal) return base;
+  return new Promise<T>((resolve, reject) => {
+    let settled = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const cleanup = (): void => {
+      if (timer) clearTimeout(timer);
+      if (signal) signal.removeEventListener("abort", onAbort);
+    };
+    const onAbort = (): void => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      reject(new DemoServerError("The request was aborted."));
+    };
+    if (typeof timeoutMs === "number") {
+      timer = setTimeout(() => {
+        if (settled) return;
+        settled = true;
+        cleanup();
+        reject(
+          new DemoServerError(
+            `The in-process backend did not finish within ${Math.round(timeoutMs / 1000)}s; ` +
+              "next_step=The call may still be running server-side — check it with get_call.",
+          ),
+        );
+      }, timeoutMs);
+    }
+    if (signal) signal.addEventListener("abort", onAbort, { once: true });
+    base.then(
+      (v) => {
+        if (settled) return;
+        settled = true;
+        cleanup();
+        resolve(v);
+      },
+      (e) => {
+        if (settled) return;
+        settled = true;
+        cleanup();
+        reject(e as Error);
+      },
+    );
+  });
+}
+
 /** Turn a thrown core error into the `; next_step=` shape the HTTP path also produces. */
 function normalizeError(e: unknown): Error {
   const err = e as { message?: string; nextStep?: string };
@@ -71,7 +126,11 @@ export class InProcessBackend implements Backend {
     return this.ready;
   }
 
-  async post(path: string, body: unknown): Promise<unknown> {
+  async post(path: string, body: unknown, opts: RequestOptions = {}): Promise<unknown> {
+    return withOpts(opts, () => this.dispatchPost(path, body));
+  }
+
+  private async dispatchPost(path: string, body: unknown): Promise<unknown> {
     const { core, ctx } = await this.init();
     const b = (body ?? {}) as Record<string, unknown>;
     try {
@@ -93,6 +152,7 @@ export class InProcessBackend implements Backend {
             objective: String(b.objective ?? ""),
             callerName: String(b.caller_name ?? ""),
             context: (b.context as string | undefined) ?? null,
+            behavior: (b.behavior as string | undefined) ?? null,
             maxDurationSeconds: typeof b.max_duration_seconds === "number" ? b.max_duration_seconds : undefined,
           },
           { client: ctx.client, cfg: ctx.cfg, bearerHash: ctx.bearerHash },
@@ -105,6 +165,7 @@ export class InProcessBackend implements Backend {
             objective: String(b.objective ?? ""),
             callerName: String(b.caller_name ?? ""),
             context: (b.context as string | undefined) ?? null,
+            behavior: (b.behavior as string | undefined) ?? null,
             recipientName: (b.recipient_name as string | undefined) ?? null,
             utcOffsetMinutes: typeof b.utc_offset_minutes === "number" ? b.utc_offset_minutes : undefined,
             maxDurationSeconds: typeof b.max_duration_seconds === "number" ? b.max_duration_seconds : undefined,
@@ -118,12 +179,20 @@ export class InProcessBackend implements Backend {
     }
   }
 
-  async get(path: string): Promise<unknown> {
+  async get(path: string, opts: RequestOptions = {}): Promise<unknown> {
+    return withOpts(opts, () => this.dispatchGet(path));
+  }
+
+  private async dispatchGet(path: string): Promise<unknown> {
     const { core, ctx } = await this.init();
     try {
       if (path === "/readiness") return await core.checkReadiness(ctx.client);
       if (path.startsWith("/call/")) {
-        return await core.describeCall(decodeURIComponent(path.slice("/call/".length)), ctx.client);
+        return await core.describeCall(
+          decodeURIComponent(path.slice("/call/".length)),
+          ctx.client,
+          ctx.cfg.dashboardBaseUrl,
+        );
       }
       throw new DemoServerError(`Unknown backend path: GET ${path}`);
     } catch (e) {

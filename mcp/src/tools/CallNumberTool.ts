@@ -5,15 +5,29 @@ import { getServerClient } from "../http/serverClient.js";
 const schema = z.object({
   phone_number: z
     .string()
-    .describe("Number to call, E.164 (e.g. +77011234567). A real number the user has consent to call."),
+    .describe(
+      "Number to call in full international E.164 — leading + and country code (e.g. +14152857117, " +
+        "NOT (415) 285-7117). A number the user asked you to call or explicitly provided.",
+    ),
   objective: z
     .string()
-    .describe("What to say / accomplish, e.g. 'Tell Sam that John says happy birthday and misses him.'"),
+    .describe(
+      "What to say / accomplish — READ ALOUD VERBATIM after the AI disclosure (e.g. 'Tell Sam that " +
+        "John says happy birthday and misses him.'). Put ONLY spoken content here; behavior/steering " +
+        "instructions go in `behavior` (otherwise they get spoken to the callee).",
+    ),
   caller_name: z
     .string()
     .describe("Name of the human the call is on behalf of (1-80 chars); spoken in the AI-disclosure opening."),
   recipient_name: z.string().optional().describe("Who you're calling, used in the greeting (e.g. 'Sam')."),
   context: z.string().optional().describe("Optional extra context for the message."),
+  behavior: z
+    .string()
+    .optional()
+    .describe(
+      "PRIVATE instructions for HOW the assistant should behave — NEVER spoken aloud (e.g. 'wait for " +
+        "them to say hello before you speak', 'keep it brief'). Steering/meta here; spoken content in `objective`.",
+    ),
   utc_offset_minutes: z
     .number()
     .int()
@@ -39,10 +53,8 @@ function summarize(s: Record<string, unknown>): string {
     return reason ?? "The call was NOT placed: no outbound caller-ID/SIP is configured for this deployment.";
   }
   if (status === "not_connected") {
-    return (
-      (reason ?? "The call did not connect — no telephony leg reached the carrier, so the phone never rang.") +
-      " Re-dialing will not help until the deployment's outbound trunk is fixed."
-    );
+    // Server reason now distinguishes trunk/caller-ID dial failure from a destination no-answer (E1).
+    return reason ?? "The call did not connect — the other party was never heard.";
   }
   if (status === "timeout") {
     return `Reached the wait limit; the call may still be in progress${callId ? ` (call_id '${callId}')` : ""}.`;
@@ -57,10 +69,12 @@ function summarize(s: Record<string, unknown>): string {
 export default class CallNumberTool extends MCPTool {
   name = "call_number";
   description =
-    "Place a disclosed PERSONAL call to a specific phone number (e.g. a friend) — NOT a business lookup. " +
-    "Available by default. Every call opens with the non-removable AI disclosure, and quiet hours + the " +
-    "no-sell/no-spam screen still apply (mobiles are allowed here, unlike make_call). Use lookup_business + " +
-    "make_call for businesses; use this only for a number the user explicitly provides and has consent to call.";
+    "Place a disclosed call to a phone number you HAVE or FOUND (e.g. via web search) — the DEFAULT path for " +
+    "calling any business or person. Works with just the user's Speko key, no extra setup. Every call opens " +
+    "with the non-removable AI disclosure; quiet hours and the no-sell/no-spam screen still apply (mobiles " +
+    "allowed). lookup_business + make_call is the OPTIONAL verified-directory path (it needs the server's " +
+    "carrier/directory keys); prefer call_number when you already have or found the number. Only dial a number " +
+    "the user asked you to call or explicitly provided — never one you invented.";
   schema = schema;
   override annotations = {
     title: "Call a Number",
@@ -75,6 +89,8 @@ export default class CallNumberTool extends MCPTool {
     const client = getServerClient();
 
     let elapsed = 0;
+    // Immediate progress so the terminal isn't silent for the first ~5s while the call places + rings.
+    void this.reportProgress(0, maxWait, "Placing the call…").catch(() => {});
     const timer = setInterval(() => {
       elapsed += HEARTBEAT_MS / 1000;
       void this.reportProgress(elapsed, maxWait, `Call in progress — ${elapsed}s elapsed`).catch(() => {});
@@ -89,6 +105,7 @@ export default class CallNumberTool extends MCPTool {
           caller_name: input.caller_name,
           recipient_name: input.recipient_name,
           context: input.context,
+          behavior: input.behavior,
           utc_offset_minutes: input.utc_offset_minutes,
           max_duration_seconds: input.max_duration_seconds,
         },
