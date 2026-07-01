@@ -1,5 +1,5 @@
 /**
- * `speko-calls audio speak "<text>"` — text-to-speech.
+ * `speko audio speak "<text>"` — text-to-speech.
  * Thin wrapper over speko.synthesize(). Mirrors vercel-labs/ai-cli: stdin support,
  * predictable artifact (<id>.<ext>), save-then-play interactively, raw bytes to stdout
  * when piped, and it prints WHICH provider the router picked (our differentiator).
@@ -70,7 +70,7 @@ export async function runSpeak(argv: string[], deps: SpeakDeps = {}): Promise<nu
     text = (await (deps.readStdin ?? readStdinText)()).trim();
   }
   if (!text) {
-    stderr('speak: no text given. usage: speko-calls audio speak "your text"  (or pipe text via stdin)');
+    stderr('speak: no text given. usage: speko audio speak "your text"  (or pipe text via stdin)');
     return 2;
   }
 
