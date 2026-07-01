@@ -337,6 +337,21 @@ async function runPhoneCallInner(
       hardFailed = hardFailure; // sip.dial_failed / agent.dispatch_failed → a real trunk failure (E1)
       break;
     }
+    // The PHONE leg can die long before the room does: when either side hangs up, the
+    // Telnyx call.hangup webhook stamps the session's endedAt immediately, while the
+    // agent keeps idling in the LiveKit room (~45-60s) before room_finished fires.
+    // Without this check a human hanging up left the caller stuck "in call" until the
+    // room drained. endedAt (not status!) is the signal — the platform flips status to
+    // "failed" prematurely on first-audio SLA while calls are still live.
+    try {
+      const session = await deps.client.getSession(callId);
+      if (typeof session.endedAt === "string" && session.endedAt) {
+        ended = true;
+        break;
+      }
+    } catch {
+      // Best effort — the events loop above remains the primary end signal.
+    }
   }
 
   if (!ended) {
