@@ -4,13 +4,13 @@
   "title": "Speko — AI Calls for Devs",
   "description": "Place real, disclosed outbound phone calls to businesses straight from your coding agent.",
   "repository": { "url": "https://github.com/SpekoAI/mcp-dev-calls", "source": "github" },
-  "version": "0.4.5",
+  "version": "0.4.6",
   "websiteUrl": "https://speko.ai",
   "packages": [
     {
       "registryType": "npm",
       "identifier": "@spekoai/mcp-calls",
-      "version": "0.4.5",
+      "version": "0.4.6",
       "transport": { "type": "stdio" },
       "environmentVariables": [
         {
