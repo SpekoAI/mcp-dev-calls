@@ -75,5 +75,7 @@ export interface MakeCallInput {
   objective: string;
   callerName: string;
   context?: string | null;
+  /** Private steering for HOW the assistant behaves (pacing, when to speak). NEVER spoken. */
+  behavior?: string | null;
   maxDurationSeconds?: number;
 }

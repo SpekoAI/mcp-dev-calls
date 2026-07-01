@@ -8,11 +8,23 @@ const schema = z.object({
     .describe("Signed dial token minted by lookup_business. Raw phone numbers are rejected."),
   objective: z
     .string()
-    .describe("Single transactional question, e.g. 'Do you have a table for 4 at 8pm tonight?'."),
+    .describe(
+      "Single transactional request — READ ALOUD VERBATIM after the AI disclosure. Put ONLY what " +
+        "should be spoken here (e.g. 'Do you have a table for 4 at 8pm tonight?'). Do NOT put " +
+        "behavior/steering instructions here — they would be spoken to the callee. Use `behavior` for those.",
+    ),
   caller_name: z
     .string()
     .describe("Name of the human the call is on behalf of (1-80 chars); spoken in the AI-disclosure opening line."),
   context: z.string().optional().describe("Optional extra task context (party size, dates, order numbers)."),
+  behavior: z
+    .string()
+    .optional()
+    .describe(
+      "PRIVATE instructions for HOW the assistant should behave — NEVER spoken aloud (e.g. 'wait for " +
+        "them to say hello before you speak', 'be extra concise', 'if they offer takeout, decline'). " +
+        "Steering/meta goes here; spoken content goes in `objective`.",
+    ),
   max_duration_seconds: z
     .number()
     .int()
@@ -94,6 +106,7 @@ export default class MakeCallTool extends MCPTool {
           objective: input.objective,
           caller_name: input.caller_name,
           context: input.context,
+          behavior: input.behavior,
           max_duration_seconds: input.max_duration_seconds,
         },
         { timeoutMs: (maxWait + 30) * 1000, signal: this.abortSignal },

@@ -11,12 +11,23 @@ const schema = z.object({
     ),
   objective: z
     .string()
-    .describe("What to say / accomplish, e.g. 'Tell Sam that John says happy birthday and misses him.'"),
+    .describe(
+      "What to say / accomplish — READ ALOUD VERBATIM after the AI disclosure (e.g. 'Tell Sam that " +
+        "John says happy birthday and misses him.'). Put ONLY spoken content here; behavior/steering " +
+        "instructions go in `behavior` (otherwise they get spoken to the callee).",
+    ),
   caller_name: z
     .string()
     .describe("Name of the human the call is on behalf of (1-80 chars); spoken in the AI-disclosure opening."),
   recipient_name: z.string().optional().describe("Who you're calling, used in the greeting (e.g. 'Sam')."),
   context: z.string().optional().describe("Optional extra context for the message."),
+  behavior: z
+    .string()
+    .optional()
+    .describe(
+      "PRIVATE instructions for HOW the assistant should behave — NEVER spoken aloud (e.g. 'wait for " +
+        "them to say hello before you speak', 'keep it brief'). Steering/meta here; spoken content in `objective`.",
+    ),
   utc_offset_minutes: z
     .number()
     .int()
@@ -96,6 +107,7 @@ export default class CallNumberTool extends MCPTool {
           caller_name: input.caller_name,
           recipient_name: input.recipient_name,
           context: input.context,
+          behavior: input.behavior,
           utc_offset_minutes: input.utc_offset_minutes,
           max_duration_seconds: input.max_duration_seconds,
         },
