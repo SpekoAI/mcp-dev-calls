@@ -1,5 +1,5 @@
 /**
- * Browser login for `speko-calls login` (and the default path of the init wizard).
+ * Browser login for `speko login` (and the default path of the init wizard).
  *
  * Runs a standard OAuth 2.1 authorization-code + PKCE flow against Speko's
  * authorization server (the platform better-auth oauth-provider), then fetches

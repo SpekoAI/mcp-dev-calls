@@ -1,9 +1,9 @@
 /**
  * Speko Calls entry. One bin, cli + mcp:
- *  • `speko-calls init|setup|login`        → onboarding wizard (may log to stdout).
- *  • `speko-calls audio speak|transcribe`  → terminal TTS/STT (voice on the CLI).
- *  • `speko-calls voices|models`           → list voices the router can pick.
- *  • `speko-calls --help|--version`        → help/version.
+ *  • `speko init|setup|login`        → onboarding wizard (may log to stdout).
+ *  • `speko audio speak|transcribe`  → terminal TTS/STT (voice on the CLI).
+ *  • `speko voices|models`           → list voices the router can pick.
+ *  • `speko --help|--version`        → help/version.
  *  • bare invocation                       → the stdio MCP server (stdout RESERVED for
  *                                            JSON-RPC; logs → stderr).
  *
@@ -30,14 +30,14 @@ const VERSION = "0.4.7";
 
 function printHelp(): number {
   process.stderr.write(
-    `speko-calls ${VERSION} — call real businesses + speak/transcribe from your terminal; also an MCP server for coding agents.\n\n` +
+    `speko ${VERSION} — call real businesses + speak/transcribe from your terminal; also an MCP server for coding agents.\n\n` +
       "Usage:\n" +
-      "  speko-calls                          (when launched by an MCP host) the stdio MCP server\n" +
-      "  speko-calls init | setup | login     onboarding & auth\n" +
-      '  speko-calls audio speak "<text>"     text-to-speech (TTS)\n' +
-      "  speko-calls audio transcribe <f|->   speech-to-text (STT)\n" +
-      "  speko-calls voices [--provider <p>]  list available voices\n" +
-      "  speko-calls --help | --version\n",
+      "  speko                          (when launched by an MCP host) the stdio MCP server\n" +
+      "  speko init | setup | login     onboarding & auth\n" +
+      '  speko audio speak "<text>"     text-to-speech (TTS)\n' +
+      "  speko audio transcribe <f|->   speech-to-text (STT)\n" +
+      "  speko voices [--provider <p>]  list available voices\n" +
+      "  speko --help | --version\n",
   );
   return 0;
 }

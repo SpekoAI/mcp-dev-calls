@@ -1,4 +1,4 @@
-# Voice on the CLI — `speko-calls audio`
+# Voice on the CLI — `speko audio`
 
 `@spekoai/mcp-calls` is **cli + mcp in one binary**. Alongside the MCP server (for coding
 agents) and the calling tools, it does **text-to-speech** and **speech-to-text** right in your
@@ -18,11 +18,11 @@ Everything below also works via `npx @spekoai/mcp-calls <...>` without installin
 ## `speak` — text to speech
 
 ```bash
-speko-calls audio speak "call you in five"                 # save <id>.wav in cwd + play it
-speko-calls audio speak "hola, ¿cómo estás?" --lang es-MX  # any language (BCP-47)
-echo "ship it" | speko-calls audio speak                   # text from stdin
-speko-calls audio speak "welcome" -o welcome.mp3 --no-play # write a specific file, don't play
-speko-calls audio speak "hi" --json                        # metadata to stdout, file still written
+speko audio speak "call you in five"                 # save <id>.wav in cwd + play it
+speko audio speak "hola, ¿cómo estás?" --lang es-MX  # any language (BCP-47)
+echo "ship it" | speko audio speak                   # text from stdin
+speko audio speak "welcome" -o welcome.mp3 --no-play # write a specific file, don't play
+speko audio speak "hi" --json                        # metadata to stdout, file still written
 ```
 
 | flag | what it does | SDK field |
@@ -47,11 +47,11 @@ speko-calls audio speak "hi" --json                        # metadata to stdout,
 ## `transcribe` — speech to text
 
 ```bash
-speko-calls audio transcribe recording.wav                 # transcript → stdout
-speko-calls audio transcribe https://…/clip.mp3            # from a URL
-cat call.wav | speko-calls audio transcribe --lang es-MX   # from stdin
-speko-calls audio transcribe rec.wav --keywords "Speko,LiveKit,Telnyx"  # bias proper nouns
-speko-calls audio transcribe rec.wav --json                # {text, provider, confidence, ...}
+speko audio transcribe recording.wav                 # transcript → stdout
+speko audio transcribe https://…/clip.mp3            # from a URL
+cat call.wav | speko audio transcribe --lang es-MX   # from stdin
+speko audio transcribe rec.wav --keywords "Speko,LiveKit,Telnyx"  # bias proper nouns
+speko audio transcribe rec.wav --json                # {text, provider, confidence, ...}
 ```
 
 | flag | what it does | SDK field |
@@ -68,9 +68,9 @@ goes to **stdout** (pipe-clean); provider/model/confidence to **stderr**.
 ## `voices` — the catalog
 
 ```bash
-speko-calls audio voices                    # or: speko-calls voices / speko-calls models
-speko-calls voices --provider cartesia
-speko-calls voices --json
+speko voices                          # or: speko models
+speko voices --provider cartesia
+speko voices --json
 ```
 Lists the providers + models the router can pick from (navai, xai, elevenlabs, cartesia, openai,
 inworld, alibaba, …). ElevenLabs voices are account-scoped — pass `--voice <id>` for those.
@@ -78,7 +78,7 @@ inworld, alibaba, …). ElevenLabs voices are account-scoped — pass `--voice <
 ## Compose (mirrors ai-cli)
 
 ```bash
-speko-calls audio speak "read this back" | speko-calls audio transcribe
+speko audio speak "read this back" | speko audio transcribe
 ```
 
 ## How it connects (no SDK changes)
@@ -86,8 +86,8 @@ speko-calls audio speak "read this back" | speko-calls audio transcribe
 Each command is a thin wrapper over the already-installed `@spekoai/sdk`:
 `speak → speko.synthesize()`, `transcribe → speko.transcribe()`, `voices → speko.voices.list()`.
 The CLI is a pure **consumer** of the SDK; the SDK talks to Speko's benchmark-router, which picks
-the provider and fails over automatically. Bare `speko-calls` (no subcommand) is unchanged — it
-still starts the stdio MCP server.
+the provider and fails over automatically. Bare `speko` in a terminal prints this command list;
+when an MCP host launches it (piped, non-TTY stdin) it runs the stdio MCP server.
 
 ## Exit codes
 
