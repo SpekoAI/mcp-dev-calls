@@ -21,4 +21,19 @@ describe("resolveMode — the MCP-stdio invariant", () => {
     // 'speak' is a subcommand of `audio`, NOT a top-level command → must fall through to server.
     expect(resolveMode(argv("speak"))).toEqual({ kind: "server" });
   });
+
+  it("bare invocation from a TTY → help (human); piped/non-TTY → server (MCP host)", () => {
+    expect(resolveMode(argv(), { stdinIsTTY: true })).toEqual({ kind: "help" });
+    expect(resolveMode(argv(), { stdinIsTTY: false })).toEqual({ kind: "server" });
+    expect(resolveMode(argv())).toEqual({ kind: "server" }); // no TTY info → safe default: server
+  });
+
+  it("an unknown arg from a TTY → help; piped → server (MCP host passing a flag)", () => {
+    expect(resolveMode(argv("--bogus"), { stdinIsTTY: true })).toEqual({ kind: "help" });
+    expect(resolveMode(argv("--bogus"), { stdinIsTTY: false })).toEqual({ kind: "server" });
+  });
+
+  it("known subcommands route to cli regardless of stdin", () => {
+    expect(resolveMode(argv("audio"), { stdinIsTTY: true })).toEqual({ kind: "cli", name: "audio" });
+  });
 });
