@@ -37,6 +37,15 @@ export interface ShapeInput {
   isTerminal?: boolean;
 }
 
+/**
+ * Attach a dashboard deep link to a summary when we have both a call_id and a base URL.
+ * Immutable — returns a new summary. The dashboard route is /sessions/{id} where id === call_id.
+ */
+export function attachDashboardUrl(summary: CallSummary, dashboardBaseUrl: string | undefined): CallSummary {
+  if (!summary.call_id || !dashboardBaseUrl) return summary;
+  return { ...summary, dashboard_url: `${dashboardBaseUrl.replace(/\/+$/, "")}/sessions/${summary.call_id}` };
+}
+
 export function shapeCallSummary(input: ShapeInput): CallSummary {
   const assessment = assessConnection(input.session, input.transcript);
   const connected = assessment.connected !== false; // false only when proven no leg

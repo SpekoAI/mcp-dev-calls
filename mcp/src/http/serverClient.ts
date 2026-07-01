@@ -93,6 +93,7 @@ export class InProcessBackend implements Backend {
             objective: String(b.objective ?? ""),
             callerName: String(b.caller_name ?? ""),
             context: (b.context as string | undefined) ?? null,
+            behavior: (b.behavior as string | undefined) ?? null,
             maxDurationSeconds: typeof b.max_duration_seconds === "number" ? b.max_duration_seconds : undefined,
           },
           { client: ctx.client, cfg: ctx.cfg, bearerHash: ctx.bearerHash },
@@ -105,6 +106,7 @@ export class InProcessBackend implements Backend {
             objective: String(b.objective ?? ""),
             callerName: String(b.caller_name ?? ""),
             context: (b.context as string | undefined) ?? null,
+            behavior: (b.behavior as string | undefined) ?? null,
             recipientName: (b.recipient_name as string | undefined) ?? null,
             utcOffsetMinutes: typeof b.utc_offset_minutes === "number" ? b.utc_offset_minutes : undefined,
             maxDurationSeconds: typeof b.max_duration_seconds === "number" ? b.max_duration_seconds : undefined,
@@ -123,7 +125,11 @@ export class InProcessBackend implements Backend {
     try {
       if (path === "/readiness") return await core.checkReadiness(ctx.client);
       if (path.startsWith("/call/")) {
-        return await core.describeCall(decodeURIComponent(path.slice("/call/".length)), ctx.client);
+        return await core.describeCall(
+          decodeURIComponent(path.slice("/call/".length)),
+          ctx.client,
+          ctx.cfg.dashboardBaseUrl,
+        );
       }
       throw new DemoServerError(`Unknown backend path: GET ${path}`);
     } catch (e) {

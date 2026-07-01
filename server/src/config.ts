@@ -94,6 +94,8 @@ export interface AppConfig {
    * still apply — only the business-line-type check is relaxed.
    */
   allowDirectDial: boolean;
+  /** Base URL of the Speko dashboard; call summaries expose `${base}/sessions/{call_id}`. */
+  dashboardBaseUrl: string;
   dialTokenSecret: string;
   googlePlacesApiKey: string | undefined;
   twilio: { sid: string; token: string } | undefined;
@@ -151,6 +153,8 @@ export function loadConfig(): AppConfig {
         | "cost";
     })(),
     allowDirectDial: !["0", "false", "no", "off"].includes((process.env.SPEKO_ALLOW_DIRECT_DIAL ?? "").trim().toLowerCase()),
+    dashboardBaseUrl:
+      ((process.env.SPEKO_DASHBOARD_URL ?? process.env.SPEKO_PLATFORM_URL ?? "").trim() || "https://platform.speko.dev").replace(/\/+$/, ""),
     dialTokenSecret,
     googlePlacesApiKey: (process.env.GOOGLE_PLACES_API_KEY ?? "").trim() || undefined,
     twilio: twilioSid && twilioToken ? { sid: twilioSid, token: twilioToken } : undefined,
