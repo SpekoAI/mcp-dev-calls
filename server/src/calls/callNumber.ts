@@ -23,6 +23,8 @@ export interface CallNumberInput {
   objective: string;
   callerName: string;
   context?: string | null;
+  /** Private steering for HOW the assistant behaves. NEVER spoken. */
+  behavior?: string | null;
   recipientName?: string | null;
   utcOffsetMinutes?: number | null;
   maxDurationSeconds?: number;
@@ -73,6 +75,7 @@ export async function callNumber(input: CallNumberInput, deps: CallNumberDeps): 
       objective: input.objective,
       callerName: input.callerName,
       context: input.context ?? null,
+      behavior: input.behavior ?? null,
       maxDurationSeconds: input.maxDurationSeconds,
     },
     {

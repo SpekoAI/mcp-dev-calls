@@ -168,7 +168,7 @@ export async function makeCall(input: MakeCallInput, deps: MakeCallDeps): Promis
     ttsOptions: { speed: deps.cfg.ttsSpeed ?? 1.0 },
     llm: { temperature: 0.5, maxTokens: 100 },
     firstMessage: buildFirstMessage(caller, input.objective),
-    systemPrompt: buildSystemPrompt(input.objective, input.context ?? null, businessName, caller),
+    systemPrompt: buildSystemPrompt(input.objective, input.context ?? null, businessName, caller, input.behavior ?? null),
     metadata: {
       source: "speko-mcp-calls-demo",
       objective: input.objective,
