@@ -26,13 +26,13 @@ import GetCallTool from "./tools/GetCallTool.js";
 import LookupBusinessTool from "./tools/LookupBusinessTool.js";
 import MakeCallTool from "./tools/MakeCallTool.js";
 
-const VERSION = "0.4.6";
+const VERSION = "0.4.7";
 
 function printHelp(): number {
   process.stderr.write(
     `speko-calls ${VERSION} — call real businesses + speak/transcribe from your terminal; also an MCP server for coding agents.\n\n` +
       "Usage:\n" +
-      "  speko-calls                          start the MCP stdio server (Claude Code, etc.)\n" +
+      "  speko-calls                          (when launched by an MCP host) the stdio MCP server\n" +
       "  speko-calls init | setup | login     onboarding & auth\n" +
       '  speko-calls audio speak "<text>"     text-to-speech (TTS)\n' +
       "  speko-calls audio transcribe <f|->   speech-to-text (STT)\n" +
@@ -62,7 +62,7 @@ const CLI: Record<string, () => Promise<number> | number> = {
   "-V": printVersion,
 };
 
-const mode = resolveMode(process.argv);
+const mode = resolveMode(process.argv, { stdinIsTTY: Boolean(process.stdin.isTTY) });
 if (mode.kind === "cli") {
   try {
     const code = await CLI[mode.name]();
@@ -75,7 +75,13 @@ if (mode.kind === "cli") {
   }
 }
 
-// Bare invocation (or an unknown arg an MCP host may pass) → the stdio MCP server.
+if (mode.kind === "help") {
+  // Interactive terminal with no command → show the command list (like most CLI tools).
+  printHelp();
+  process.exit(0);
+}
+
+// Piped / non-TTY invocation (an MCP host spawning us over stdio) → the stdio MCP server.
 loadEnv();
 
 const server = new MCPServer({
