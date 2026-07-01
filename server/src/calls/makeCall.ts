@@ -277,6 +277,7 @@ async function runPhoneCallInner(
   let elapsed = 0;
   let polls = 0;
   let ended = false;
+  let hardFailed = false;
   while (elapsed < maxSeconds) {
     const interval = polls < FAST_POLLS ? FAST_POLL_SECONDS : SLOW_POLL_SECONDS;
     await sleep(interval * 1000);
@@ -306,8 +307,11 @@ async function runPhoneCallInner(
     const types = new Set(events.map((e) => String(e.event_type ?? e.type ?? "").toLowerCase()));
     // Room teardown = the call is genuinely over; a hard failure (agent never dispatched /
     // SIP dial failed) never recovers. A bare "failed" status without these is ignored.
-    if ([...ROOM_END_EVENTS].some((t) => types.has(t)) || [...HARD_FAILURE_EVENTS].some((t) => types.has(t))) {
+    const roomEnded = [...ROOM_END_EVENTS].some((t) => types.has(t));
+    const hardFailure = [...HARD_FAILURE_EVENTS].some((t) => types.has(t));
+    if (roomEnded || hardFailure) {
       ended = true;
+      hardFailed = hardFailure; // sip.dial_failed / agent.dispatch_failed → a real trunk failure (E1)
       break;
     }
   }
@@ -322,7 +326,7 @@ async function runPhoneCallInner(
     };
   }
 
-  return finalize(callId, to, from, status, elapsed, deps);
+  return finalize(callId, to, from, status, elapsed, deps, hardFailed);
 }
 
 /**
@@ -338,6 +342,7 @@ async function finalize(
   status: string,
   elapsed: number,
   deps: MakeCallDeps,
+  dialFailed: boolean,
 ): Promise<CallSummary> {
   const sleep = deps.sleep ?? defaultSleep;
   let transcript: unknown = null;
@@ -380,6 +385,7 @@ async function finalize(
     transcriptError,
     session,
     fallbackDuration: elapsed,
+    dialFailed,
   });
   console.log(
     `[result] session=${callId} platformStatus=${status} -> reported=${summary.status} connected=${summary.connected} answered=${summary.answered}`,

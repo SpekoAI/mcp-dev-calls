@@ -53,10 +53,8 @@ function summarize(s: Record<string, unknown>): string {
     return reason ?? "The call was NOT placed: no outbound caller-ID/SIP is configured for this deployment.";
   }
   if (status === "not_connected") {
-    return (
-      (reason ?? "The call did not connect — no telephony leg reached the carrier, so the phone never rang.") +
-      " Re-dialing will not help until the deployment's outbound trunk is fixed."
-    );
+    // Server reason now distinguishes trunk/caller-ID dial failure from a destination no-answer (E1).
+    return reason ?? "The call did not connect — the other party was never heard.";
   }
   if (status === "timeout") {
     return `Reached the wait limit; the call may still be in progress${callId ? ` (call_id '${callId}')` : ""}.`;
