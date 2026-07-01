@@ -1,6 +1,6 @@
 {
   "name": "@spekoai/mcp-calls",
-  "version": "0.4.5",
+  "version": "0.4.6",
   "description": "Place real, disclosed phone calls to businesses straight from your coding agent — the Speko \"AI calls for devs\" MCP. Single self-contained package: `npx @spekoai/mcp-calls init` to set up.",
   "mcpName": "ai.speko/mcp-calls",
   "type": "module",
@@ -20,6 +20,7 @@
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "dev": "tsx watch src/index.ts",
     "start": "node dist/index.js",
+    "test": "vitest run",
     "prepublishOnly": "npm run build"
   },
   "dependencies": {
@@ -33,6 +34,7 @@
     "@types/node": "^22.10.0",
     "tsup": "^8.3.0",
     "tsx": "^4.19.0",
-    "typescript": "^5.7.0"
+    "typescript": "^5.7.0",
+    "vitest": "^4.1.9"
   }
 }
