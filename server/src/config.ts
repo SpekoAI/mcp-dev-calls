@@ -96,6 +96,13 @@ export interface AppConfig {
   allowDirectDial: boolean;
   /** Base URL of the Speko dashboard; call summaries expose `${base}/sessions/{call_id}`. */
   dashboardBaseUrl: string;
+  /**
+   * Serialize outbound calls within this process — reject a 2nd concurrent call while one is
+   * in flight. ON by default: the platform currently routes concurrent legs into a shared
+   * LiveKit room (>2 participants garble each other). Set SPEKO_SERIALIZE_CALLS=0 to disable
+   * once the platform ships per-call room isolation (SpekoAI/platform#903).
+   */
+  serializeCalls: boolean;
   dialTokenSecret: string;
   googlePlacesApiKey: string | undefined;
   twilio: { sid: string; token: string } | undefined;
@@ -155,6 +162,7 @@ export function loadConfig(): AppConfig {
     allowDirectDial: !["0", "false", "no", "off"].includes((process.env.SPEKO_ALLOW_DIRECT_DIAL ?? "").trim().toLowerCase()),
     dashboardBaseUrl:
       ((process.env.SPEKO_DASHBOARD_URL ?? process.env.SPEKO_PLATFORM_URL ?? "").trim() || "https://platform.speko.dev").replace(/\/+$/, ""),
+    serializeCalls: !["0", "false", "no", "off"].includes((process.env.SPEKO_SERIALIZE_CALLS ?? "").trim().toLowerCase()),
     dialTokenSecret,
     googlePlacesApiKey: (process.env.GOOGLE_PLACES_API_KEY ?? "").trim() || undefined,
     twilio: twilioSid && twilioToken ? { sid: twilioSid, token: twilioToken } : undefined,

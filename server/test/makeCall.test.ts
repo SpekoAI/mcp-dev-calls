@@ -96,6 +96,36 @@ describe("runPhoneCall — terminal detection (the not_connected false-negative 
     expect(s.status).toBe("not_connected");
   });
 
+  it("serialize guard (D-INF1): rejects a 2nd concurrent call while one is in flight", async () => {
+    let releaseDial: () => void = () => {};
+    const dialGate = new Promise<void>((r) => {
+      releaseDial = r;
+    });
+    const d: MakeCallDeps = {
+      client: {
+        dial: async () => {
+          await dialGate; // hold the first call "in flight"
+          return { sessionId: "sA", callControlId: "phone-sA", roomName: "r", status: "dialing", to: BODY.to!, from: BODY.from! } as any;
+        },
+        getEvents: async () => [{ event_type: "room_finished" }] as any,
+        getCall: async () => ({ status: "failed", transcript: { entries: [{ source: "agent", text: "hi" }, { source: "user", text: "yes" }] } }) as any,
+        getSession: async () => ({ phoneCall: { callControlId: "phone-sA" }, usage: [] }) as any,
+      } as unknown as SpekoClient,
+      cfg: { serializeCalls: true } as AppConfig,
+      bearerHash: "test",
+      sleep: noopSleep,
+    };
+    const first = runPhoneCall(BODY, 300, d, noopSleep); // enters, sets inFlight, then awaits dial
+    await Promise.resolve();
+    await expect(runPhoneCall(BODY, 300, d, noopSleep)).rejects.toThrow(/already in progress/i);
+    releaseDial(); // let the first call finish so the flag clears
+    const s1 = await first;
+    expect(s1.status).toBe("completed");
+    // flag cleared → a subsequent (non-overlapping) call is allowed again
+    const s2 = await runPhoneCall(BODY, 300, d, noopSleep);
+    expect(s2.status).toBe("completed");
+  });
+
   it("treats a stub dial (no callControlId) as not_placed without polling", async () => {
     const s = await runPhoneCall(
       BODY,
