@@ -13,6 +13,10 @@ const NOT_CONNECTED_REASON =
   "(no answer, voicemail, or the call did not truly connect).";
 const NO_ANSWER_REASON =
   "The call connected but the other party never spoke (no answer / voicemail / hung up before responding).";
+const IN_PROGRESS_STATUS = "in_progress";
+const IN_PROGRESS_REASON =
+  "The call is still live — it hasn't ended yet, so the transcript and outcome may be incomplete. " +
+  "Re-check with get_call in a few seconds.";
 
 export interface ShapeInput {
   callId: string;
@@ -23,8 +27,14 @@ export interface ShapeInput {
   outcome: string | null;
   transcriptError?: string;
   session: SessionDetail | null;
-  /** Used only when the session has no duration (e.g. our poll elapsed). */
+  /** Used only when the session has no duration (e.g. our poll elapsed, or live elapsed). */
   fallbackDuration: number;
+  /**
+   * false = the call has NOT reached a terminal state yet (still live) → report `in_progress`
+   * and never a normalized `completed`/outcome. Omitted/true = terminal (the make_call finalize
+   * path only shapes once the call has ended, so it relies on the default).
+   */
+  isTerminal?: boolean;
 }
 
 export function shapeCallSummary(input: ShapeInput): CallSummary {
@@ -32,6 +42,26 @@ export function shapeCallSummary(input: ShapeInput): CallSummary {
   const connected = assessment.connected !== false; // false only when proven no leg
   const sessionDuration =
     typeof input.session?.durationSeconds === "number" ? input.session.durationSeconds : null;
+
+  // Still live: the call hasn't reached a terminal event yet. Report it honestly as in_progress
+  // (with a live/elapsed duration) instead of force-normalizing to completed/0s/outcome — a live
+  // transcript already has a user turn, which would otherwise read as a finished, successful call.
+  if (input.isTerminal === false) {
+    const live: CallSummary = {
+      status: IN_PROGRESS_STATUS,
+      call_id: input.callId,
+      duration_seconds: sessionDuration ?? input.fallbackDuration,
+      connected,
+      answered: assessment.answered,
+      caller_id: input.from,
+      dialed_number: input.to,
+      outcome: null,
+      transcript: input.transcript,
+      reason: IN_PROGRESS_REASON,
+    };
+    if (input.transcriptError !== undefined) live.transcript_error = input.transcriptError;
+    return live;
+  }
 
   const summary: CallSummary = {
     status: input.status,
