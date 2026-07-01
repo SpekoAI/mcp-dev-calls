@@ -34,7 +34,6 @@ export function pickPlayer(platform: NodeJS.Platform, has: (bin: string) => bool
   const candidates: Array<[string, (f: string) => string[]]> = [
     ["ffplay", ffplay.args],
     ["mpv", (f) => ["--no-video", "--really-quiet", f]],
-    ["ffplay", ffplay.args],
     ["aplay", (f) => [f]],
     ["paplay", (f) => [f]],
     ["mpg123", (f) => ["-q", f]],

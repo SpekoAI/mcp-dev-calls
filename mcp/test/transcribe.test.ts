@@ -67,6 +67,25 @@ describe("runTranscribe", () => {
     expect(json).toMatchObject({ text: "hi there", provider: "deepgram", confidence: 0.98 });
   });
 
+  it("--json + -o writes the file AND includes its path (composable, not dropped)", async () => {
+    const { speko } = fakeSpeko("saved text");
+    const writes: Array<{ path: string; text: string }> = [];
+    const c = cap();
+    await runTranscribe(["r.wav", "--json", "-o", "out.txt"], {
+      speko,
+      stdout: c.stdout,
+      stderr: c.stderr,
+      isTTY: true,
+      readFile: () => new Uint8Array([1]),
+      writeFile: (p, t) => void writes.push({ path: p, text: t }),
+    });
+    expect(writes).toHaveLength(1);
+    expect(writes[0].text).toBe("saved text");
+    const json = JSON.parse(c.out.join("").trim());
+    expect(json.text).toBe("saved text");
+    expect(json.file).toMatch(/out\.txt$/);
+  });
+
   it("writes a file with -o and still prints the transcript", async () => {
     const { speko } = fakeSpeko();
     const writes: Array<{ path: string; text: string }> = [];
