@@ -16,10 +16,8 @@ function strField(md: Record<string, unknown> | undefined, key: string): string 
   return typeof v === "string" && v ? v : null;
 }
 
-/** True if the event timeline shows a room teardown or a hard failure — the call genuinely ended. */
-function hasTerminalEvent(events: Array<Record<string, unknown>>): boolean {
-  const types = new Set(events.map((e) => String(e.event_type ?? e.type ?? "").toLowerCase()));
-  return [...ROOM_END_EVENTS].some((t) => types.has(t)) || [...HARD_FAILURE_EVENTS].some((t) => types.has(t));
+function eventTypeSet(events: Array<Record<string, unknown>>): Set<string> {
+  return new Set(events.map((e) => String(e.event_type ?? e.type ?? "").toLowerCase()));
 }
 
 export async function describeCall(
@@ -59,7 +57,13 @@ export async function describeCall(
     // Best effort — fall back to `ended_at` below.
   }
   const endedAt = typeof detail.ended_at === "string" && detail.ended_at ? detail.ended_at : null;
-  const isTerminal = hasTerminalEvent(events) || endedAt !== null;
+  const types = eventTypeSet(events);
+  const hardFailure = [...HARD_FAILURE_EVENTS].some((t) => types.has(t));
+  const isTerminal = [...ROOM_END_EVENTS].some((t) => types.has(t)) || hardFailure || endedAt !== null;
+  // A hard-failure event (sip.dial_failed / agent.dispatch_failed) means a real trunk/caller-ID
+  // failure — so a not_connected here must blame the trunk, matching make_call for the same call
+  // (without this, get_call always reported a destination-side no-answer instead — E1 parity).
+  const dialFailed = hardFailure;
 
   // Duration: the platform value when terminal; otherwise live elapsed from created_at so a live
   // call never reports a bogus 0 that looks finished.
@@ -89,6 +93,7 @@ export async function describeCall(
       session,
       fallbackDuration,
       isTerminal,
+      dialFailed,
     }),
     dashboardBaseUrl,
   );
