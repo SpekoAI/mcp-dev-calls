@@ -139,19 +139,6 @@ export async function runTranscribe(argv: string[], deps: TranscribeDeps = {}): 
   const conf = typeof result.confidence === "number" ? ` · conf ${result.confidence.toFixed(2)}` : "";
   const routed = `via ${result.provider}:${result.model}${conf} · failover ${result.failoverCount}`;
 
-  if (values.json) {
-    stdout.write(
-      JSON.stringify({
-        text,
-        provider: result.provider,
-        model: result.model,
-        confidence: result.confidence,
-        failoverCount: result.failoverCount,
-      }) + "\n",
-    );
-    return 0;
-  }
-
   const isTTY = deps.isTTY ?? Boolean(process.stdout.isTTY);
   let outIsDir = false;
   if (values.output) {
@@ -172,14 +159,32 @@ export async function runTranscribe(argv: string[], deps: TranscribeDeps = {}): 
     cwd: deps.cwd ?? process.cwd(),
   });
 
-  // Always surface the transcript on stdout (pipe-clean); optionally persist a file.
-  stdout.write(text.endsWith("\n") ? text : text + "\n");
-  if (target.mode === "file") {
-    const path = resolvePath(target.path as string);
-    (deps.writeFile ?? ((p, t) => writeFileSync(p, t)))(path, text);
-    if (!values.quiet) stderr(`✓ ${path}  (${routed})`);
-  } else if (!values.quiet) {
-    stderr(routed);
+  // Persist a file when in file mode. Under --json we only write when the user gave an explicit
+  // -o (the transcript is already in the JSON payload, so don't spring a surprise <id>.txt);
+  // without --json, interactive mode auto-writes <id>.txt as the predictable artifact.
+  let writtenPath: string | undefined;
+  if (target.mode === "file" && (Boolean(values.output) || !values.json)) {
+    writtenPath = resolvePath(target.path as string);
+    (deps.writeFile ?? ((p, t) => writeFileSync(p, t)))(writtenPath, text);
   }
+
+  if (values.json) {
+    stdout.write(
+      JSON.stringify({
+        text,
+        provider: result.provider,
+        model: result.model,
+        confidence: result.confidence,
+        failoverCount: result.failoverCount,
+        ...(writtenPath ? { file: writtenPath } : {}),
+      }) + "\n",
+    );
+    return 0;
+  }
+
+  // Surface the transcript on stdout (pipe-clean); note any persisted file on stderr.
+  stdout.write(text.endsWith("\n") ? text : text + "\n");
+  if (writtenPath && !values.quiet) stderr(`✓ ${writtenPath}  (${routed})`);
+  else if (!values.quiet) stderr(routed);
   return 0;
 }
