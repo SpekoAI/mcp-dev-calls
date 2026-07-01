@@ -1,5 +1,5 @@
 /**
- * `speko-calls audio transcribe <file|url|->` — speech-to-text.
+ * `speko audio transcribe <file|url|->` — speech-to-text.
  * Thin wrapper over speko.transcribe(). Accepts a file path, http(s)/file URL, or piped
  * stdin bytes. Prints the transcript to stdout (pipe-clean); provider/model/confidence to
  * stderr. Mirrors vercel-labs/ai-cli's input flexibility + artifact behavior.
@@ -69,7 +69,7 @@ export async function runTranscribe(argv: string[], deps: TranscribeDeps = {}): 
   const input = positionals[0];
   const stdinIsTTY = deps.stdinIsTTY ?? Boolean(process.stdin.isTTY);
   if (!input && stdinIsTTY) {
-    stderr("transcribe: no input. usage: speko-calls audio transcribe <file|url>  (or pipe audio via stdin)");
+    stderr("transcribe: no input. usage: speko audio transcribe <file|url>  (or pipe audio via stdin)");
     return 2;
   }
 
