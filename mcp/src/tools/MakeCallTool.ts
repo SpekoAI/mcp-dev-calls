@@ -53,10 +53,9 @@ function summarize(s: Record<string, unknown>): string {
     );
   }
   if (status === "not_connected") {
-    return (
-      (reason ?? "The call did not connect — no telephony leg reached the carrier, so the phone never rang.") +
-      " This is a deployment-level outbound-trunk gap, not a request error; re-dialing will not help until it is fixed."
-    );
+    // The server reason now differentiates a trunk/caller-ID dial failure from a destination-side
+    // no-answer (E1) — render it as-is instead of unconditionally blaming the outbound trunk.
+    return reason ?? "The call did not connect — the other party was never heard.";
   }
   if (status === "timeout") {
     return `Reached the wait limit; the call may still be in progress${callId ? ` (call_id '${callId}')` : ""}. Check again with get_call.`;

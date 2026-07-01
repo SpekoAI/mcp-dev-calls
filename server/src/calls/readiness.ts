@@ -39,6 +39,8 @@ export async function checkReadiness(client: SpekoClient): Promise<ReadinessRepo
         source: n.source ?? null,
         setup_status: setup?.status ?? null,
         outbound_ready: outboundReady,
+        inbound_ready: Boolean(setup?.inboundReady),
+        agent_attached: typeof n.agentId === "string" && n.agentId.length > 0,
         issues: Array.isArray(setup?.issues) ? setup.issues.map((i) => String(i)) : [],
       });
     }
@@ -78,6 +80,17 @@ export async function checkReadiness(client: SpekoClient): Promise<ReadinessRepo
     if (row.setup_status && row.setup_status !== "ready" && row.issues.length) {
       const label = row.e164 || "an owned number";
       nextSteps.push(`Resolve setup issues for ${label}: ${row.issues.join(", ")}.`);
+    }
+    // Inbound answerability is independent of outbound_ready. A number you can dial FROM may still
+    // ring into the void when someone calls it (no agent bound / inbound not provisioned) — D-INF2.
+    const dir = (row.direction ?? "").toLowerCase();
+    if ((dir === "inbound" || dir === "both") && (!row.inbound_ready || !row.agent_attached)) {
+      const label = row.e164 || "an owned inbound number";
+      const why = !row.agent_attached ? "no agent is attached" : "inbound is not ready";
+      nextSteps.push(
+        `Inbound calls to ${label} will NOT be answered (${why}), even though outbound_ready may be true — ` +
+          "outbound readiness says nothing about inbound answerability.",
+      );
     }
   }
 
