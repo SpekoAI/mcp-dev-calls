@@ -141,3 +141,71 @@ describe("runPhoneCall — terminal detection (the not_connected false-negative 
     expect(s.status).toBe("not_placed");
   });
 });
+
+describe("runPhoneCall — phone-leg hangup detection (Bek: 'I hang up but terminal keeps showing in call')", () => {
+  it("finalizes as soon as the session endedAt is stamped (callee hung up), without waiting for room_finished", async () => {
+    // Telnyx call.hangup sets session endedAt immediately; the LiveKit room (and its
+    // room_finished event) lags ~45-60s because the agent idles inside. The poll loop
+    // must treat endedAt as terminal — otherwise the caller sits "in call" until the
+    // room drains or the wait cap expires.
+    let sessionCalls = 0;
+    const s = await runPhoneCall(
+      BODY,
+      300,
+      deps({
+        dial: dialOk("hang1"),
+        getEvents: async () => [{ event_type: "sip.dial_started" }, { event_type: "worker.first_agent_audio" }] as any, // never a room-end event
+        getCall: async () =>
+          ({
+            status: "active",
+            transcript: { entries: [{ source: "agent", text: "Hi!" }, { source: "user", text: "yes 8pm works, bye" }] },
+            report: { outcome: "Table booked at 8pm" },
+          }) as any,
+        getSession: async () => {
+          sessionCalls += 1;
+          // First poll: still live. From the second poll on: the human hung up.
+          return (sessionCalls >= 2
+            ? { status: "ended", endedAt: new Date().toISOString(), phoneCall: { callControlId: "phone-hang1" }, usage: [] }
+            : { status: "active", endedAt: null, phoneCall: { callControlId: "phone-hang1" }, usage: [] }) as any;
+        },
+      }),
+      noopSleep,
+    );
+    expect(s.status).toBe("completed"); // finalized honestly — NOT "timeout"
+    expect(s.answered).toBe(true);
+    expect(s.outcome).toBe("Table booked at 8pm");
+  });
+
+  it("does NOT end on a premature 'failed' status while endedAt is still null (A2 guard preserved)", async () => {
+    const s = await runPhoneCall(
+      BODY,
+      3, // tiny cap → proves the loop kept polling and hit the cap
+      deps({
+        dial: dialOk("hang2"),
+        getEvents: async () => [{ event_type: "sip.dial_started" }] as any,
+        getCall: async () => ({ status: "failed", transcript: null }) as any,
+        getSession: async () =>
+          ({ status: "failed", endedAt: null, phoneCall: { callControlId: null }, usage: [] }) as any, // SLA flip, call still live
+      }),
+      noopSleep,
+    );
+    expect(s.status).toBe("timeout");
+  });
+
+  it("keeps polling when the session endpoint errors (best-effort, events remain primary)", async () => {
+    const s = await runPhoneCall(
+      BODY,
+      3,
+      deps({
+        dial: dialOk("hang3"),
+        getEvents: async () => [{ event_type: "sip.dial_started" }] as any,
+        getCall: async () => ({ status: "active", transcript: null }) as any,
+        getSession: async () => {
+          throw new Error("session endpoint down");
+        },
+      }),
+      noopSleep,
+    );
+    expect(s.status).toBe("timeout"); // survived the errors, no crash
+  });
+});
