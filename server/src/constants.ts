@@ -16,7 +16,9 @@ export const MIN_CALL_SECONDS = 30;
 
 export const FAST_POLLS = 5;
 export const FAST_POLL_SECONDS = 2;
-export const SLOW_POLL_SECONDS = 5;
+// Back off after the first ~10s so a long (up to MAX_CALL_SECONDS) call doesn't hammer the events
+// endpoint every 2s — the early polls catch fast failures, the slow rate carries a live call.
+export const SLOW_POLL_SECONDS = 10;
 
 // voice.dial returns "dialing" on a real dial or "dialing-stub" when the
 // deployment has no SIP/telephony configured (call NOT placed → never poll/retry).
@@ -29,20 +31,36 @@ export const NOT_CONNECTED_STATUS = "not_connected";
 // Outbound calls debit prepaid credits; readiness warns below this.
 export const MIN_CALL_BALANCE_USD = 0.5;
 
-export const TERMINAL_STATUSES: ReadonlySet<string> = new Set([
+// GENUINE call endings. NOTE: "failed"/"error" are deliberately EXCLUDED — the platform
+// flips the call status to "failed" the instant a first-audio SLA times out (~10-15s), even
+// when the call is still live and a full conversation follows. Finalizing on "failed" was
+// reporting working calls as not_connected. We instead wait for the room teardown event.
+export const HARD_TERMINAL_STATUSES: ReadonlySet<string> = new Set([
   "completed",
   "ended",
-  "failed",
   "no_answer",
   "no-answer",
   "busy",
   "canceled",
   "cancelled",
-  "error",
   "hangup",
 ]);
 
+// The authoritative "the call is really over" signals from GET /v1/calls/{id}/events.
+export const ROOM_END_EVENTS: ReadonlySet<string> = new Set(["room_finished", "call.end_tool.completed"]);
+
+// Genuine non-recoverable failures (the agent never dispatched / the SIP dial failed). Unlike a
+// first-audio timeout, these never recover, so stop polling immediately.
+export const HARD_FAILURE_EVENTS: ReadonlySet<string> = new Set(["agent.dispatch_failed", "sip.dial_failed"]);
+
 export const OUTCOME_MARKER = "OUTCOME:";
+
+// The platform call-report `outcome` sometimes carries a bare status word (e.g. "failed",
+// "completed") rather than a real transactional answer. On a connected call that reads as a
+// misleading headline ("outcome: failed" on a call that worked), so these are filtered out and
+// we fall back to a transcript OUTCOME: marker / the transcript itself.
+export const BARE_OUTCOME_RE =
+  /^(failed|abandoned|completed?|error|no[_-]?answer|busy|canceled|cancelled|ended|success|unknown|in[_-]?progress|dialing)$/i;
 
 // voice.dial requires agentId or intent; ad-hoc calls pin a minimal intent.
 export const DIAL_INTENT_LANGUAGE = "en";
@@ -79,7 +97,7 @@ export const EMERGENCY_NUMBERS: ReadonlySet<string> = new Set([
 
 // ── Objective screen (block-list wins over transactional wording) ────────────
 export const OBJECTIVE_BLOCK_RE =
-  /\bsell\b|sales pitch|promot|discount|sponsor|advertis|marketing|survey|donat|fundrais|vote|campaign|debt|warranty|crypto|investment/i;
+  /\bsell\b|sales pitch|promot|discount|sponsor|advertis|marketing|survey|donat|fundrais|vote|campaign|debt|warranty|crypto|investment|persuad|convinc|solicit|upsell|telemarket/i;
 
 // ── Dial token ───────────────────────────────────────────────────────────────
 export const DIAL_TOKEN_DEFAULT_TTL_SECONDS = 900;
@@ -105,12 +123,6 @@ export const MAKE_CALL_DIAL_NEXT_STEP =
 
 export const CHECK_READINESS_NEXT_STEP =
   "Run check_call_readiness for a read-only report of auth, credit balance, and outbound caller-ID before placing a call.";
-
-export const NOT_CONNECTED_NEXT_STEP =
-  "The Speko session and AI agent started but no telephony leg reached the carrier (callControlId null, no " +
-  "carrier minutes), so the phone never rang. This is a deployment-level outbound-trunk gap on api.speko.dev " +
-  "(the LiveKit outbound trunk / Telnyx outbound SIP connection for the caller-ID), not a fault in the request — " +
-  "re-dialing will not help until the deployment's outbound SIP trunk is configured for the from-number.";
 
 export const AUTH_NEXT_STEP =
   "Check the demo server's SPEKO_API_KEY (set it in the repo-root .env) and retry.";

@@ -8,11 +8,23 @@ const schema = z.object({
     .describe("Signed dial token minted by lookup_business. Raw phone numbers are rejected."),
   objective: z
     .string()
-    .describe("Single transactional question, e.g. 'Do you have a table for 4 at 8pm tonight?'."),
+    .describe(
+      "Single transactional request — READ ALOUD VERBATIM after the AI disclosure. Put ONLY what " +
+        "should be spoken here (e.g. 'Do you have a table for 4 at 8pm tonight?'). Do NOT put " +
+        "behavior/steering instructions here — they would be spoken to the callee. Use `behavior` for those.",
+    ),
   caller_name: z
     .string()
     .describe("Name of the human the call is on behalf of (1-80 chars); spoken in the AI-disclosure opening line."),
   context: z.string().optional().describe("Optional extra task context (party size, dates, order numbers)."),
+  behavior: z
+    .string()
+    .optional()
+    .describe(
+      "PRIVATE instructions for HOW the assistant should behave — NEVER spoken aloud (e.g. 'wait for " +
+        "them to say hello before you speak', 'be extra concise', 'if they offer takeout, decline'). " +
+        "Steering/meta goes here; spoken content goes in `objective`.",
+    ),
   max_duration_seconds: z
     .number()
     .int()
@@ -41,10 +53,9 @@ function summarize(s: Record<string, unknown>): string {
     );
   }
   if (status === "not_connected") {
-    return (
-      (reason ?? "The call did not connect — no telephony leg reached the carrier, so the phone never rang.") +
-      " This is a deployment-level outbound-trunk gap, not a request error; re-dialing will not help until it is fixed."
-    );
+    // The server reason now differentiates a trunk/caller-ID dial failure from a destination-side
+    // no-answer (E1) — render it as-is instead of unconditionally blaming the outbound trunk.
+    return reason ?? "The call did not connect — the other party was never heard.";
   }
   if (status === "timeout") {
     return `Reached the wait limit; the call may still be in progress${callId ? ` (call_id '${callId}')` : ""}. Check again with get_call.`;
@@ -79,6 +90,8 @@ export default class MakeCallTool extends MCPTool {
     // Heartbeat so the call feels alive in the terminal. The authoritative
     // status lives server-side; here we surface elapsed time (monotonic).
     let elapsed = 0;
+    // Immediate progress so the terminal isn't silent for the first ~5s while the call places + rings.
+    void this.reportProgress(0, maxWait, "Placing the call…").catch(() => {});
     const timer = setInterval(() => {
       elapsed += HEARTBEAT_MS / 1000;
       void this.reportProgress(elapsed, maxWait, `Call in progress — ${elapsed}s elapsed`).catch(() => {});
@@ -92,6 +105,7 @@ export default class MakeCallTool extends MCPTool {
           objective: input.objective,
           caller_name: input.caller_name,
           context: input.context,
+          behavior: input.behavior,
           max_duration_seconds: input.max_duration_seconds,
         },
         { timeoutMs: (maxWait + 30) * 1000, signal: this.abortSignal },

@@ -25,6 +25,9 @@ const NANP_AREA_TZ: Readonly<Record<string, string>> = {
   "818": "America/Los_Angeles", "831": "America/Los_Angeles", "858": "America/Los_Angeles",
   "909": "America/Los_Angeles", "916": "America/Los_Angeles", "925": "America/Los_Angeles",
   "949": "America/Los_Angeles", "971": "America/Los_Angeles",
+  // Bay Area / NorCal overlays (628=SF, 669=San Jose, 341=Oakland) + Central Valley (209/279)
+  "628": "America/Los_Angeles", "669": "America/Los_Angeles", "341": "America/Los_Angeles",
+  "209": "America/Los_Angeles", "279": "America/Los_Angeles",
   // Mountain (Phoenix = no DST)
   "303": "America/Denver", "385": "America/Denver", "435": "America/Denver", "505": "America/Denver",
   "720": "America/Denver", "801": "America/Denver",

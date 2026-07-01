@@ -33,6 +33,14 @@ export interface CallSummary {
   transcript_error?: string;
   /** Human-readable explanation when the call did not connect / was not placed. */
   reason?: string;
+  /** Deep link to the call in the Speko dashboard (`${dashboardBaseUrl}/sessions/{call_id}`). */
+  dashboard_url?: string;
+  /**
+   * True when the OTHER party (e.g. a platform receptionist agent) spoke internal control tokens
+   * aloud — end_call/field-labels/verbalized punctuation (B2). Detection only; the real fix is
+   * platform-side. Lets this report flag a leak instead of presenting the call as clean.
+   */
+  receptionist_control_token_leak?: boolean;
 }
 
 /**
@@ -53,6 +61,10 @@ export interface OwnedNumber {
   source: string | null;
   setup_status: string | null;
   outbound_ready: boolean;
+  /** Whether inbound calls to this number will be answered (setup.inboundReady). */
+  inbound_ready: boolean;
+  /** Whether a persisted agent is bound to this number (PhoneNumberRow.agentId != null). */
+  agent_attached: boolean;
   issues: string[];
 }
 
@@ -75,5 +87,7 @@ export interface MakeCallInput {
   objective: string;
   callerName: string;
   context?: string | null;
+  /** Private steering for HOW the assistant behaves (pacing, when to speak). NEVER spoken. */
+  behavior?: string | null;
   maxDurationSeconds?: number;
 }

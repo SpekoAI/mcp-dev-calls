@@ -43,10 +43,15 @@ const get = async (path) => {
 const ev = await get(`/v1/calls/${callId}/events`);
 const events = ev.status === 200 ? (ev.body.events ?? []) : [];
 const types = new Set(events.map((e) => e.event_type));
+// Only GENUINE, non-recoverable failures count. worker.no_first_audio_timeout is NOT here:
+// it fires when the agent's FIRST audio is a little late, then the call often recovers into a
+// full conversation — so it must never override actual user turns (the real proof below).
 const HARD_FAIL = ["agent.dispatch_failed", "sip.dial_failed"];
-const failure = events.find((e) => HARD_FAIL.includes(e.event_type) || e.status === "failed" || e.failure_cause);
+const hardFailure = events.find((e) => HARD_FAIL.includes(e.event_type));
+const softFlag = events.find((e) => e.failure_cause || e.status === "failed");
 
-const reachedCarrier = types.has("sip.dial_started") || types.has("room_started");
+const reachedCarrier =
+  types.has("sip.dial_started") || types.has("room_started") || types.has("worker.room_connected");
 const terminal = types.has("room_finished") || types.has("call.end_tool.completed");
 
 // 2) Two-way audio proof: at least one transcript turn with source='user'
@@ -62,16 +67,21 @@ console.log(`events         : ${[...types].join(", ") || "<none>"}`);
 console.log(`reachedCarrier : ${reachedCarrier}`);
 console.log(`terminal       : ${terminal}`);
 console.log(`turns          : agent=${agentTurns} user=${userTurns} (${JSON.stringify(bySource)})`);
-if (failure) console.log(`failure        : ${failure.event_type} ${failure.failure_cause ?? failure.status ?? ""}`);
+if (hardFailure) console.log(`hardFailure    : ${hardFailure.event_type}`);
+else if (softFlag) console.log(`note           : soft flag ${softFlag.event_type ?? ""} ${softFlag.failure_cause ?? ""} (recoverable — user turns decide)`);
 
-if (failure || !reachedCarrier) {
-  console.log(`\nVERDICT: ❌ NOT_CONNECTED — call never reached the carrier or hit a hard failure.`);
+// User turns are ground truth: real inbound audio was transcribed → two-way audio happened,
+// regardless of any soft first-audio timeout the call recovered from.
+if (userTurns >= 1) {
+  console.log(`\nVERDICT: ✅ PASS — two-way audio confirmed (${userTurns} user turn(s), ${agentTurns} agent turn(s)).`);
+  process.exit(0);
+}
+if (hardFailure || !reachedCarrier) {
+  console.log(
+    `\nVERDICT: ❌ NOT_CONNECTED — call never reached the carrier or hit a hard failure${hardFailure ? ` (${hardFailure.event_type})` : ""}.`,
+  );
   process.exit(4);
 }
-if (userTurns === 0) {
-  console.log(`\nVERDICT: 🔇 SILENT — connected but NO inbound (user) audio was ever transcribed.`);
-  console.log(`         (event milestones alone would FALSELY pass this call.)`);
-  process.exit(3);
-}
-console.log(`\nVERDICT: ✅ PASS — two-way audio confirmed (${userTurns} user turn(s), ${agentTurns} agent turn(s)).`);
-process.exit(0);
+console.log(`\nVERDICT: 🔇 SILENT — connected but NO inbound (user) audio was ever transcribed.`);
+console.log(`         (event milestones alone would FALSELY pass this call.)`);
+process.exit(3);

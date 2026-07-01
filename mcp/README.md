@@ -47,7 +47,7 @@ backing server instead of running in-process, set `SPEKO_MCP_SERVER_URL`.
 | --- | --- |
 | `lookup_business(name, location?, phone_number?)` | Resolve a business → dialable candidates + a signed `dial_token` per callable one (the only path that can authorize a call). Pass `phone_number` (E.164 — e.g. found via the agent's web search) to skip the directory lookup; still carrier-verified as a business line. |
 | `make_call(dial_token, objective, caller_name, context?)` | Place the disclosed, objective-scoped call; wait for it to finish; return the `OUTCOME` + transcript. Honest `connected`/`answered`/`not_connected`. |
-| `call_number(phone_number, objective, caller_name)` | Disclosed PERSONAL call to a specific number (e.g. a friend) — mobiles allowed. On by default (set `SPEKO_ALLOW_DIRECT_DIAL=0` to restrict to business lines). |
+| `call_number(phone_number, objective, caller_name)` | Disclosed call to a number you have or found via web search (business or personal) — the default path once you have the number. Mobiles allowed. On by default (`SPEKO_ALLOW_DIRECT_DIAL=0` restricts to business lines). |
 | `get_call(call_id)` | Read-only: re-check a call's status, `OUTCOME`, and transcript. Never dials. |
 | `check_call_readiness()` | Read-only preflight: auth, credit balance, outbound caller-ID. Never dials. |
 

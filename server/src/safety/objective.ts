@@ -22,3 +22,22 @@ export function objectiveBlockedReason(objective: string): string | null {
   }
   return null;
 }
+
+/**
+ * Why the private `behavior` steering may not drive a call, or null when allowed. Same block-list
+ * as the objective screen (no selling/promotion/surveys/etc.) but WITHOUT the min-length rule —
+ * behavior is optional and short by nature. Closes the bypass where a blocked intent is moved from
+ * `objective` (screened) into `behavior` (previously unscreened). Empty/absent behavior is allowed.
+ */
+export function behaviorBlockedReason(behavior: string | null | undefined): string | null {
+  const cleaned = typeof behavior === "string" ? behavior.trim() : "";
+  if (!cleaned) return null;
+  if (OBJECTIVE_BLOCK_RE.test(cleaned)) {
+    return (
+      "The behavior guidance is blocked by the transactional-only policy: selling, promotion, " +
+      "surveys, fundraising, and campaigning are not allowed on any call, and cannot be smuggled " +
+      "in via the behavior channel."
+    );
+  }
+  return null;
+}

@@ -66,10 +66,30 @@ export class SpekoClient {
   async getSession(sessionId: string): Promise<SessionDetail> {
     const resp = await fetch(`${this.baseUrl}/v1/sessions/${encodeURIComponent(sessionId)}`, {
       headers: { accept: "application/json", authorization: `Bearer ${this.apiKey}` },
+      signal: AbortSignal.timeout(30_000),
     });
     if (!resp.ok) {
       throw new SpekoApiError(`GET /v1/sessions/${sessionId} failed`, resp.status, "session_fetch_failed");
     }
     return (await resp.json()) as SessionDetail;
+  }
+
+  /**
+   * Raw `GET /v1/calls/{id}/events` — the call's event timeline. We poll this to find
+   * the AUTHORITATIVE end of the call (`room_finished`), because the call `status` can
+   * flip to "failed" early (a first-audio SLA timeout) while the call is still live and
+   * a full conversation follows. Returns a best-effort array (each event carries an
+   * `event_type`); an empty array on an unexpected shape.
+   */
+  async getEvents(callId: string): Promise<Array<Record<string, unknown>>> {
+    const resp = await fetch(`${this.baseUrl}/v1/calls/${encodeURIComponent(callId)}/events`, {
+      headers: { accept: "application/json", authorization: `Bearer ${this.apiKey}` },
+      signal: AbortSignal.timeout(30_000),
+    });
+    if (!resp.ok) {
+      throw new SpekoApiError(`GET /v1/calls/${callId}/events failed`, resp.status, "events_fetch_failed");
+    }
+    const body = (await resp.json()) as { events?: Array<Record<string, unknown>> };
+    return Array.isArray(body.events) ? body.events : [];
   }
 }
