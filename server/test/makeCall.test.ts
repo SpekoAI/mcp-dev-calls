@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { runPhoneCall, type MakeCallDeps } from "../src/calls/makeCall.js";
 import type { AppConfig } from "../src/config.js";
 import type { SpekoClient } from "../src/speko/client.js";
@@ -207,5 +207,360 @@ describe("runPhoneCall — phone-leg hangup detection (Bek: 'I hang up but termi
       noopSleep,
     );
     expect(s.status).toBe("timeout"); // survived the errors, no crash
+  });
+
+  it("finalizes when getEvents errors but endedAt is set (the error path no longer skips the endedAt check)", async () => {
+    // Before the restructure, a getEvents failure `continue`d straight past the session
+    // endedAt check — an events-endpoint outage could leave an ENDED call polling until
+    // the wait cap. Would report "timeout" on the old code.
+    const s = await runPhoneCall(
+      BODY,
+      300,
+      deps({
+        dial: dialOk("err1"),
+        getEvents: async () => {
+          throw new Error("events endpoint down");
+        },
+        getCall: async () =>
+          ({
+            status: "active",
+            transcript: { entries: [{ source: "agent", text: "Hi!" }, { source: "user", text: "all good, bye" }] },
+            report: { outcome: "Confirmed pickup at noon" },
+          }) as any,
+        getSession: async () =>
+          ({ status: "ended", endedAt: new Date().toISOString(), phoneCall: { callControlId: "phone-err1" }, usage: [] }) as any,
+      }),
+      noopSleep,
+    );
+    expect(s.status).toBe("completed");
+    expect(s.answered).toBe(true);
+    expect(s.outcome).toBe("Confirmed pickup at noon");
+  });
+
+  it("still falls back to a hard-terminal call status when getEvents errors and endedAt is absent", async () => {
+    const s = await runPhoneCall(
+      BODY,
+      300,
+      deps({
+        dial: dialOk("err2"),
+        getEvents: async () => {
+          throw new Error("events endpoint down");
+        },
+        getCall: async () =>
+          ({
+            status: "completed",
+            transcript: { entries: [{ source: "agent", text: "hi" }, { source: "user", text: "yes" }] },
+            report: {},
+          }) as any,
+        getSession: async () =>
+          ({ status: "active", endedAt: null, phoneCall: { callControlId: "phone-err2" }, usage: [] }) as any,
+      }),
+      noopSleep,
+    );
+    expect(s.status).toBe("completed");
+  });
+});
+
+// Realistic serialized shape from GET /v1/calls/{id}/events for the phone leg dying:
+// LiveKit closes the recording egress's source and the platform stores the webhook payload.
+const EGRESS_SOURCE_CLOSED_EVENT = {
+  id: "evt-egress-1",
+  event_type: "egress_ended",
+  provider: "livekit",
+  status: "recording_failed",
+  failure_cause: "Source closed",
+  payload: { egressInfo: { status: "EGRESS_ABORTED", error: "Source closed" } },
+};
+
+describe("runPhoneCall — egress_ended fast-path (phone leg dies ~20s before room_finished)", () => {
+  it("finalizes after the confirm window when the transcript is frozen — no room_finished ever arrives", async () => {
+    let eventsCalls = 0;
+    const transcript = {
+      entries: [
+        { source: "agent", text: "Hi, this is an AI assistant calling on behalf of Amir." },
+        { source: "user", text: "yes 8pm works, bye" },
+        { source: "agent", text: "Great. OUTCOME: Table booked at 8pm" },
+      ],
+    };
+    const s = await runPhoneCall(
+      BODY,
+      300,
+      deps({
+        dial: dialOk("eg1"),
+        getEvents: async () => {
+          eventsCalls += 1;
+          // Poll 1: live. Poll 2+: the phone leg died (source-closed egress). room_finished NEVER fires.
+          return (eventsCalls >= 2
+            ? [{ event_type: "sip.dial_started" }, EGRESS_SOURCE_CLOSED_EVENT]
+            : [{ event_type: "sip.dial_started" }]) as any;
+        },
+        getCall: async () => ({ status: "active", transcript }) as any, // frozen turn count, no report
+        getSession: async () =>
+          ({ status: "active", endedAt: null, phoneCall: { callControlId: "phone-eg1" }, usage: [] }) as any,
+      }),
+      noopSleep,
+    );
+    expect(s.status).toBe("completed");
+    expect(s.answered).toBe(true);
+    expect(s.outcome).toBe("Table booked at 8pm");
+    // Armed on poll 2, then exactly the bounded confirm window (2 polls) before finalizing.
+    expect(eventsCalls).toBe(4);
+  });
+
+  it("does NOT finalize on egress_ended while transcript turns are still arriving (recording died mid-call)", async () => {
+    let getCallCalls = 0;
+    const s = await runPhoneCall(
+      BODY,
+      12, // small cap: proves the fast-path never fired and the loop ran to the wait limit
+      deps({
+        dial: dialOk("eg2"),
+        // Egress dead from the first poll; the room never finishes (call keeps going).
+        getEvents: async () => [{ event_type: "sip.dial_started" }, EGRESS_SOURCE_CLOSED_EVENT] as any,
+        getCall: async () => {
+          getCallCalls += 1;
+          // The conversation continues: every read shows MORE turns than the last.
+          return {
+            status: "active",
+            transcript: {
+              entries: Array.from({ length: 2 + getCallCalls }, (_, k) => ({
+                source: k % 2 ? "user" : "agent",
+                text: `turn ${k}`,
+              })),
+            },
+          } as any;
+        },
+        getSession: async () =>
+          ({ status: "active", endedAt: null, phoneCall: { callControlId: "phone-eg2" }, usage: [] }) as any,
+      }),
+      noopSleep,
+    );
+    expect(s.status).toBe("timeout"); // live call was never cut short by the dead egress
+    expect(getCallCalls).toBeGreaterThanOrEqual(2); // baseline + expiry comparison actually ran
+  });
+
+  it("defers to room_finished when it lands inside the confirm window (the measured live sequence)", async () => {
+    // The 5/5 live timeline: answered -> transcript turns -> egress_ended (source closed) ->
+    // 11.5-21.3s gap -> room_finished. The fast-path must only be a fallback: the real
+    // teardown event finalizes the moment it shows up.
+    let eventsCalls = 0;
+    const s = await runPhoneCall(
+      BODY,
+      300,
+      deps({
+        dial: dialOk("eg4"),
+        getEvents: async () => {
+          eventsCalls += 1;
+          if (eventsCalls === 1) return [{ event_type: "sip.dial_started" }] as any;
+          if (eventsCalls === 2) return [{ event_type: "sip.dial_started" }, EGRESS_SOURCE_CLOSED_EVENT] as any;
+          return [{ event_type: "sip.dial_started" }, EGRESS_SOURCE_CLOSED_EVENT, { event_type: "room_finished" }] as any;
+        },
+        getCall: async () =>
+          ({
+            status: "ended",
+            transcript: { entries: [{ source: "agent", text: "hi" }, { source: "user", text: "yep, see you" }] },
+            report: { outcome: "Order confirmed for pickup" },
+          }) as any,
+        getSession: async () =>
+          ({ status: "ended", endedAt: null, phoneCall: { callControlId: "phone-eg4" }, usage: [] }) as any,
+      }),
+      noopSleep,
+    );
+    expect(s.status).toBe("completed");
+    expect(s.outcome).toBe("Order confirmed for pickup");
+    expect(eventsCalls).toBe(3); // ended on room_finished (poll 3), not by burning the whole window
+  });
+
+  it("egress fast-path finalizes at the confirm-window expiry when the call report has arrived", async () => {
+    let eventsCalls = 0;
+    let getCallCalls = 0;
+    const s = await runPhoneCall(
+      BODY,
+      300,
+      deps({
+        dial: dialOk("eg3"),
+        getEvents: async () => {
+          eventsCalls += 1;
+          return [{ event_type: "sip.dial_started" }, EGRESS_SOURCE_CLOSED_EVENT] as any;
+        },
+        getCall: async () => {
+          getCallCalls += 1;
+          return {
+            status: "ended",
+            transcript: {
+              // One MORE turn on later reads (a final turn flushed at teardown) — the report's
+              // arrival must finalize even though the turn count moved.
+              entries: [
+                { source: "agent", text: "hi" },
+                { source: "user", text: "sure" },
+                ...(getCallCalls > 1 ? [{ source: "agent", text: "bye" }] : []),
+              ],
+            },
+            report: getCallCalls > 1 ? { outcome: "They open at 9am" } : null,
+          } as any;
+        },
+        getSession: async () =>
+          ({ status: "active", endedAt: null, phoneCall: { callControlId: "phone-eg3" }, usage: [] }) as any,
+      }),
+      noopSleep,
+    );
+    expect(s.status).toBe("completed");
+    expect(s.outcome).toBe("They open at 9am");
+    expect(eventsCalls).toBe(3); // armed on poll 1 + the 2-poll confirm window
+  });
+});
+
+describe("runPhoneCall — wall-clock elapsed (API latency counts toward the wait cap)", () => {
+  it("caps the wait by Date.now() deltas, not summed sleep intervals", async () => {
+    let nowMs = 0;
+    const nowSpy = vi.spyOn(Date, "now").mockImplementation(() => nowMs);
+    const fakeSleep = async (ms: number): Promise<void> => {
+      nowMs += ms;
+    };
+    let eventsCalls = 0;
+    try {
+      const s = await runPhoneCall(
+        BODY,
+        30,
+        deps({
+          dial: dialOk("wc1"),
+          getEvents: async () => {
+            eventsCalls += 1;
+            nowMs += 8000; // slow events endpoint: 8s of real latency per poll
+            return [{ event_type: "sip.dial_started" }] as any;
+          },
+          getCall: async () => ({ status: "active", transcript: null }) as any,
+          getSession: async () =>
+            ({ status: "active", endedAt: null, phoneCall: { callControlId: "phone-wc1" }, usage: [] }) as any,
+        }),
+        fakeSleep,
+      );
+      expect(s.status).toBe("timeout");
+      // 3 polls x (2s sleep + 8s API) = 30s of wall clock. Interval-summing would have needed
+      // 7 polls (2*5 + 10*2 = 30) — i.e. ~86s of real time to enforce a 30s cap.
+      expect(eventsCalls).toBe(3);
+      expect(s.duration_seconds).toBe(30);
+    } finally {
+      nowSpy.mockRestore();
+    }
+  });
+});
+
+describe("finalize — report-grace (finalize-vs-report race)", () => {
+  it("waits a bounded beat for the call report so the outcome label doesn't degrade", async () => {
+    let getCallCalls = 0;
+    const s = await runPhoneCall(
+      BODY,
+      300,
+      deps({
+        dial: dialOk("rg1"),
+        getEvents: async () => [{ event_type: "room_finished" }] as any,
+        getCall: async () => {
+          getCallCalls += 1;
+          return {
+            status: "ended",
+            transcript: { entries: [{ source: "agent", text: "hi" }, { source: "user", text: "yes, 8 works" }] },
+            report: getCallCalls > 1 ? { outcome: "Table for 4 confirmed at 8pm" } : null, // report lags one beat
+          } as any;
+        },
+        getSession: async () =>
+          ({ status: "ended", endedAt: new Date().toISOString(), phoneCall: { callControlId: "phone-rg1" }, usage: [] }) as any,
+      }),
+      noopSleep,
+    );
+    expect(s.status).toBe("completed");
+    expect(s.outcome).toBe("Table for 4 confirmed at 8pm");
+    expect(getCallCalls).toBe(2); // one transcript read + ONE grace poll, then it stopped waiting
+  });
+
+  it("never blocks termination on a report that never comes (bounded, falls back to the transcript)", async () => {
+    let getCallCalls = 0;
+    const s = await runPhoneCall(
+      BODY,
+      300,
+      deps({
+        dial: dialOk("rg2"),
+        getEvents: async () => [{ event_type: "room_finished" }] as any,
+        getCall: async () => {
+          getCallCalls += 1;
+          return {
+            status: "ended",
+            transcript: {
+              entries: [
+                { source: "agent", text: "hi" },
+                { source: "user", text: "we close Mondays" },
+                { source: "agent", text: "OUTCOME: closed Mondays" },
+              ],
+            },
+            report: null,
+          } as any;
+        },
+        getSession: async () =>
+          ({ status: "ended", endedAt: new Date().toISOString(), phoneCall: { callControlId: "phone-rg2" }, usage: [] }) as any,
+      }),
+      noopSleep,
+    );
+    expect(s.status).toBe("completed");
+    expect(s.outcome).toBe("closed Mondays"); // transcript OUTCOME marker, not degraded to null
+    expect(getCallCalls).toBe(3); // 1 transcript read (reply found) + exactly 2 grace polls
+  });
+});
+
+describe("runPhoneCall — serialize guard released on every exit path", () => {
+  it("allows a second dial after the first one TIMES OUT", async () => {
+    let terminal = false;
+    const d: MakeCallDeps = {
+      client: {
+        dial: dialOk("gt1"),
+        getEvents: async () => (terminal ? [{ event_type: "room_finished" }] : [{ event_type: "sip.dial_started" }]) as any,
+        getCall: async () =>
+          ({
+            status: "active",
+            transcript: { entries: [{ source: "agent", text: "hi" }, { source: "user", text: "yes" }] },
+            report: {},
+          }) as any,
+        getSession: async () =>
+          ({ status: "active", endedAt: null, phoneCall: { callControlId: "phone-gt1" }, usage: [] }) as any,
+      } as unknown as SpekoClient,
+      cfg: { serializeCalls: true } as AppConfig,
+      bearerHash: "test",
+      sleep: noopSleep,
+    };
+    const first = await runPhoneCall(BODY, 3, d, noopSleep);
+    expect(first.status).toBe("timeout");
+    terminal = true; // same guard, next call must be allowed through AND complete
+    const second = await runPhoneCall(BODY, 300, d, noopSleep);
+    expect(second.status).toBe("completed");
+  });
+
+  it("allows a second dial after the first one THROWS mid-poll", async () => {
+    let healthy = false;
+    const d: MakeCallDeps = {
+      client: {
+        dial: dialOk("gt2"),
+        getEvents: async () => {
+          if (!healthy) throw new Error("events endpoint down");
+          return [{ event_type: "room_finished" }] as any;
+        },
+        getCall: async () => {
+          if (!healthy) throw new Error("calls endpoint down"); // events + call detail both dark → AppError
+          return {
+            status: "ended",
+            transcript: { entries: [{ source: "agent", text: "hi" }, { source: "user", text: "yes" }] },
+            report: {},
+          } as any;
+        },
+        getSession: async () => {
+          if (!healthy) throw new Error("sessions endpoint down");
+          return { status: "ended", endedAt: null, phoneCall: { callControlId: "phone-gt2" }, usage: [] } as any;
+        },
+      } as unknown as SpekoClient,
+      cfg: { serializeCalls: true } as AppConfig,
+      bearerHash: "test",
+      sleep: noopSleep,
+    };
+    await expect(runPhoneCall(BODY, 300, d, noopSleep)).rejects.toThrow(/calls endpoint down/i);
+    healthy = true;
+    const second = await runPhoneCall(BODY, 300, d, noopSleep);
+    expect(second.status).toBe("completed");
   });
 });

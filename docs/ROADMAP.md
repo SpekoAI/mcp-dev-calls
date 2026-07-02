@@ -25,11 +25,14 @@ realtime.
 - **0.4.5** — 10 QA fixes (honest outcomes, disclosure hardening, serialize guard) + review hardening. SPE-148..157 ✅
 - **0.4.6** — voice CLI: `audio speak` / `audio transcribe` / `voices` (stdin, pipes, artifacts, `--json`, auto-routing printout). SPE-166 ✅
 - **0.4.7** — bin renamed `speko-calls`→`speko`; bare `speko` in a TTY shows the command list (piped = MCP server, unchanged).
-- **0.4.8** — **hangup detection**: poll loop watches the session's `endedAt` (stamped instantly by the Telnyx `call.hangup` webhook) so a human hanging up finalizes the call immediately instead of sitting "in call…" until the LiveKit room drains (~45-60s). *(merged; publish pending)*
+- **0.4.8** — **hangup detection**: poll loop watches the session's `endedAt`. *(merged; publish pending.)*
+  **Premise corrected (Jul 2 live measurement, 5/5 calls):** these dials go via LiveKit SIP, so the Telnyx `call.hangup` webhook never fires and `endedAt` lands WITH `room_finished` (~0.5s apart) — the check stays as cheap redundancy, not an early signal. The real early phone-leg-death signal is the source-closed `egress_ended` fast-path (poll-hardening branch, 11.5-21.3s earlier); agent-initiated hangups surface as `call.end_tool.completed`.
 
 ## The "call doesn't end" split (Bek 2026-07-02)
 
-- **Callee/human hangs up, terminal stuck "in call…"** → OUR bug → **fixed in 0.4.8** (session `endedAt` polling).
+- **Callee/human hangs up, terminal stuck "in call…"** → OUR bug → fixed by the source-closed
+  `egress_ended` fast-path (poll-hardening branch); 0.4.8's `endedAt` polling turned out to be
+  redundant with `room_finished` (see the corrected 0.4.8 bullet) and is kept as a backstop.
 - **Agent never hangs up after its goodbye** → **platform** (SPE-160). No client-reachable end
   primitive exists (verified: SDK 0.4.3 *and* 0.5.1 have no end method; no `POST /v1/calls/:id/end`
   route; no end_call tool on the dial-path worker). The pieces already exist server-side:
