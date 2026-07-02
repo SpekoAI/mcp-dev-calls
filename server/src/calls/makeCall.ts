@@ -165,8 +165,11 @@ export async function makeCall(input: MakeCallInput, deps: MakeCallDeps): Promis
       : "the business";
   const durationCap = clamp(input.maxDurationSeconds ?? MAX_CALL_SECONDS, MIN_CALL_SECONDS, MAX_CALL_SECONDS);
 
-  // Both pre-dial lookups are independent; resolve them together. ensureDialAgent is
-  // FAIL-OPEN (null after a bounded wait), so agent bootstrap can never block a dial.
+  // Both pre-dial lookups are independent; resolve them together. ensureDialAgent
+  // re-verifies and repairs the dial agent's live row on EVERY dial (a dashboard
+  // edit — endCall off, a pinned voice, a re-attached KB tool — must not ride into
+  // this call) and is FAIL-OPEN (null after a bounded wait), so it can never block
+  // a dial.
   const [fromNumber, dialAgentId] = await Promise.all([resolveFromNumber(deps), ensureDialAgent(deps)]);
 
   // agentId is rebuilt per attempt (see the retry below), and the prompt's rule set must
@@ -226,10 +229,10 @@ export async function makeCall(input: MakeCallInput, deps: MakeCallDeps): Promis
       deps.cfg.dashboardBaseUrl,
     );
   } catch (e) {
-    // The cached dial agent can be deleted out-of-band (dashboard cleanup) after this
-    // long-lived process resolved it; the platform then 404s (AGENT_NOT_FOUND) on EVERY
-    // dial until restart. Same fail-open stance as bootstrap: drop the cache and place
-    // this call agentless (no auto-hangup), with the prompt rebuilt to match.
+    // The dial agent can be deleted out-of-band (dashboard cleanup) in the window
+    // between the pre-dial verify and the dial itself; the platform then 404s
+    // (AGENT_NOT_FOUND). Same fail-open stance as bootstrap: drop the cached id and
+    // place this call agentless (no auto-hangup), with the prompt rebuilt to match.
     if (dialAgentId != null && e instanceof AppError && e.code === "AGENT_NOT_FOUND") {
       resetDialAgent();
       console.error(`[dial-agent] agent ${dialAgentId} gone at dial time; retrying without auto-hangup`);
