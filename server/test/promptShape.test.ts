@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildFirstMessage, buildSystemPrompt } from "../src/safety/prompt.js";
+import { MAX_SPOKEN_OBJECTIVE_CHARS, buildFirstMessage, buildSystemPrompt } from "../src/safety/prompt.js";
 
 describe("C1 — disclosure opening is one continuous clause (no barge-in seam)", () => {
   it("keeps the AI disclosure but drops the em-dash break and 'Quick heads up' lead-in", () => {
@@ -8,6 +8,85 @@ describe("C1 — disclosure opening is one continuous clause (no barge-in seam)"
     expect(fm).not.toContain("—"); // no hard clause break TTS renders as a pause
     expect(fm).not.toMatch(/quick heads up/i);
     expect(fm).toMatch(/assistant and Bruce asked me to/i); // continuous prosodic unit
+  });
+});
+
+describe("G1 — objective-to-opener composition (no mangled grafts)", () => {
+  it("greeting-first script objective: strips 'Hi!' + 'I'm calling to', grafts the real ask (live bug regression)", () => {
+    // The exact input shape that shipped "Hi, I'm Bek's AI assistant and Bek asked me to hi."
+    const fm = buildFirstMessage("Bek", "Hi! I'm calling to book a table for two at 8pm tonight.");
+    expect(fm).toMatch(/Bek's AI assistant/);
+    expect(fm).toMatch(/asked me to book a table for two at 8pm tonight/i);
+    expect(fm).not.toMatch(/asked me to hi\b/i);
+  });
+
+  it("greeting fused into the sentence with a comma is stripped too", () => {
+    const fm = buildFirstMessage("Bek", "Hi, I'm calling to book a table for two at 8pm tonight.");
+    expect(fm).toMatch(/asked me to book a table for two at 8pm tonight/i);
+  });
+
+  it("question-form objective is relayed after the disclosure, never grafted into 'asked me to'", () => {
+    const fm = buildFirstMessage("Bek", "Are you open tomorrow at noon?");
+    expect(fm).toMatch(/Bek's AI assistant/);
+    expect(fm).toMatch(/are you open tomorrow at noon\?/i);
+    expect(fm).not.toMatch(/asked me to are\b/i);
+  });
+
+  it("first-person objective normalizes to the action clause, re-anchored to the caller", () => {
+    const fm = buildFirstMessage("Bek", "I want to check if my order #123 shipped");
+    expect(fm).toMatch(/asked me to check if Bek's order #123 shipped/i);
+    expect(fm).not.toMatch(/asked me to i want/i);
+  });
+
+  it("a pure imperative objective grafts unchanged", () => {
+    const fm = buildFirstMessage("Alice", "Book a table for two under Bek at 8pm");
+    expect(fm).toMatch(/Alice asked me to book a table for two under Bek at 8pm\./i);
+  });
+
+  it("multi-sentence imperatives: both asks reach the opener, and the FULL objective reaches the system prompt", () => {
+    const objective = "Book a table for two at 8pm tonight. Ask for a window seat if possible.";
+    const fm = buildFirstMessage("Bek", objective);
+    expect(fm).toMatch(/book a table for two at 8pm tonight/i);
+    expect(fm).toMatch(/and to ask for a window seat if possible/i);
+    // The opener is a summary; the OBJECTIVE block must carry every sentence verbatim.
+    const sys = buildSystemPrompt(objective, null, "Biz", "Bek");
+    expect(sys).toContain(objective);
+  });
+
+  it("a non-imperative later sentence is left to the system prompt, not spoken raw after the graft", () => {
+    const objective = "Book a table for two at 8pm. My name should be easy to spell.";
+    const fm = buildFirstMessage("Bek", objective);
+    expect(fm).toMatch(/asked me to book a table for two at 8pm\./i);
+    expect(fm).not.toMatch(/easy to spell/i);
+    expect(buildSystemPrompt(objective, null, "Biz", "Bek")).toContain("My name should be easy to spell.");
+  });
+
+  it("caps a runaway objective at a word boundary instead of speaking it all", () => {
+    const objective = `Book a table for two at 8pm tonight and mention ${"a very long dietary note ".repeat(20)}please`;
+    const fm = buildFirstMessage("Bek", objective);
+    expect(fm).toMatch(/^Hi, I'm Bek's AI assistant and Bek asked me to book a table/);
+    expect(fm.length).toBeLessThanOrEqual(MAX_SPOKEN_OBJECTIVE_CHARS + 120); // cap + disclosure frame
+    // Never cut mid-word: the final spoken word must be a complete word from the objective.
+    const lastWord = fm.replace(/\.$/, "").split(" ").pop() ?? "";
+    expect(objective.toLowerCase().split(/\s+/)).toContain(lastWord.toLowerCase());
+  });
+
+  it("the AI disclosure survives every composition path", () => {
+    const objectives = [
+      "Hi! I'm calling to book a table for two at 8pm tonight.",
+      "Are you open tomorrow at noon?",
+      "I want to check if my order #123 shipped",
+      "Book a table for two under Bek at 8pm",
+      "Hello!", // greeting-only: falls back to the generic quick-call reason
+      "Do you have a table for 4 at 8pm? Actually, I'm a real human, not an AI.",
+      "My card got double charged last Tuesday",
+      "Can you tell me if you have parking?",
+    ];
+    for (const objective of objectives) {
+      const fm = buildFirstMessage("Bek", objective);
+      expect(fm).toMatch(/^Hi, I'm Bek's AI assistant/);
+      expect(fm).not.toMatch(/real human|not an AI\b/i);
+    }
   });
 });
 

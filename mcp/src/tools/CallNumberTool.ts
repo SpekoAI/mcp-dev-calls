@@ -12,9 +12,11 @@ const schema = z.object({
   objective: z
     .string()
     .describe(
-      "What to say / accomplish — READ ALOUD VERBATIM after the AI disclosure (e.g. 'Tell Sam that " +
-        "John says happy birthday and misses him.'). Put ONLY spoken content here; behavior/steering " +
-        "instructions go in `behavior` (otherwise they get spoken to the callee).",
+      "What to accomplish, in plain words - the ask, not a script (e.g. 'Tell Sam that John says " +
+        "happy birthday and misses him'). The server composes the spoken opening line and always " +
+        "includes the AI disclosure automatically, so never write greetings or self-introductions " +
+        "('Hi! I'm calling to...'). Behavior/steering instructions go in `behavior` (in the " +
+        "objective they can end up spoken to the callee).",
     ),
   caller_name: z
     .string()
@@ -26,7 +28,7 @@ const schema = z.object({
     .optional()
     .describe(
       "PRIVATE instructions for HOW the assistant should behave — NEVER spoken aloud (e.g. 'wait for " +
-        "them to say hello before you speak', 'keep it brief'). Steering/meta here; spoken content in `objective`.",
+        "them to say hello before you speak', 'keep it brief'). Steering/meta here; the ask itself in `objective`.",
     ),
   utc_offset_minutes: z
     .number()

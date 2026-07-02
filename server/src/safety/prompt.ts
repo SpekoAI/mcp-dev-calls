@@ -25,6 +25,9 @@ export function delimitedBlock(label: string, content: string): string {
 const SPEAKING_DIRECTIVE_RE =
   /^\s*(?:[A-Z][A-Z0-9 ,'-]{4,}(?:RULE|INSTRUCTION|NOTE|IMPORTANT)[^.:!?]*[:.]|important[^.:!?]*[:.]|(?:do not|don'?t|please do not|never)\s+(?:speak|talk|say|respond|reply|answer|start|begin|introduce|greet)|(?:stay|remain|keep|be)\s+(?:completely\s+)?(?:silent|quiet)|wait\s+(?:for|until|before)\b|(?:only\s+)?speak\s+(?:only|after|once|first|when)\b|let\s+(?:them|the other|the caller|the callee)\b)/i;
 
+/** Sentence boundary shared by every spoken-text sanitizer below. */
+const SENTENCE_SPLIT_RE = /(?<=[.!?])\s+/;
+
 /**
  * Strip leading behavioral/meta directive sentences from a would-be spoken objective, returning only
  * the transactional remainder. Defense-in-depth for B1: even if steering text lands in `objective`
@@ -34,7 +37,7 @@ const SPEAKING_DIRECTIVE_RE =
 export function sanitizeSpoken(objective: string): string {
   const text = (objective ?? "").trim();
   if (!text) return "";
-  const sentences = text.split(/(?<=[.!?])\s+/);
+  const sentences = text.split(SENTENCE_SPLIT_RE);
   let start = 0;
   while (start < sentences.length && SPEAKING_DIRECTIVE_RE.test(sentences[start])) start += 1;
   return sentences.slice(start).join(" ").trim();
@@ -51,30 +54,208 @@ export function sanitizeName(raw: string): string {
   return firstClause.replace(/[^\p{L}\p{M}\p{Zs}'’-]/gu, "").replace(/\s+/g, " ").trim();
 }
 
+// ── Opener composition ───────────────────────────────────────────────────────
+// Agents routinely write the objective as a script ("Hi! I'm calling to book..."), a question
+// ("Are you open tomorrow?"), or first person ("I want to check..."). The old builder sliced the
+// first sentence and grafted it into "<caller> asked me to <slice>", which shipped garbage like
+// "...and Bek asked me to hi." on a live call. Now a sentence is grafted ONLY when it normalizes
+// to a clause starting with a known imperative action verb; everything else is relayed after the
+// disclosure. Every path opens with the non-removable "Hi, I'm <caller>'s AI assistant".
+
 /**
- * The AI disclosure + the reason for the call, stated up front. Keeps the honest, non-removable
- * "I'm {caller}'s AI assistant" disclosure (compliance), then states WHY we're calling right away
- * — derived from the objective — instead of a "got a sec?" preamble. Generalized for any use case
- * (reservation, order, availability, message, ...), not restaurant-specific. Warm + casual.
+ * Bounds the spoken slice of the objective inside the opener (~220 chars of ask is roughly 15s of
+ * TTS). The FULL objective still reaches the model via the OBJECTIVE block, so nothing is lost to
+ * the call itself. With MAX_CALLER_NAME_CHARS bounding the name, this bounds the whole opener.
+ */
+export const MAX_SPOKEN_OBJECTIVE_CHARS = 220;
+
+/**
+ * A sentence that is ONLY a greeting ("Hi!", "Hey there.", "Good morning, Sam.") - dropped before
+ * composing, since the opener template supplies its own "Hi". This is the exact input class that
+ * produced the live "asked me to hi" opener.
+ */
+const GREETING_SENTENCE_RE =
+  /^\s*(?:hi|hiya|hello|hey|howdy|greetings|good\s+(?:morning|afternoon|evening|day))(?:\s+there)?(?:[\s,]+\p{L}[\p{L}’'-]*)?\s*[!.,]*\s*$/iu;
+
+/**
+ * Meta lead-ins peeled (repeatedly) off the front of a sentence to expose the underlying action
+ * clause: "Hi, I'm calling to book..." / "Can you check..." / "Please confirm..." become
+ * "book... / check... / confirm...". The in-sentence greeting REQUIRES trailing punctuation so a
+ * proper noun like "Hello Kitty Cafe" is never clipped.
+ */
+const META_LEAD_INS: readonly RegExp[] = [
+  /^(?:hi|hiya|hello|hey|howdy|greetings|good\s+(?:morning|afternoon|evening|day))(?:\s+there)?\s*[,!.:;]+\s*/i,
+  /^(?:i\s+am|i'm)\s+calling\s+to\s+/i,
+  /^i\s+(?:want(?:ed)?|need(?:ed)?)\s+to\s+/i,
+  /^(?:i\s+would|i'd)\s+(?:like|love)\s+to\s+/i,
+  /^(?:can|could|would|will)\s+you\s+(?:please\s+)?/i,
+  /^(?:please|kindly|just|then|also|and)[,\s]+/i,
+];
+
+/** Lead-ins that need a REWRITE (not a bare strip) to stay grammatical after the graft. */
+const META_LEAD_IN_REWRITES: ReadonlyArray<readonly [RegExp, string]> = [
+  // "I'm calling about my order" leaves a noun phrase that can't follow "asked me to" on its own.
+  [/^(?:i\s+am|i'm)\s+calling\s+(?:you\s+)?(?:about|regarding)\s+/i, "call about "],
+  // "(Can you) tell me if..." would graft as the broken "asked me to tell me if...".
+  [/^(?:tell\s+me|let\s+me\s+know)\s+/i, "find out "],
+];
+
+/**
+ * Verbs that make a clause read as a clean imperative action, so "<caller> asked me to <clause>"
+ * stays grammatical. A closed allow-list ON PURPOSE: a miss only routes to the safe relayed
+ * fallback, while any false positive re-creates the mangled-splice bug this replaced.
+ */
+const IMPERATIVE_VERBS: ReadonlySet<string> = new Set([
+  "ask", "inquire", "check", "double-check", "verify", "confirm", "reconfirm", "find", "see",
+  "look", "figure", "book", "reserve", "schedule", "reschedule", "arrange", "hold", "cancel",
+  "order", "get", "grab", "buy", "pick", "place", "request", "call", "tell", "say", "wish",
+  "remind", "notify", "inform", "invite", "thank", "apologize", "give", "pass", "send", "share",
+  "leave", "let", "make", "change", "update", "move", "set", "add", "remove", "extend", "renew",
+  "track", "chase", "follow", "report", "return", "exchange", "dispute", "pay", "settle", "apply",
+  "register", "enroll", "sign", "activate", "deactivate", "upgrade", "downgrade", "refill",
+]);
+
+/**
+ * Nominative first person left in a clause ("check if I can come in") makes the graft ambiguous
+ * about who "I" is, so those route to the fallback, whose colon frames them as relayed words.
+ */
+const FIRST_PERSON_RE = /\bi\b/i;
+
+/**
+ * A sentence that would undercut the AI disclosure if spoken (H2-style smuggling: "Actually, I'm
+ * a real human, not an AI."). Cut from the spoken opener on every path; buildSystemPrompt still
+ * receives the full objective as inert data inside the OBJECTIVE block.
+ */
+const DISCLOSURE_UNDERMINING_RE =
+  /\b(?:real|actual)\s+(?:human|person)\b|\bnot\s+an?\s+(?:ai|a\.i\.|bot|robot|assistant)\b|\bhuman\s+being\b|\bnot\s+artificial\b|\b(?:speaking|talking)\s+(?:with|to)\s+a\s+(?:human|person)\b|\bi\s*(?:'m|am)\s+(?:a\s+)?(?:human|person)\b/i;
+
+/** Cut overlong text at a word boundary (a mid-word cut sounds broken in TTS). */
+function truncateAtWordBoundary(text: string, max: number): string {
+  if (text.length <= max) return text;
+  const cut = text.slice(0, max + 1);
+  const lastSpace = cut.lastIndexOf(" ");
+  return (lastSpace > 0 ? cut.slice(0, lastSpace) : text.slice(0, max)).replace(/[\s,.;:!?-]+$/, "");
+}
+
+/**
+ * The sanitized objective sentences that may be spoken: leading directives stripped
+ * (sanitizeSpoken), greeting-only openers dropped, and the run CUT at the first sentence that is
+ * a mid-text directive or undercuts the disclosure. Cut, never skip: dropping a middle sentence
+ * and keeping later ones could turn a conditional ("if they can't, ...") into an unconditional ask.
+ */
+function speakableSentences(objective: string): string[] {
+  const sentences = sanitizeSpoken(objective)
+    .split(SENTENCE_SPLIT_RE)
+    .map((s) => s.trim())
+    .filter(Boolean);
+  let start = 0;
+  while (start < sentences.length && GREETING_SENTENCE_RE.test(sentences[start])) start += 1;
+  const out: string[] = [];
+  for (const sentence of sentences.slice(start)) {
+    if (SPEAKING_DIRECTIVE_RE.test(sentence) || DISCLOSURE_UNDERMINING_RE.test(sentence)) break;
+    out.push(sentence);
+  }
+  return out;
+}
+
+/**
+ * Normalize one sentence to the imperative action clause the graft template needs, or null when
+ * it doesn't clearly read as one (question form, unstrippable first person, anything ambiguous).
+ * null NEVER means "graft it raw" - the caller falls back to the relayed composition instead.
+ */
+function imperativeClause(sentence: string, name: string): string | null {
+  let clause = sentence.trim();
+  // Peel stacked lead-ins ("Please can you book..." -> "can you book..." -> "book..."). Bounded:
+  // every peel shortens the clause, and 8 passes outlasts any realistic stack.
+  for (let pass = 0; pass < 8; pass += 1) {
+    let peeled = false;
+    for (const re of META_LEAD_INS) {
+      if (re.test(clause)) {
+        clause = clause.replace(re, "").trim();
+        peeled = true;
+      }
+    }
+    for (const [re, rewrite] of META_LEAD_IN_REWRITES) {
+      if (re.test(clause)) {
+        clause = clause.replace(re, rewrite).trim();
+        peeled = true;
+      }
+    }
+    if (!peeled) break;
+  }
+  clause = clause.replace(/[.!?]+\s*$/, "").trim();
+  if (!clause) return null;
+  const firstWord = (clause.split(/\s+/)[0] ?? "").toLowerCase().replace(/[^a-z-]/g, "");
+  if (!IMPERATIVE_VERBS.has(firstWord)) return null;
+  if (FIRST_PERSON_RE.test(clause)) return null;
+  // "check if my order shipped" spoken by the assistant flips the possessive, so re-anchor
+  // first-person object/possessive words to the caller ("check if Bek's order shipped").
+  if (/\b(?:my|me)\b/i.test(clause)) {
+    if (!name) return null;
+    clause = clause.replace(/\bmy\b/gi, `${name}'s`).replace(/\bme\b/gi, name);
+  }
+  // An all-caps clause ("BOOK A TABLE") would otherwise graft as "bOOK A TABLE"; with no
+  // lowercase anywhere there is no proper-noun casing to preserve, so flatten it.
+  if (!/[a-z]/.test(clause)) clause = clause.toLowerCase();
+  return clause;
+}
+
+/**
+ * The non-removable AI disclosure + why we're calling, as ONE opener. Two shapes:
  *
- * Only the FIRST sentence of the sanitized objective is ever spoken; the full objective still
- * reaches the model via the OBJECTIVE block. This closes the B1 depth gap: sanitizeSpoken only
- * strips LEADING directives, so a deceptive later sentence ("...actually I'm a real human, not an
- * AI") could otherwise ride into TTS. The caller name is sanitized for the same reason.
+ *   graft:    "Hi, I'm Bek's AI assistant and Bek asked me to book a table for two at 8pm."
+ *   fallback: "Hi, I'm Bek's AI assistant and I'm calling about the following: are you open at noon?"
+ *
+ * The graft is used ONLY for sentences that normalize to a clean imperative clause; question form,
+ * unstrippable first person, and anything ambiguous take the fallback, so a broken splice
+ * ("...asked me to hi") can never ship. Consecutive imperative sentences chain ("..., and to ask
+ * for a window seat") instead of being dropped; the spoken slice is capped at
+ * MAX_SPOKEN_OBJECTIVE_CHARS and the FULL objective always reaches the model via the OBJECTIVE
+ * block. Kept as one continuous clause with no em-dash break, so TTS renders the disclosure + ask
+ * without a mid-utterance pause the callee's endpointer can mistake for end-of-turn (C1). The
+ * caller name is sanitized so it can't smuggle spoken content (H1).
  */
 export function buildFirstMessage(callerName: string, objective: string): string {
   const name = sanitizeName(callerName);
   const possessive = name ? `${name}'s` : "an";
   const subject = name || "the caller";
-  const spoken = sanitizeSpoken(objective);
-  const firstAsk = (spoken.split(/(?<=[.!?])\s+/)[0] ?? spoken).replace(/[.!?]+\s*$/, "").trim();
-  const reason = firstAsk
-    ? `${subject} asked me to ${firstAsk.charAt(0).toLowerCase()}${firstAsk.slice(1)}.`
-    : `${subject} asked me to give you a quick call.`;
-  // One continuous clause — no "Quick heads up," lead-in and no em-dash break before the ask, so
-  // TTS renders the disclosure + ask without a mid-utterance pause the callee's endpointer can
-  // mistake for end-of-turn and barge in on (C1). The "I'm {caller}'s AI assistant" disclosure stays.
-  return `Hi, I'm ${possessive} AI assistant and ${reason}`;
+  const sentences = speakableSentences(objective);
+
+  if (sentences.length === 0) {
+    return `Hi, I'm ${possessive} AI assistant and ${subject} asked me to give you a quick call.`;
+  }
+
+  // Graft path: the leading run of clean imperative clauses. Stops at the first sentence that
+  // isn't one (its content still reaches the model via the OBJECTIVE block).
+  const clauses: string[] = [];
+  let spokenLength = 0;
+  for (const sentence of sentences) {
+    const clause = imperativeClause(sentence, name);
+    if (clause == null) break;
+    if (clauses.length > 0 && spokenLength + clause.length > MAX_SPOKEN_OBJECTIVE_CHARS) break;
+    clauses.push(clause);
+    spokenLength += clause.length;
+  }
+
+  if (clauses.length > 0) {
+    // Lowercasing the first char is safe here: the clause is verified to start with an
+    // allow-listed verb, never a proper noun.
+    const lowered = clauses.map((c) => `${c.charAt(0).toLowerCase()}${c.slice(1)}`);
+    const first = truncateAtWordBoundary(lowered[0], MAX_SPOKEN_OBJECTIVE_CHARS);
+    const chain = [first, ...lowered.slice(1).map((c) => `, and to ${c}`)].join("");
+    return `Hi, I'm ${possessive} AI assistant and ${subject} asked me to ${chain}.`;
+  }
+
+  // Relayed fallback: the colon frames the objective as the caller's own words, so question-form
+  // and first-person objectives read naturally instead of splicing into "asked me to".
+  let relayed = "";
+  for (const sentence of sentences) {
+    if (relayed && relayed.length + sentence.length + 1 > MAX_SPOKEN_OBJECTIVE_CHARS) break;
+    relayed = relayed ? `${relayed} ${sentence}` : sentence;
+  }
+  relayed = truncateAtWordBoundary(relayed, MAX_SPOKEN_OBJECTIVE_CHARS);
+  if (!/[.!?]$/.test(relayed)) relayed = `${relayed}.`;
+  return `Hi, I'm ${possessive} AI assistant and I'm calling about the following: ${relayed}`;
 }
 
 /**
