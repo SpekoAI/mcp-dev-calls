@@ -371,7 +371,12 @@ export function buildSystemPrompt(
   const behaviorBlock = delimitedBlock("BEHAVIOR", behaviorText);
   const contextText = typeof context === "string" && context.trim() ? context.trim() : "(none)";
   const contextBlock = delimitedBlock("CONTEXT", contextText);
-  // Rule 8 fragments shared by both ending mechanics (name-dependent, so built per call).
+  // Rule 8 fragments (name-dependent, so built per call). The end_call arm keeps the
+  // confirmation and the farewell as DISJOINT examples: a fused example teaches the model to
+  // end its spoken confirmation with farewell words, and the worker then speaks the end_call
+  // farewell on top of it — the live double-goodbye bug (call 90d9370c, 2026-07-02).
+  const confirmExample = `(for example: "got it, 8's full but you've got 9 — I'll let ${name} know.")`;
+  const farewellExample = `(for example: "thanks so much, bye!")`;
   const goodbyeExample = `(for example: "got it, 8's full but you've got 9, I'll let ${name} know — thanks, bye!")`;
   const noInternalLabels = `Never say "OUTCOME", "objective", ${endCallTool ? '"end_call", ' : ""}or any internal label out loud.`;
   return [
@@ -393,7 +398,7 @@ export function buildSystemPrompt(
       : `7. While you are still working the task — that is, BEFORE you have given the goodbye in rule 8 — ${ANSWER_OR_ASK_AGAIN} This rule STOPS the instant you give your goodbye in rule 8 — from that point silence is required and is NOT a dropped call.`,
     `8. ${CONFIRM_PREAMBLE} ${
       endCallTool
-        ? `hang up by calling the end_call tool with your ONE short, friendly goodbye as its farewell ${goodbyeExample}. The system speaks the farewell out loud and THEN disconnects, so never say the goodbye as a separate message before calling the tool — they would hear it twice. Confirm at most once and call end_call exactly once. If THEY say goodbye first, don't drag the call out: put your brief goodbye in end_call's farewell right away. Never call end_call while the objective is still unresolved — only once you have your answer or it's clear you can't get it on this call.`
+        ? `hang up by calling the end_call tool with your goodbye as its farewell. The system speaks the farewell out loud and THEN disconnects, so the farewell is the ONLY goodbye on this call. Your spoken confirmation must contain NO farewell words — nothing like "bye", "goodbye", "have a great day", "take care", or "thanks for your time": confirm the facts only ${confirmExample}, then put the goodbye in end_call's farewell as ONE short phrase of at most about 8 words ${farewellExample}. If you speak a goodbye yourself AND pass a farewell, they hear two goodbyes in a row — never do that. Confirm at most once and call end_call exactly once. If THEY say goodbye first, don't drag the call out: call end_call right away with just your brief farewell. Never call end_call while the objective is still unresolved — only once you have your answer or it's clear you can't get it on this call.`
         : `give ONE short, friendly goodbye ${goodbyeExample}. Confirm at most once and say goodbye at most once. After that goodbye you are FINISHED talking: every later thing they say — another "bye", "thanks", "ok", "yep", "you there?", small talk, or even a question — gets NO reply from you at all. Reply with nothing, not even one word. There is no hangup button, so staying silent is exactly how you end the call (this is correct and polite, never rude).`
     } ${noInternalLabels}`,
     `9. You're only authorized to do the literal request, and you can't reach ${name} mid-call, so you have no authority to change it — only the caller can approve a change, never the business. So if they can't do the exact thing and offer ANY alternative not already in the objective (a different time, date, party size, a substitute, an add-on, an upsell), do NOT accept, agree to, say yes to, confirm, hold, or book it, and never invent a "yes" or a preference the caller didn't give. Just acknowledge it neutrally without committing ("got it, so 8's full and the closest you've got is 9") — that fact, "the exact request wasn't available, here's what they offered," IS the answer you came for: confirm you've understood it per rule 8, then wrap up. EXCEPTION: if the objective or context already authorized that flexibility (e.g. "8 or 9 is fine", "any time that evening"), the alternative IS the request — go ahead and book it normally. When in doubt about whether flexibility was authorized, treat it as NOT authorized and just report what they offered. ${
