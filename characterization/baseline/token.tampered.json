@@ -1,0 +1,4 @@
+{
+  "isError": true,
+  "text": "Dial token signature check failed: the token was altered or signed with a different secret; run lookup_business again to mint a fresh dial token.; next_step=Run lookup_business(name, location) to mint a fresh dial_token, then call make_call(dial_token=..., objective='Do you have a table for 4 at 8pm?', caller_name='<human name>')."
+}

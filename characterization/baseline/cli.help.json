@@ -1,0 +1,5 @@
+{
+  "code": 0,
+  "stdout": "",
+  "stderr": "speko 0.4.8 — call real businesses + speak/transcribe from your terminal; also an MCP server for coding agents.\n\nUsage:\n  speko                          (when launched by an MCP host) the stdio MCP server\n  speko init | setup | login     onboarding & auth\n  speko audio speak \"<text>\"     text-to-speech (TTS)\n  speko audio transcribe <f|->   speech-to-text (STT)\n  speko voices [--provider <p>]  list available voices\n  speko --help | --version\n"
+}

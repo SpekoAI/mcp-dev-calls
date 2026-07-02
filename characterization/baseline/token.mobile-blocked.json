@@ -1,0 +1,4 @@
+{
+  "isError": true,
+  "text": "Line type 'mobile' is blocked: the business-lines-only policy forbids calling personal mobile numbers; only business line types (fixedVoip, landline, nonFixedVoip, tollFree, voip) may be dialed.; next_step=Run lookup_business(name, location) to mint a fresh dial_token, then call make_call(dial_token=..., objective='Do you have a table for 4 at 8pm?', caller_name='<human name>')."
+}

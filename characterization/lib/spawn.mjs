@@ -1,0 +1,41 @@
+import { spawn } from "node:child_process";
+
+/** Run a CLI invocation of a bundle; capture code/stdout/stderr with a hard timeout. */
+export function runCli(bundlePath, argv, { env = {}, cwd, timeoutMs = 30_000, input } = {}) {
+  return new Promise((resolve) => {
+    const child = spawn(process.execPath, [bundlePath, ...argv], {
+      cwd,
+      env: { ...baseEnv(), ...env },
+      stdio: ["pipe", "pipe", "pipe"],
+    });
+    let stdout = "";
+    let stderr = "";
+    let done = false;
+    const timer = setTimeout(() => {
+      if (done) return;
+      done = true;
+      child.kill("SIGKILL");
+      resolve({ code: "TIMEOUT", stdout, stderr });
+    }, timeoutMs);
+    child.stdout.on("data", (d) => (stdout += d));
+    child.stderr.on("data", (d) => (stderr += d));
+    child.on("close", (code) => {
+      if (done) return;
+      done = true;
+      clearTimeout(timer);
+      resolve({ code, stdout, stderr });
+    });
+    if (input) child.stdin.write(input);
+    child.stdin.end();
+  });
+}
+
+/** Minimal, isolated env: no inherited SPEKO_*, no repo .env pickup (cwd is set by caller). */
+export function baseEnv() {
+  const keep = ["PATH", "HOME", "SHELL", "TMPDIR", "LANG", "LC_ALL"];
+  const env = {};
+  for (const k of keep) if (process.env[k]) env[k] = process.env[k];
+  env.NO_COLOR = "1";
+  env.FORCE_COLOR = "0";
+  return env;
+}

@@ -1,0 +1,5 @@
+{
+  "code": 13,
+  "stdout": "",
+  "stderr": "[<TS>] [INFO] Initializing MCP Server: speko-calls@<VER>\n[<TS>] [INFO] Starting MCP server: (Framework: 0.2.22, SDK: 1.29.0)...\n[<TS>] [INFO] Capabilities detected: {\"tools\":{}}\n[<TS>] [INFO] Connecting transport [stdio] to SDK Server...\n[<TS>] [INFO] Started speko-calls@<VER> on transport(s): stdio\n[<TS>] [INFO] Tools (6): lookup_business, make_call, call_number, check_call_readiness, get_call, call_me\n[<TS>] [INFO] Server running and ready.\nWarning: Detected unsettled top-level await at <BUNDLE>\nawait server.start();\n^\n\n\n\n"
+}
