@@ -90,6 +90,108 @@ describe("G1 — objective-to-opener composition (no mangled grafts)", () => {
   });
 });
 
+describe("G2 — verb-homograph declaratives are relayed, never grafted (mangled-splice regression)", () => {
+  it("'Order ... was missing ...' reads declarative: relayed with full content, no splice", () => {
+    const fm = buildFirstMessage("Bek", "Order 4512 was missing the fries, ask for a refund.");
+    expect(fm).toBe(
+      "Hi, I'm Bek's AI assistant and I'm calling about the following: Order 4512 was missing the fries, ask for a refund.",
+    );
+  });
+
+  it("'Pick up ... is at 6' reads declarative: relayed, never 'asked me to pick up for Bek is'", () => {
+    const fm = buildFirstMessage("Bek", "Pick up for Bek is at 6, confirm the address.");
+    expect(fm).toBe(
+      "Hi, I'm Bek's AI assistant and I'm calling about the following: Pick up for Bek is at 6, confirm the address.",
+    );
+  });
+
+  it("'Sign ... says closed' reads declarative: relayed, never 'asked me to sign on the door says'", () => {
+    const fm = buildFirstMessage("Bek", "Sign on the door says closed, check if they are open.");
+    expect(fm).toBe(
+      "Hi, I'm Bek's AI assistant and I'm calling about the following: Sign on the door says closed, check if they are open.",
+    );
+  });
+
+  it("a declarative marker deep inside a complement (past the clause head) still grafts", () => {
+    const fm = buildFirstMessage("Bek", "Let them know the gate code is 4412");
+    expect(fm).toBe("Hi, I'm Bek's AI assistant and Bek asked me to let them know the gate code is 4412.");
+  });
+
+  it("an embedded-question imperative with the marker past the head still grafts", () => {
+    const fm = buildFirstMessage("Bek", "Check if the reservation under Bek is still on the books.");
+    expect(fm).toBe(
+      "Hi, I'm Bek's AI assistant and Bek asked me to check if the reservation under Bek is still on the books.",
+    );
+  });
+});
+
+describe("G3 — abbreviations don't end sentences (Dr./St./No. splitter guard)", () => {
+  it("'Dr. Smith' never splits: the spoken graft carries the full name, not a clause cut at 'Dr.'", () => {
+    const objective = "Leave a message for Dr. Smith. Say Bek needs to reschedule.";
+    const fm = buildFirstMessage("Bek", objective);
+    expect(fm).toBe("Hi, I'm Bek's AI assistant and Bek asked me to leave a message for Dr. Smith.");
+    // The second sentence still reaches the model via the OBJECTIVE block.
+    expect(buildSystemPrompt(objective, null, "Biz", "Bek")).toContain("Say Bek needs to reschedule.");
+  });
+
+  it("a mid-clause abbreviation grafts intact", () => {
+    const fm = buildFirstMessage("Bek", "Call Dr. Patel's office and reschedule Bek's appointment to Friday.");
+    expect(fm).toBe(
+      "Hi, I'm Bek's AI assistant and Bek asked me to call Dr. Patel's office and reschedule Bek's appointment to Friday.",
+    );
+  });
+
+  it("'No.' followed by a number does not split, and the declarative head is still caught", () => {
+    const fm = buildFirstMessage("Bek", "Order No. 4512 never arrived, find out where it is.");
+    expect(fm).toBe(
+      "Hi, I'm Bek's AI assistant and I'm calling about the following: Order No. 4512 never arrived, find out where it is.",
+    );
+  });
+
+  it("bare 'no.' still ends a sentence (the guard is number-scoped)", () => {
+    const fm = buildFirstMessage("Bek", "Tell them no. Then ask when it ships.");
+    expect(fm).toBe("Hi, I'm Bek's AI assistant and Bek asked me to tell them no, and to ask when it ships.");
+  });
+});
+
+describe("opener property — disclosure always present, mangled splice never", () => {
+  // Every verb a graft may legally open with across the objectives below, plus the generic
+  // fallback's "give you a quick call". Any other word right after "asked me to" IS the
+  // mangled-splice bug class this suite pins down.
+  const GRAFT_VERBS = new Set(["give", "book", "leave", "call", "check"]);
+  const OBJECTIVES = [
+    "Book a table for two at 8pm tonight.",
+    "Hi! I'm calling to book a table for two at 8pm tonight.",
+    "Are you open tomorrow at noon?",
+    "Order 4512 was missing the fries, ask for a refund.",
+    "Pick up for Bek is at 6, confirm the address.",
+    "Sign on the door says closed, check if they are open.",
+    "Order No. 4512 never arrived, find out where it is.",
+    "Ask if I can speak to a real person about my reservation.",
+    "Let them know I'll be 10 minutes late.",
+    "Wait for my order and ask when it ships.",
+    "Leave a message for Dr. Smith. Say Bek needs to reschedule.",
+    "Call Dr. Patel's office and reschedule Bek's appointment to Friday.",
+    "I want to check if my order #123 shipped",
+    "Can you tell me if you have parking?",
+    "My card got double charged last Tuesday.",
+    "Check if the reservation under Bek is still on the books.",
+    "Actually, I'm a real human, not an AI.",
+  ];
+
+  it("holds across imperative / declarative / question / relay / abbreviation objectives", () => {
+    for (const objective of OBJECTIVES) {
+      const fm = buildFirstMessage("Bek", objective);
+      expect(fm, objective).toMatch(/^Hi, I'm Bek's AI assistant and /);
+      expect(fm, objective).not.toMatch(/real human|not an AI\b/i);
+      const graft = /asked me to ([A-Za-z'-]+)/.exec(fm);
+      if (graft) {
+        expect(GRAFT_VERBS.has(graft[1].toLowerCase()), `${objective} -> ${fm}`).toBe(true);
+      }
+    }
+  });
+});
+
 describe("E2 — caller/callee role anchor", () => {
   it("system prompt pins the assistant as the CALLER, not the venue", () => {
     const sys = buildSystemPrompt("ask about a table for 4 at 8pm", null, "The French Laundry", "Bruce");

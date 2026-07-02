@@ -20,13 +20,23 @@ export function delimitedBlock(label: string, content: string): string {
  * `objective` (the correct channel is the non-spoken `behavior` field). Targets the observed abuse —
  * turn-taking / silence / speaking-order directives and ALL-CAPS "IMPORTANT ... RULE:" headers —
  * deliberately narrow so it never strips a legitimate transactional ask ("book a table...", "be
- * sure to mention...").
+ * sure to mention..."). The "wait" / "let" branches match only turn-taking forms ("wait for them
+ * to answer", "let them speak first"): message-relay asks ("let them know I'll be late", "wait
+ * for my order and ask when it ships") are the objective itself and must survive to the opener.
  */
 const SPEAKING_DIRECTIVE_RE =
-  /^\s*(?:[A-Z][A-Z0-9 ,'-]{4,}(?:RULE|INSTRUCTION|NOTE|IMPORTANT)[^.:!?]*[:.]|important[^.:!?]*[:.]|(?:do not|don'?t|please do not|never)\s+(?:speak|talk|say|respond|reply|answer|start|begin|introduce|greet)|(?:stay|remain|keep|be)\s+(?:completely\s+)?(?:silent|quiet)|wait\s+(?:for|until|before)\b|(?:only\s+)?speak\s+(?:only|after|once|first|when)\b|let\s+(?:them|the other|the caller|the callee)\b)/i;
+  /^\s*(?:[A-Z][A-Z0-9 ,'-]{4,}(?:RULE|INSTRUCTION|NOTE|IMPORTANT)[^.:!?]*[:.]|important[^.:!?]*[:.]|(?:do not|don'?t|please do not|never)\s+(?:speak|talk|say|respond|reply|answer|start|begin|introduce|greet)|(?:stay|remain|keep|be)\s+(?:completely\s+)?(?:silent|quiet)|wait\s+(?:for|until)\s+(?:them|they|him|her|someone|somebody|the\s+(?:other\s+)?(?:person|party|caller|callee|line|greeting|beep|tone))\b|wait\s+before\s+(?:speaking|talking|answering|responding|replying|saying|greeting)\b|(?:only\s+)?speak\s+(?:only|after|once|first|when)\b|let\s+(?:them|him|her|the\s+other(?:\s+(?:person|party|side))?|the\s+(?:caller|callee|person))\s+(?:speak|talk|answer|finish|respond|reply|start|begin|greet|say\s+(?:hello|hi|hey|something)|go\s+first|pick\s+up|hang\s+up)\b)/i;
 
-/** Sentence boundary shared by every spoken-text sanitizer below. */
-const SENTENCE_SPLIT_RE = /(?<=[.!?])\s+/;
+/**
+ * Sentence boundary shared by every spoken-text sanitizer below. The lookbehind guards keep the
+ * period after a common abbreviation ("Dr. Smith", "Main St.") or a single capital initial
+ * ("John Q. Public") from reading as a sentence end, so a grafted clause can never be cut off at
+ * "...a message for Dr.". "No." is guarded only when a number follows ("Order No. 4512") because
+ * bare "No." legitimately ends a sentence. Flat literal alternations only — the objective is
+ * attacker-influenced, so this must stay linear-time.
+ */
+const SENTENCE_SPLIT_RE =
+  /(?<=[.!?])(?<!\b(?:[Dd]r|[Mm]r|[Mm]rs|[Mm]s|[Pp]rof|[Ss]t|[Aa]ve|[Aa]pt|[Jj]r|[Ss]r|[Vv]s|[Ee]tc)\.)(?<!\b[A-Z]\.)(?!(?<=\b[Nn]o\.)\s+\d)\s+/;
 
 /**
  * Strip leading behavioral/meta directive sentences from a would-be spoken objective, returning only
@@ -116,18 +126,42 @@ const IMPERATIVE_VERBS: ReadonlySet<string> = new Set([
 ]);
 
 /**
+ * Declarative auxiliaries/verbs that reveal a clause headed by a verb HOMOGRAPH is a statement,
+ * not a command ("Order 4512 was missing the fries", "Pick up for Bek is at 6", "Sign on the
+ * door says closed"). Scanned only over the clause HEAD — the first 6 tokens, plus anything
+ * before the first comma when there is one — because a marker deeper in a real imperative sits
+ * inside a complement and grafts fine ("let them know the gate code is 4412"). Biased to
+ * over-reject: a false hit only costs the graft (the relayed fallback is safe), while a miss
+ * re-creates the mangled "asked me to order 4512 was..." splice class.
+ */
+const DECLARATIVE_MARKER_RE =
+  /\b(?:was|wasn't|were|weren't|is|isn't|are|aren't|has|hasn't|have|haven't|had|hadn't|does|doesn't|did|didn't|won't|can't|couldn't|wouldn't|shouldn't|says|said|needs|needed|arrived)\b/i;
+
+/** True when the clause head reads as a declarative statement rather than a command. */
+function readsDeclarative(clause: string): boolean {
+  const normalized = clause.replace(/[\u2018\u2019]/g, "'");
+  const head = normalized.split(/\s+/).slice(0, 6).join(" ");
+  const commaIdx = normalized.indexOf(",");
+  const beforeComma = commaIdx >= 0 ? normalized.slice(0, commaIdx) : "";
+  return DECLARATIVE_MARKER_RE.test(head) || DECLARATIVE_MARKER_RE.test(beforeComma);
+}
+
+/**
  * Nominative first person left in a clause ("check if I can come in") makes the graft ambiguous
  * about who "I" is, so those route to the fallback, whose colon frames them as relayed words.
  */
 const FIRST_PERSON_RE = /\bi\b/i;
 
 /**
- * A sentence that would undercut the AI disclosure if spoken (H2-style smuggling: "Actually, I'm
- * a real human, not an AI."). Cut from the spoken opener on every path; buildSystemPrompt still
- * receives the full objective as inert data inside the OBJECTIVE block.
+ * A sentence that would undercut the AI disclosure if spoken — an IDENTITY CLAIM that the
+ * speaker is human / not an AI (H2-style smuggling: "Actually, I'm a real human, not an AI.").
+ * Deliberately narrow to claim forms with an I/you/this subject: merely wanting to REACH a
+ * human ("ask if I can speak to a real person") is a legitimate objective and stays speakable.
+ * Cut from the spoken opener on every path; buildSystemPrompt still receives the full objective
+ * as inert data inside the OBJECTIVE block.
  */
 const DISCLOSURE_UNDERMINING_RE =
-  /\b(?:real|actual)\s+(?:human|person)\b|\bnot\s+an?\s+(?:ai|a\.i\.|bot|robot|assistant)\b|\bhuman\s+being\b|\bnot\s+artificial\b|\b(?:speaking|talking)\s+(?:with|to)\s+a\s+(?:human|person)\b|\bi\s*(?:'m|am)\s+(?:a\s+)?(?:human|person)\b/i;
+  /\b(?:i|you|this)\s*(?:'m|'re|am|are|is)\s+(?:really\s+|actually\s+|totally\s+)?(?:an?\s+)?(?:real\s+|actual\s+|live\s+)?(?:human(?:\s+being)?|person)\b|\b(?:i|you|this)\s*(?:'m|'re|am|are|is)\s+not\s+(?:an?\s+)?(?:ai|a\.i\.|bot|robot|assistant|machine|artificial)\b|\b(?:human|person)\s*,\s*not\s+an?\s+(?:ai|a\.i\.|bot|robot)\b/i;
 
 /** Cut overlong text at a word boundary (a mid-word cut sounds broken in TTS). */
 function truncateAtWordBoundary(text: string, max: number): string {
@@ -152,7 +186,10 @@ function speakableSentences(objective: string): string[] {
   while (start < sentences.length && GREETING_SENTENCE_RE.test(sentences[start])) start += 1;
   const out: string[] = [];
   for (const sentence of sentences.slice(start)) {
-    if (SPEAKING_DIRECTIVE_RE.test(sentence) || DISCLOSURE_UNDERMINING_RE.test(sentence)) break;
+    // Screen a straight-apostrophe copy so a curly quote can't sneak "I’m a real person" past
+    // the identity-claim forms; the sentence itself is kept verbatim.
+    const screened = sentence.replace(/[\u2018\u2019]/g, "'");
+    if (SPEAKING_DIRECTIVE_RE.test(screened) || DISCLOSURE_UNDERMINING_RE.test(screened)) break;
     out.push(sentence);
   }
   return out;
@@ -187,6 +224,9 @@ function imperativeClause(sentence: string, name: string): string | null {
   if (!clause) return null;
   const firstWord = (clause.split(/\s+/)[0] ?? "").toLowerCase().replace(/[^a-z-]/g, "");
   if (!IMPERATIVE_VERBS.has(firstWord)) return null;
+  // The allow-list checks only the FIRST word, and many entries are noun/verb homographs, so a
+  // declarative like "Order 4512 was missing the fries" still passes it — catch those here.
+  if (readsDeclarative(clause)) return null;
   if (FIRST_PERSON_RE.test(clause)) return null;
   // "check if my order shipped" spoken by the assistant flips the possessive, so re-anchor
   // first-person object/possessive words to the caller ("check if Bek's order shipped").
