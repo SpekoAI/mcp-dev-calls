@@ -13,8 +13,7 @@ description: >-
 
 The Speko Calls MCP places **real, disclosed** outbound phone calls and returns the result as
 text. Every call opens with a non-removable AI disclosure — the callee hears
-*"Hey! Quick heads up — I'm \<your-name\>'s AI assistant, \<your-name\> asked me to give you a
-call…"* before anything else.
+*"Hi, I'm \<your-name\>'s AI assistant and \<your-name\> asked me to …"* before anything else.
 
 There are **two ways to dial**:
 - **`call_number`** — dial a number you already have, or one you found via web search. Works
@@ -42,7 +41,9 @@ Example: *"find the best taco place in the Bay Area and ask if they're open and 
 → search → pick La Taqueria → `call_number(...)` → relay the `OUTCOME`.
 
 ## Writing the objective
-One plain, transactional goal in everyday words:
+The objective is the ask, not a script: the server composes the spoken opening line and adds the
+AI disclosure itself, so never start it with a greeting or self-introduction ("Hi! I'm calling
+to...") - write what to accomplish. One plain, transactional goal in everyday words:
 - **reservation:** *"Ask if there's a table for 4 at 8pm tonight and book it under John."*
 - **order:** *"Order 2 carnitas tacos and a Coke Zero for pickup, and ask when it'll be ready."*
 - **info:** *"Ask if they're open now and how long the wait is for a table for 2."*

@@ -6,11 +6,14 @@
 export class AppError extends Error {
   readonly statusCode: number;
   readonly nextStep: string | undefined;
-  constructor(message: string, opts: { statusCode?: number; nextStep?: string } = {}) {
+  /** Upstream machine code (e.g. the platform's AGENT_NOT_FOUND) preserved for callers that branch on it. */
+  readonly code: string | undefined;
+  constructor(message: string, opts: { statusCode?: number; nextStep?: string; code?: string } = {}) {
     super(message);
     this.name = "AppError";
     this.statusCode = opts.statusCode ?? 500;
     this.nextStep = opts.nextStep;
+    this.code = opts.code;
   }
 }
 

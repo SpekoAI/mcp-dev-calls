@@ -1,8 +1,10 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { makeCall, type MakeCallDeps } from "../src/calls/makeCall.js";
 import { mintDialToken } from "../src/safety/dialToken.js";
+import { DIAL_AGENT_NAME, resetDialAgentForTests } from "../src/speko/agent.js";
 import type { AppConfig } from "../src/config.js";
-import type { SpekoClient } from "../src/speko/client.js";
+import { SpekoApiError, type SpekoClient } from "../src/speko/client.js";
+import { fakePlatform, type FakePlatform } from "./helpers/fakePlatform.js";
 import type { VoiceDialParams } from "@spekoai/sdk";
 
 /**
@@ -157,6 +159,11 @@ describe("make_call safety rails — enforced before any dial (T1)", () => {
     expect(calls.dialed).toBe(0);
   });
 
+  // makeCall now resolves the dial agent through the same client; give the control case a
+  // deterministic agent path (and clear the module cache so no id leaks between tests).
+  beforeEach(resetDialAgentForTests);
+  afterEach(resetDialAgentForTests);
+
   it("lets a valid, clean call through AND stores to/from in metadata (H4 control case)", async () => {
     let captured: VoiceDialParams | undefined;
     const client = {
@@ -179,5 +186,145 @@ describe("make_call safety rails — enforced before any dial (T1)", () => {
     const md = (captured?.metadata ?? {}) as Record<string, unknown>;
     expect(md.to).toBe(E164);
     expect(md.from).toBe("+15312160099");
+  });
+});
+
+describe("make_call — dial-agent wiring (agent-initiated hangup)", () => {
+  beforeEach(resetDialAgentForTests);
+  afterEach(resetDialAgentForTests);
+
+  /**
+   * The shared dirty-create fakePlatform (the same platform physics dialAgent.test.ts
+   * verifies: create auto-picks a voice + auto-attaches the KB tool) layered under a
+   * happy-path poll/finalize client. Per-test poll-side overrides stay inline.
+   */
+  function wiringClient(f: FakePlatform, over: Partial<Record<string, unknown>> = {}): SpekoClient {
+    return {
+      ...(f.client as unknown as Record<string, unknown>),
+      getEvents: async () => [{ event_type: "room_finished" }],
+      getCall: async () =>
+        ({ status: "completed", transcript: { entries: [{ source: "agent", text: "hi" }, { source: "user", text: "yes" }] }, report: {} }),
+      getSession: async () => ({ phoneCall: { callControlId: "leg-1" }, usage: [{ provider: "telnyx", metric: "outbound_minutes" }] }),
+      ...over,
+    } as unknown as SpekoClient;
+  }
+
+  const dialOk = (captured: VoiceDialParams[]) => async (body: VoiceDialParams) => {
+    captured.push(body);
+    return { sessionId: "dial-1", callControlId: "leg-1", roomName: "r", status: "dialing", to: body.to, from: body.from } as never;
+  };
+
+  it("attaches the resolved agentId and switches the prompt to the end_call rules", async () => {
+    const captured: VoiceDialParams[] = [];
+    const f = fakePlatform(); // empty platform → the bootstrap must create the agent
+    const client = wiringClient(f, { dial: dialOk(captured) });
+
+    const s = await makeCall(
+      { dialToken: mint(), objective: "do you have a table for 4 at 8pm tonight?", callerName: "Amir" },
+      deps(client),
+    );
+    expect(s.status).toBe("completed");
+    expect(captured).toHaveLength(1);
+    const body = captured[0];
+    expect(body.agentId).toBe("agent-created-1");
+    // The create landed DIRTY (real platform physics) and was cleaned before the dial:
+    // the auto-picked voice PATCHed to null, the auto-attached KB tool stripped.
+    expect(f.updated).toEqual([{ id: "agent-created-1", params: { voice: null } }]);
+    expect(f.tools).toEqual([]);
+    // The endCall-enabled agent means the worker registers end_call — the prompt must say to use it...
+    expect(body.systemPrompt).toMatch(/end_call/);
+    expect(body.systemPrompt).not.toMatch(/staying silent is exactly how you end the call/i);
+    // ...while every per-call override the MCP relies on still rides the body (agent defaults must not win).
+    expect(body.intent?.language).toBe("en");
+    expect(body.firstMessage).toMatch(/Amir's AI assistant/i);
+    expect(body.sttOptions?.keywords).toContain("Amir");
+    expect(body.telephony).toEqual({ amd: { mode: "agent" } });
+  });
+
+  it("re-verifies the dial agent on EVERY call: an endCall toggle between calls is repaired, not trusted from cache", async () => {
+    const captured: VoiceDialParams[] = [];
+    const f = fakePlatform({
+      rows: [{ id: "dial-agent-7", name: DIAL_AGENT_NAME, voice: null, endCall: { enabled: true } }],
+    });
+    const client = wiringClient(f, { dial: dialOk(captured) });
+
+    const s1 = await makeCall(
+      { dialToken: mint(), objective: "do you have a table for 4 at 8pm tonight?", callerName: "Amir" },
+      deps(client),
+    );
+    expect(s1.status).toBe("completed");
+    expect(f.updated).toHaveLength(0); // clean row → verify only
+
+    // Someone toggles endCall OFF on the visible dashboard row between calls. The old
+    // trust-the-cache behavior would dial with the agentId AND the end_call prompt while
+    // the worker never registers the tool — the model may speak tool syntax aloud.
+    f.rows[0].endCall = { enabled: false };
+
+    const s2 = await makeCall(
+      { dialToken: mint(), objective: "do you have a table for 4 at 8pm tonight?", callerName: "Amir" },
+      deps(client),
+    );
+    expect(s2.status).toBe("completed");
+    // Repaired BEFORE dialing.
+    expect(f.updated).toEqual([{ id: "dial-agent-7", params: { endCall: { enabled: true } } }]);
+    expect(captured).toHaveLength(2);
+    expect(captured[1].agentId).toBe("dial-agent-7");
+    expect(captured[1].systemPrompt).toMatch(/end_call/); // the prompt's promise is true again
+  });
+
+  it("still dials — without agentId, with the stay-silent prompt — when agent bootstrap fails (fail-open)", async () => {
+    const captured: VoiceDialParams[] = [];
+    const client = wiringClient(fakePlatform(), {
+      dial: dialOk(captured),
+      listAgents: async () => {
+        throw new Error("agents API down");
+      },
+    });
+
+    const s = await makeCall(
+      { dialToken: mint(), objective: "do you have a table for 4 at 8pm tonight?", callerName: "Amir" },
+      deps(client),
+    );
+    expect(s.status).toBe("completed"); // the call was PLACED and completed despite the bootstrap failure
+    expect(captured).toHaveLength(1);
+    expect(captured[0]).not.toHaveProperty("agentId");
+    // No end_call tool will exist on an agentless dial — the prompt must not instruct one.
+    expect(captured[0].systemPrompt).not.toMatch(/end_call/);
+    expect(captured[0].systemPrompt).toMatch(/staying silent is exactly how you end the call/i);
+  });
+
+  it("recovers when the cached agent was deleted out-of-band: retries the dial agentless and re-resolves next call", async () => {
+    const captured: VoiceDialParams[] = [];
+    // The row still lists (stale platform read), but the dial itself 404s on it.
+    const f = fakePlatform({
+      rows: [{ id: "ghost", name: DIAL_AGENT_NAME, voice: null, endCall: { enabled: true } }],
+    });
+    const client = wiringClient(f, {
+      dial: async (body: VoiceDialParams) => {
+        captured.push(body);
+        if (body.agentId) throw new SpekoApiError("Agent not found", 404, "AGENT_NOT_FOUND");
+        return { sessionId: "dial-2", callControlId: "leg-2", roomName: "r", status: "dialing", to: body.to, from: body.from } as never;
+      },
+    });
+
+    const s = await makeCall(
+      { dialToken: mint(), objective: "do you have a table for 4 at 8pm tonight?", callerName: "Amir" },
+      deps(client),
+    );
+    expect(s.status).toBe("completed");
+    expect(captured).toHaveLength(2);
+    expect(captured[0].agentId).toBe("ghost");
+    expect(captured[1]).not.toHaveProperty("agentId");
+    // The retry body's prompt must match its agentless reality (no end_call tool registered).
+    expect(captured[1].systemPrompt).not.toMatch(/end_call/);
+    expect(captured[1].systemPrompt).toMatch(/staying silent is exactly how you end the call/i);
+    // The dead id was evicted: a later call re-resolves through the agents API (a second
+    // find) instead of re-verifying the poisoned cached id (no get).
+    await makeCall(
+      { dialToken: mint(), objective: "do you have a table for 4 at 8pm tonight?", callerName: "Amir" },
+      deps(client),
+    );
+    expect(f.calls.list).toBe(2);
+    expect(f.calls.get).toBe(0);
   });
 });
