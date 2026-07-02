@@ -124,8 +124,12 @@ export function detectControlTokenLeak(transcript: unknown): boolean {
     const t = turn as Record<string, unknown>;
     const role = turnRole(t);
     if (!role || AGENT_ROLES.has(role)) continue; // only the callee's (non-agent) turns
-    const text = turnText(t);
-    if (text && CONTROL_TOKEN_RE.test(text)) return true;
+    // Scan EVERY text-like field (not just the first non-empty one): a leak can sit in a
+    // secondary field (e.g. `message`) while `text` holds clean speech.
+    for (const key of TURN_TEXT_KEYS) {
+      const text = t[key];
+      if (typeof text === "string" && CONTROL_TOKEN_RE.test(text)) return true;
+    }
   }
   return false;
 }

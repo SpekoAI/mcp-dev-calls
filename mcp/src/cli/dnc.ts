@@ -27,14 +27,11 @@ function isGuardModule(mod: unknown): mod is GuardModule {
 }
 
 async function loadGuard(): Promise<GuardModule> {
+  // Static specifier so tsup inlines it into the published bundle (same pattern as
+  // http/serverClient.ts); the guard helpers are re-exported from server/src/core.ts.
   const core = (await import("@spekoai/mcp-calls-demo-server/core")) as unknown;
   if (isGuardModule(core)) return core;
-
-  const sourceSpecifier = ["..", "..", "..", "server", "src", "safety", "guard.js"].join("/");
-  const source = (await import(new URL(sourceSpecifier, import.meta.url).href)) as unknown;
-  if (isGuardModule(source)) return source;
-
-  throw new Error("Server guard helpers are not available.");
+  throw new Error("Server guard helpers are not available from @spekoai/mcp-calls-demo-server/core.");
 }
 
 function usage(stderr: (line: string) => void): number {
