@@ -4,9 +4,10 @@
  * from metadata) plus the authoritative session, and shapes the same summary
  * make_call would. Safe to call repeatedly; never places a call.
  */
-import { AUTH_NEXT_STEP, BARE_OUTCOME_RE, HARD_FAILURE_EVENTS, ROOM_END_EVENTS } from "../constants.js";
+import { AUTH_NEXT_STEP, HARD_FAILURE_EVENTS, ROOM_END_EVENTS } from "../constants.js";
 import { AppError } from "../lib/errors.js";
-import { extractOutcome } from "../lib/transcript.js";
+import { eventType } from "../lib/events.js";
+import { bestOutcome } from "../lib/transcript.js";
 import { isAuthFailure, type SpekoClient } from "../speko/client.js";
 import type { CallSummary, SessionDetail } from "../types.js";
 import { attachDashboardUrl, shapeCallSummary } from "./summary.js";
@@ -17,7 +18,7 @@ function strField(md: Record<string, unknown> | undefined, key: string): string 
 }
 
 function eventTypeSet(events: Array<Record<string, unknown>>): Set<string> {
-  return new Set(events.map((e) => String(e.event_type ?? e.type ?? "").toLowerCase()));
+  return new Set(events.map(eventType));
 }
 
 export async function describeCall(
@@ -40,11 +41,7 @@ export async function describeCall(
   const transcript = detail.transcript ?? null;
   const to = strField(detail.metadata, "to") ?? strField(detail.metadata, "dialedNumber");
   const from = strField(detail.metadata, "from");
-  const reportOutcome = typeof detail.report?.outcome === "string" ? detail.report.outcome.trim() : "";
-  // Ignore bare platform status words ("failed"/"completed"/...); prefer a substantive outcome
-  // or a transcript OUTCOME: marker.
-  const substantive = reportOutcome && !BARE_OUTCOME_RE.test(reportOutcome) ? reportOutcome : "";
-  const outcome = substantive || extractOutcome(transcript);
+  const outcome = bestOutcome(detail.report, transcript);
 
   // Terminality — AUTHORITATIVE signals only. The platform flips `status` to "failed" on a
   // first-audio SLA timeout while the call is still LIVE, so status must NOT be trusted here
