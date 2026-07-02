@@ -1,0 +1,4 @@
+{
+  "isError": true,
+  "text": "Destination local time is <TIME>, inside quiet hours (<TIME>-<TIME>); wait until between <TIME> and <TIME> destination time.; next_step=Wait until destination business hours (<TIME>-<TIME> local time) and run call_number again."
+}

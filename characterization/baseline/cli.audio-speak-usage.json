@@ -1,0 +1,5 @@
+{
+  "code": 2,
+  "stdout": "",
+  "stderr": "speak: no text given. usage: speko audio speak \"your text\"  (or pipe text via stdin)\n"
+}

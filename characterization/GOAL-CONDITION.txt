@@ -1,0 +1,13 @@
+REPO: SpekoAI/mcp-dev-calls. Full contract: characterization/GOAL.txt (V1..V8); this summary is binding.
+GOAL: black-box characterization suite freezing published @spekoai/mcp-calls@0.4.9 behavior; unpublished 0.5.0 bundle passes it with only justified intended deltas.
+DONE: same probe matrix runs against the npm 0.4.9 tarball (frozen checked-in baseline) and the local 0.5.0 build, offline-deterministic; every probe = parity with baseline OR an expected-deltas.json entry asserting the NEW behavior with a PR #29/#30/#31 justification; existing suites green; baseline untouched after capture. All true at once, or not done.
+Audit as a hostile auditor: each condition needs evidence (command output/file/git log) or FAILS. No partial credit. Unlimited tokens/time; run every check yourself.
+1 PROVENANCE: baseline/meta.json shasum == `npm view @spekoai/mcp-calls@0.4.9 dist.shasum`; >=3 sampled probes re-captured from the tarball match checked-in bytes. Baseline from local source = FAIL.
+2 COVERAGE: coverage-check.mjs exits 0; >=45 probes incl. all rails (emergency, premium, bad E164, short/no-sell/harassment/impersonation objective, behavior+context smuggle, time-gate w/o + with confirmation [with = reaches sinkhole dial error], collection after-hours, unknown offset, DNC, rate-cap, trusted, 4 dial-token paths, mobile-on-call_number, bad caller_name, lookup agent-provided unknown-offset, call_me, readiness, get_call), CLI surface, tools/list schema snapshot.
+3 DETERMINISM: two consecutive full runs byte-identical (diff of result dumps empty); dummy key, net sinkhole, temp state, fixed token secret, HH:MM/timestamp/path normalization. Flake = FAIL.
+4 PARITY: run.mjs --target local exit 0; every non-delta probe identical to baseline post-normalization.
+5 DELTAS: every expected-deltas.json entry = {probeId, concrete expect on NEW behavior, justification citing PR 29/30/31 or spec section}; catch-alls or deltas on untouched surfaces = FAIL (fix code instead).
+6 SUITES: server >=213 + mcp >=55 tests green, typechecks clean, same tree.
+7 FROZEN: no commit or working-tree change touches characterization/baseline/** after the capture commit (git log + status as evidence).
+8 IDENTITY: run report records origin/main HEAD sha + bundle --version 0.5.0.
+VERDICT: would you publish 0.5.0 to npm for every unpinned npx user on this suite alone? Anything but unqualified yes = not done; state exactly what is missing.

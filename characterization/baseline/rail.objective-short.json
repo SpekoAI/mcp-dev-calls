@@ -1,0 +1,4 @@
+{
+  "isError": true,
+  "text": "Objective is too short; ask a fuller question, for example 'Do you have a table for 4 at 8pm tonight?'.; next_step=Rewrite the objective as a single transactional question and retry make_call."
+}

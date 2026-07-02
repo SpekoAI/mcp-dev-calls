@@ -1,0 +1,4 @@
+{
+  "isError": true,
+  "text": "'12345' is not a valid E.164 phone number such as '+12015551234'; run lookup_business to resolve a dialable business number.; next_step=Pass a valid E.164 number (e.g. +77011234567) that you have consent to call."
+}

@@ -1,0 +1,25 @@
+GOAL: A black-box characterization suite that freezes what the PUBLISHED @spekoai/mcp-calls@0.4.9 actually does, and proves the unpublished 0.5.0 bundle preserves all of it except the explicitly intended #29/#30/#31 changes.
+
+DONE MEANS: characterization/ contains a probe matrix that runs the SAME probes against (a) the 0.4.9 tarball fetched from npm and (b) the locally built 0.5.0 bundle, entirely offline-deterministic (dummy key, network sinkhole, temp state dirs, normalized volatile output). The 0.4.9 outputs are checked in as frozen baseline snapshots. The suite passes only when every probe is either post-normalization-identical to baseline (parity) or listed in expected-deltas.json with a concrete assertion of the NEW behavior plus a justification naming the intended change (PR #29 double-goodbye prompt fix, PR #30/#31 guardrails). Existing test suites stay green. A fresh hostile verifier can re-derive every claim.
+
+AUDIT CRITERIA (each binary; evidence or FAIL; no partial credit; the audit spends unlimited tokens/time, runs every command itself, never rubber-stamps):
+
+V1 BASELINE-PROVENANCE: characterization/baseline/meta.json records package name, version 0.4.9, and the npm tarball shasum; the shasum MUST equal `npm view @spekoai/mcp-calls@0.4.9 dist.shasum`. Re-running the capture script against the tarball for >=3 sampled probes reproduces the checked-in baseline bytes. Baseline generated from local source instead of the published tarball = FAIL.
+
+V2 COVERAGE: characterization/coverage-check.mjs enumerates the REQUIRED probe id list (see PROBES.md) and exits 0 only if every id exists in the matrix. Required surface: CLI (--version, --help, unknown command, audio usage error, voices/no-key, transcribe usage, dnc list/add/remove [0.5.0-only allowed]); MCP stdio initialize + tools/list full schema snapshot; tools/call rails: emergency number, US premium, invalid E.164, objective too short, no-sell objective, no-sell smuggled via behavior, no-sell smuggled via context, harassment objective, impersonation objective, time-gate without confirmation, time-gate WITH confirmation (must reach the dial layer = sinkhole connection error, not a rejection), collection objective at after-hours WITH confirmation (still rejected), unknown-offset number, DNC-listed number, rate-cap 4th call, trusted number skips time+rate, dial_token malformed + expired + tampered + wrong-account, mobile allowed on call_number, invalid caller_name, lookup_business with agent-provided number + unknown offset, call_me, check_call_readiness, get_call unknown id. Total >=45 probes. Any required id missing = FAIL.
+
+V3 DETERMINISM: the full suite run twice in a row produces byte-identical per-probe results (evidence: two result JSON dumps diff empty). All probes run with SPEKO_API_KEY=dummy, SPEKOAI_API_URL pointing at an unreachable local sinkhole, SPEKO_GUARD_STATE_DIR in a fresh temp dir per run, fixed SPEKO_DIAL_TOKEN_SECRET, and normalization of times (HH:MM), ISO timestamps, temp paths, and durations before compare. Any probe that depends on wall clock without normalization or offset-pinning = FAIL.
+
+V4 PARITY: `characterization/run.mjs --target local` exits 0; every probe NOT in expected-deltas.json is post-normalization identical to its baseline snapshot. Evidence: the run report lists per-probe PASS(parity)/PASS(delta)/FAIL and totals.
+
+V5 DELTAS-JUSTIFIED: every expected-deltas.json entry has {probeId, justification citing PR #29, #30/#31 or docs/specs/abuse-guardrails-replace-quiet-hours.md section, and an `expect` that concretely asserts the NEW 0.5.0 behavior (substring/regex), not merely "differs"}. An entry without a matching intended change, a catch-all pattern, or a delta on a surface no PR touched = FAIL (that is a regression, fix the code instead).
+
+V6 EXISTING-SUITES: on the same tree, server suite >=213 tests green, mcp suite >=55 tests green, both typechecks clean (evidence: command outputs).
+
+V7 BASELINE-FROZEN: after the baseline capture commit, no later commit and no working-tree change touches characterization/baseline/** (evidence: git log --follow on the dir + git status). Editing baseline to make 0.5.0 pass = FAIL; the only escape hatch is expected-deltas.json.
+
+V8 TARGET-IDENTITY: the run report records the git sha of main used to build the local bundle and the bundle's --version output (0.5.0); sha must be current origin/main HEAD.
+
+OUT OF SCOPE: live telephony, audio TTS/STT round-trips (need real API), npm publish itself, non-deterministic platform-side behaviors (call polling against real sessions).
+
+VERDICT QUESTION: Would you publish 0.5.0 to npm and let every unpinned `npx -y @spekoai/mcp-calls` user pick it up, on the strength of this suite alone? Anything but an unqualified yes = not done; state exactly what is missing.

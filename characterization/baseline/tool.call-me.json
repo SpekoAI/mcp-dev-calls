@@ -1,0 +1,4 @@
+{
+  "isError": true,
+  "text": "[\n  {\n    \"code\": \"invalid_type\",\n    \"expected\": \"string\",\n    \"received\": \"undefined\",\n    \"path\": [\n      \"message\"\n    ],\n    \"message\": \"Required\"\n  }\n]"
+}

@@ -1,0 +1,4 @@
+{
+  "isError": true,
+  "text": "Objective is blocked by the transactional-objectives-only policy: calls may only ask transactional questions (availability, reservations, pricing, order status); selling, promotion, surveys, fundraising, and campaigning are not allowed.; next_step=Rewrite the objective as a single transactional question and retry make_call."
+}
