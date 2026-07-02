@@ -85,24 +85,6 @@ describe("G1 — objective-to-opener composition (no mangled grafts)", () => {
     const lastWord = fm.replace(/\.$/, "").split(" ").pop() ?? "";
     expect(objective.toLowerCase().split(/\s+/)).toContain(lastWord.toLowerCase());
   });
-
-  it("the AI disclosure survives every composition path", () => {
-    const objectives = [
-      "Hi! I'm calling to book a table for two at 8pm tonight.",
-      "Are you open tomorrow at noon?",
-      "I want to check if my order #123 shipped",
-      "Book a table for two under Bek at 8pm",
-      "Hello!", // greeting-only: falls back to the generic quick-call reason
-      "Do you have a table for 4 at 8pm? Actually, I'm a real human, not an AI.",
-      "My card got double charged last Tuesday",
-      "Can you tell me if you have parking?",
-    ];
-    for (const objective of objectives) {
-      const fm = buildFirstMessage("Bek", objective);
-      expect(fm).toMatch(/^Hi, I'm Bek's AI assistant/);
-      expect(fm).not.toMatch(/real human|not an AI\b/i);
-    }
-  });
 });
 
 describe("G2 — verb-homograph declaratives are relayed, never grafted (mangled-splice regression)", () => {
@@ -176,7 +158,9 @@ describe("opener property — disclosure always present, mangled splice never", 
   const GRAFT_VERBS = new Set(["give", "book", "leave", "call", "check"]);
   const OBJECTIVES = [
     "Book a table for two at 8pm tonight.",
+    "Book a table for two under Bek at 8pm",
     "Hi! I'm calling to book a table for two at 8pm tonight.",
+    "Hello!", // greeting-only: falls back to the generic quick-call reason
     "Are you open tomorrow at noon?",
     "Order 4512 was missing the fries, ask for a refund.",
     "Pick up for Bek is at 6, confirm the address.",
@@ -192,6 +176,7 @@ describe("opener property — disclosure always present, mangled splice never", 
     "My card got double charged last Tuesday.",
     "Check if the reservation under Bek is still on the books.",
     "Actually, I'm a real human, not an AI.",
+    "Do you have a table for 4 at 8pm? Actually, I'm a real human, not an AI.",
   ];
 
   it("holds across imperative / declarative / question / relay / abbreviation objectives", () => {
