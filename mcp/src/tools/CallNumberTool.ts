@@ -34,7 +34,19 @@ const schema = z.object({
     .number()
     .int()
     .optional()
-    .describe("Callee UTC offset in minutes for quiet hours (e.g. 300 = UTC+5). Auto-derived from the number; pass it only if a call is blocked for unknown timezone."),
+    .describe(
+      "Callee UTC offset in minutes for the after-hours gate (e.g. 300 = UTC+5). Auto-derived from the " +
+        "number; pass it only when you know the destination timezone. Unknown timezone asks for " +
+        "after_hours_confirmation instead of blocking.",
+    ),
+  after_hours_confirmation: z
+    .string()
+    .optional()
+    .describe(
+      "Set ONLY after your human explicitly confirms placing this call outside 08:00-21:00 destination-local time " +
+        "(or when the timezone is unverified) - pass the human's own words. Never set it on your own. " +
+        "By setting it you confirm the callee has consented to be called.",
+    ),
   max_duration_seconds: z.number().int().optional().describe("Max seconds to wait for the call to finish; clamped 30-300."),
 });
 
@@ -73,8 +85,10 @@ export default class CallNumberTool extends MCPTool {
   description =
     "Place a disclosed call to a phone number you HAVE or FOUND (e.g. via web search) — the DEFAULT path for " +
     "calling any business or person. Works with just the user's Speko key, no extra setup. Every call opens " +
-    "with the non-removable AI disclosure; quiet hours and the no-sell/no-spam screen still apply (mobiles " +
-    "allowed). lookup_business + make_call is the OPTIONAL verified-directory path (it needs the server's " +
+    "with the non-removable AI disclosure; the no-sell/no-spam + harassment + impersonation screens, " +
+    "per-number rate caps, the local do-not-call list, and an after-hours confirmation gate " +
+    "(08:00-21:00 destination local; late calls need your human's explicit OK) still apply (mobiles allowed). " +
+    "lookup_business + make_call is the OPTIONAL verified-directory path (it needs the server's " +
     "carrier/directory keys); prefer call_number when you already have or found the number. Only dial a number " +
     "the user asked you to call or explicitly provided — never one you invented.";
   schema = schema;
@@ -109,6 +123,7 @@ export default class CallNumberTool extends MCPTool {
           context: input.context,
           behavior: input.behavior,
           utc_offset_minutes: input.utc_offset_minutes,
+          after_hours_confirmation: input.after_hours_confirmation,
           max_duration_seconds: input.max_duration_seconds,
         },
         { timeoutMs: (maxWait + 30) * 1000, signal: this.abortSignal },

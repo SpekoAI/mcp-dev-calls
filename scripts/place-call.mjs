@@ -32,7 +32,7 @@ const { ok: callOk, status: callStatus, data: call } = await post("/call", {
   context: "Party of 4, tonight at 8pm. If 8pm is unavailable, ask for the closest available time.",
 });
 
-// A pre-dial rejection (quiet hours, blocked objective, expired token, bad caller-ID,
+// A pre-dial rejection (after-hours gate, DNC/rate cap, blocked objective, expired token, bad caller-ID,
 // etc.) returns an {error,next_step} envelope. That is NOT "no call leg" — nothing was
 // ever placed — so report it as a distinct, honest outcome.
 if (!callOk || call.error) {

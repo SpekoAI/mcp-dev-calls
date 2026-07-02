@@ -5,7 +5,7 @@ description: >-
   "call <place> and ask <question>", "find the best <X> near me and call them", book a
   reservation, check hours/availability/pricing, or place/chase an order. Covers calling a
   number you have or found via web search (call_number) and Speko's verified business lookup
-  (lookup_business → make_call), the mandatory AI disclosure, the quiet-hours + no-spam rails,
+  (lookup_business → make_call), the mandatory AI disclosure, the anti-abuse guardrails,
   and reporting the call OUTCOME honestly.
 ---
 
@@ -65,15 +65,28 @@ donate, fundraise, vote, campaign, debt, warranty, crypto, investment.* Just say
    waits while it rings, and returns the `OUTCOME:` line + transcript.
 
 ## The rails (enforced server-side — you cannot override them)
+- **Consent anchor** — only call numbers the human has consent to call. The screens are
+  best-effort keyword filters; rate caps and the DNC list are the real volume/opt-out controls.
 - **AI disclosure** — hard-coded; cannot be removed or reworded.
-- **Transactional objectives only** — reservations, availability, hours, pricing, orders.
-  **Refused:** selling, promotion, surveys, fundraising, political campaigning.
-- **Quiet hours** — 08:00–21:00 in the destination's local time; calls outside are rejected
-  (fail-closed if the timezone is unknown — pass `utc_offset_minutes`).
+- **No-sell/no-spam + harassment + impersonation screens** — applied to `objective`,
+  `behavior`, and `context`. Keep the task transactional: reservations, availability, hours,
+  pricing, orders. Refused: selling, promotion, surveys, fundraising, political campaigning,
+  harassment/pranks/repeated dialing, and instructions to pose as someone else.
+- **Per-number rate caps** — defaults are 3 calls/hour and 8 calls/day to the same number.
+- **Local do-not-call list** — honored before dialing; callee opt-outs are auto-detected when
+  possible. Manage it with `speko dnc list`, `speko dnc add <e164>`, and
+  `speko dnc remove <e164>`.
+- **After-hours confirmation gate** — the normal window is 08:00–21:00 destination-local.
+  Outside that window, or when the timezone is unknown, you MUST ask the human first, then retry
+  with `after_hours_confirmation` set to the human's own words. By passing it, you confirm the
+  callee has consented to be called.
+- **Collection-flavored calls** — day-hours-only with NO override (FDCPA).
+- **Trusted numbers** — numbers in `SPEKO_TRUSTED_NUMBERS` skip time and volume friction only;
+  DNC, disclosure, emergency/premium blocks, and abuse screens still apply.
 - **Business-line verification** applies on the `lookup_business` path (mobiles blocked there).
 
 If an objective trips a rail, the tool returns a rejection with a reason. Fix the objective (or
-pass `utc_offset_minutes`) and retry, or tell the user it isn't allowed.
+follow the retry instruction) and retry, or tell the user it isn't allowed.
 
 ## Reading the result — honestly
 - `connected` / `answered` are reported truthfully. If the platform never put a real call on
@@ -85,5 +98,6 @@ pass `utc_offset_minutes`) and retry, or tell the user it isn't allowed.
 ## Don't
 - Don't invent or guess phone numbers — only dial a number the user gave you or one you found
   from the business's own official listing.
-- Don't retry after a pre-dial rejection without fixing the objective/timezone first.
+- Don't retry after a pre-dial rejection without fixing the objective or following the stated
+  confirmation/removal path first.
 - Don't promise a call will connect — report what actually happened.

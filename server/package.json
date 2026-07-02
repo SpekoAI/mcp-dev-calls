@@ -1,7 +1,7 @@
 {
   "name": "@spekoai/mcp-calls-demo-server",
   "private": true,
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Demo backing API for the Speko calls MCP: Google Places business lookup, server-side safety rails, signed dial tokens, and outbound calling via @spekoai/sdk against api.speko.dev.",
   "type": "module",
   "main": "dist/index.js",

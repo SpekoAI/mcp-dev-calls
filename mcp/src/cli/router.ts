@@ -8,6 +8,7 @@ export const CLI_COMMANDS = [
   "setup",
   "login",
   "audio",
+  "dnc",
   "voices",
   "models",
   "--help",
