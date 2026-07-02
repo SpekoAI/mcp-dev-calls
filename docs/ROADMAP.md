@@ -27,20 +27,24 @@ realtime.
 - **0.4.7** — bin renamed `speko-calls`→`speko`; bare `speko` in a TTY shows the command list (piped = MCP server, unchanged).
 - **0.4.8** — **hangup detection**: poll loop watches the session's `endedAt`. *(merged; publish pending.)*
   **Premise corrected (Jul 2 live measurement, 5/5 calls):** these dials go via LiveKit SIP, so the Telnyx `call.hangup` webhook never fires and `endedAt` lands WITH `room_finished` (~0.5s apart) — the check stays as cheap redundancy, not an early signal. The real early phone-leg-death signal is the source-closed `egress_ended` fast-path (poll-hardening branch, 11.5-21.3s earlier); agent-initiated hangups surface as `call.end_tool.completed`.
+- **0.4.9** — **the agent hangs up + the opener is never mangled + the terminal never lies.** (1) Agent-initiated hangup, client-side only: dials ride a persisted `speko-mcp-dial` agent row with `endCall:{enabled:true}` (the worker then registers its `end_call` tool); the row is re-verified and repaired on EVERY dial (voice pinned null so the platform's auto-picked voice can't cross-vendor-mismatch our TTS pin = silent-audio class; auto-attached `search_knowledge_base` tool stripped; endCall re-enabled if toggled off) and the prompt's rule set switches to "put your goodbye INTO end_call" only when the verified agent actually rode the dial — fail-open keeps the legacy agentless path. (2) Greeting builder rework: no more first-sentence splice ("asked me to hi."); imperative-gated graft with declarative rejection, narrowed disclosure/directive screens, abbreviation-safe splitting, safe relayed fallback, disclosure invariant on every path. (3) Poll hardening: `endedAt` checked every iteration, conservative wall-clock `egress_ended` fast-path (frozen-transcript-gated), report-grace waits for a substantive outcome, wall-clock elapsed. 175+49 tests (was 109+49). Built by parallel subagents, cross-family reviewed (4 Claude lenses + Codex gpt-5.5 xhigh), all P0/P1 findings fixed with regression proofs.
 
 ## The "call doesn't end" split (Bek 2026-07-02)
 
 - **Callee/human hangs up, terminal stuck "in call…"** → OUR bug → fixed by the source-closed
   `egress_ended` fast-path (poll-hardening branch); 0.4.8's `endedAt` polling turned out to be
   redundant with `room_finished` (see the corrected 0.4.8 bullet) and is kept as a backstop.
-- **Agent never hangs up after its goodbye** → **platform** (SPE-160). No client-reachable end
-  primitive exists (verified: SDK 0.4.3 *and* 0.5.1 have no end method; no `POST /v1/calls/:id/end`
-  route; no end_call tool on the dial-path worker). The pieces already exist server-side:
-  `RoomServiceClient.deleteRoom` (demo hard-kill, `demo.ts:514`) + `DEMO_MAX_DURATION_SECONDS`
-  force-close pattern (`env.ts:~350`) + Telnyx hangup handling. **Exact asks:** (1) `POST
-  /v1/calls/:id/end` (deleteRoom + hang up the Telnyx leg via callControlId); (2) copy the demo
-  max-duration backstop to the outbound dial path; (3) later: end_call tool on the dial path.
-  When (1) lands: our poll loop calls it upon detecting the goodbye/outcome → calls end in seconds.
+- **Agent never hangs up after its goodbye** → **FIXED CLIENT-SIDE in 0.4.9.** The original
+  "no client-reachable end primitive" framing was refuted: the worker HAS a working `end_call`
+  tool (`apps/worker-ts/src/agent.ts:1773` buildEndCallTool), gated only on `endCall:{enabled:true}`
+  riding the pipeline config — which an agent row provides (`services/call-config.ts:122`). 0.4.9
+  dials via a persisted, per-dial-verified `speko-mcp-dial` agent row, so the tool registers and the
+  prompt tells the model to hang up through it. **Re-scoped platform asks (SPE-160):** (1) `endCall`
+  passthrough on `phoneSessionSchema` (retires the agent-row workaround); (2) `POST /v1/calls/:id/end`
+  first-class end route (copy `services/builtin-tools.ts:254-372`); (3) max-duration backstop on the
+  API outbound path (copy `demo-phone.ts:369-383`); (4) worker `deleteRoom` on participant
+  disconnect (cuts the 12-21s drain; Tier-2). The old "hang up the Telnyx leg via callControlId" ask
+  was impossible as written — outbound legs are LiveKit SIP participants; `deleteRoom` is the kill.
 
 ## v0.5 — next (this repo only, no platform/SDK changes)
 
