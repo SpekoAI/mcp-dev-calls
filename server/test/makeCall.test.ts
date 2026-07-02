@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
 import { runPhoneCall, type MakeCallDeps } from "../src/calls/makeCall.js";
 import type { AppConfig } from "../src/config.js";
 import type { SpekoClient } from "../src/speko/client.js";
@@ -7,8 +7,35 @@ import type { VoiceDialParams } from "@spekoai/sdk";
 const noopSleep = async (): Promise<void> => {};
 const BODY = { to: "+77771110474", from: "+15312160099" } as unknown as VoiceDialParams;
 
-function deps(client: Partial<SpekoClient>): MakeCallDeps {
-  return { client: client as unknown as SpekoClient, cfg: {} as AppConfig, bearerHash: "test", sleep: noopSleep };
+/**
+ * Ties an instant fake sleep and an injectable now() to ONE time source, so sleeping still
+ * advances the wall clock the poll loop's wait cap and egress confirm window measure against.
+ * Tests that must hit the wait cap (or expire the confirm window) need this; tests that end
+ * via a terminal event within the cap can keep the real clock + noopSleep.
+ */
+function makeFakeClock() {
+  let nowMs = 0;
+  return {
+    now: (): number => nowMs,
+    sleep: async (ms: number): Promise<void> => {
+      nowMs += ms;
+    },
+    /** Simulate real latency spent outside sleep (e.g. a slow API call). */
+    advance: (ms: number): void => {
+      nowMs += ms;
+    },
+  };
+}
+type FakeClock = ReturnType<typeof makeFakeClock>;
+
+function deps(client: Partial<SpekoClient>, clock?: FakeClock): MakeCallDeps {
+  return {
+    client: client as unknown as SpekoClient,
+    cfg: {} as AppConfig,
+    bearerHash: "test",
+    sleep: clock?.sleep ?? noopSleep,
+    ...(clock ? { now: clock.now } : {}),
+  };
 }
 
 const dialOk = (sessionId: string) =>
@@ -49,16 +76,20 @@ describe("runPhoneCall — terminal detection (the not_connected false-negative 
   });
 
   it("does NOT finalize on a bare premature 'failed' — keeps polling until room_finished (here: times out)", async () => {
+    const clock = makeFakeClock();
     const s = await runPhoneCall(
       BODY,
       3, // tiny cap → a couple polls then timeout (proves 'failed' alone never ends the loop)
-      deps({
-        dial: dialOk("s2"),
-        getEvents: async () => [{ event_type: "sip.dial_started" }, { event_type: "worker.no_first_audio_timeout", failure_cause: "x" }] as any,
-        getCall: async () => ({ status: "failed", transcript: null }) as any,
-        getSession: async () => ({ phoneCall: { callControlId: null }, usage: [] }) as any,
-      }),
-      noopSleep,
+      deps(
+        {
+          dial: dialOk("s2"),
+          getEvents: async () => [{ event_type: "sip.dial_started" }, { event_type: "worker.no_first_audio_timeout", failure_cause: "x" }] as any,
+          getCall: async () => ({ status: "failed", transcript: null }) as any,
+          getSession: async () => ({ phoneCall: { callControlId: null }, usage: [] }) as any,
+        },
+        clock,
+      ),
+      clock.sleep,
     );
     expect(s.status).toBe("timeout");
   });
@@ -230,34 +261,42 @@ describe("runPhoneCall — phone-leg hangup detection (Bek: 'I hang up but termi
   });
 
   it("does NOT end on a premature 'failed' status while endedAt is still null (A2 guard preserved)", async () => {
+    const clock = makeFakeClock();
     const s = await runPhoneCall(
       BODY,
       3, // tiny cap → proves the loop kept polling and hit the cap
-      deps({
-        dial: dialOk("hang2"),
-        getEvents: async () => [{ event_type: "sip.dial_started" }] as any,
-        getCall: async () => ({ status: "failed", transcript: null }) as any,
-        getSession: async () =>
-          ({ status: "failed", endedAt: null, phoneCall: { callControlId: null }, usage: [] }) as any, // SLA flip, call still live
-      }),
-      noopSleep,
+      deps(
+        {
+          dial: dialOk("hang2"),
+          getEvents: async () => [{ event_type: "sip.dial_started" }] as any,
+          getCall: async () => ({ status: "failed", transcript: null }) as any,
+          getSession: async () =>
+            ({ status: "failed", endedAt: null, phoneCall: { callControlId: null }, usage: [] }) as any, // SLA flip, call still live
+        },
+        clock,
+      ),
+      clock.sleep,
     );
     expect(s.status).toBe("timeout");
   });
 
   it("keeps polling when the session endpoint errors (best-effort, events remain primary)", async () => {
+    const clock = makeFakeClock();
     const s = await runPhoneCall(
       BODY,
       3,
-      deps({
-        dial: dialOk("hang3"),
-        getEvents: async () => [{ event_type: "sip.dial_started" }] as any,
-        getCall: async () => ({ status: "active", transcript: null }) as any,
-        getSession: async () => {
-          throw new Error("session endpoint down");
+      deps(
+        {
+          dial: dialOk("hang3"),
+          getEvents: async () => [{ event_type: "sip.dial_started" }] as any,
+          getCall: async () => ({ status: "active", transcript: null }) as any,
+          getSession: async () => {
+            throw new Error("session endpoint down");
+          },
         },
-      }),
-      noopSleep,
+        clock,
+      ),
+      clock.sleep,
     );
     expect(s.status).toBe("timeout"); // survived the errors, no crash
   });
@@ -327,6 +366,7 @@ const EGRESS_SOURCE_CLOSED_EVENT = {
 
 describe("runPhoneCall — egress_ended fast-path (phone leg dies ~20s before room_finished)", () => {
   it("finalizes after the confirm window when the transcript is frozen — no room_finished ever arrives", async () => {
+    const clock = makeFakeClock();
     let eventsCalls = 0;
     const transcript = {
       entries: [
@@ -338,20 +378,23 @@ describe("runPhoneCall — egress_ended fast-path (phone leg dies ~20s before ro
     const s = await runPhoneCall(
       BODY,
       300,
-      deps({
-        dial: dialOk("eg1"),
-        getEvents: async () => {
-          eventsCalls += 1;
-          // Poll 1: live. Poll 2+: the phone leg died (source-closed egress). room_finished NEVER fires.
-          return (eventsCalls >= 2
-            ? [{ event_type: "sip.dial_started" }, EGRESS_SOURCE_CLOSED_EVENT]
-            : [{ event_type: "sip.dial_started" }]) as any;
+      deps(
+        {
+          dial: dialOk("eg1"),
+          getEvents: async () => {
+            eventsCalls += 1;
+            // Poll 1: live. Poll 2+: the phone leg died (source-closed egress). room_finished NEVER fires.
+            return (eventsCalls >= 2
+              ? [{ event_type: "sip.dial_started" }, EGRESS_SOURCE_CLOSED_EVENT]
+              : [{ event_type: "sip.dial_started" }]) as any;
+          },
+          getCall: async () => ({ status: "active", transcript }) as any, // frozen turn count, no report
+          getSession: async () =>
+            ({ status: "active", endedAt: null, phoneCall: { callControlId: "phone-eg1" }, usage: [] }) as any,
         },
-        getCall: async () => ({ status: "active", transcript }) as any, // frozen turn count, no report
-        getSession: async () =>
-          ({ status: "active", endedAt: null, phoneCall: { callControlId: "phone-eg1" }, usage: [] }) as any,
-      }),
-      noopSleep,
+        clock,
+      ),
+      clock.sleep,
     );
     expect(s.status).toBe("completed");
     expect(s.answered).toBe(true);
@@ -361,34 +404,47 @@ describe("runPhoneCall — egress_ended fast-path (phone leg dies ~20s before ro
     expect(eventsCalls).toBe(6);
   });
 
-  it("does NOT finalize on egress_ended while transcript turns are still arriving (recording died mid-call)", async () => {
+  // Two variants, one rule: turns still arriving mean the call is alive, so the fast-path must
+  // stand down whether the report row is absent (recording died mid-call) or present the whole
+  // time. getCall.test.ts models report rows on LIVE calls (the platform's report/finalize route
+  // has no terminality guard), so the report row is corroboration for a frozen transcript, never
+  // an end signal by itself.
+  it.each([
+    { label: "no report (recording died mid-call)", id: "eg2", report: null },
+    { label: "report row present the whole time (reports exist on live calls)", id: "eg5", report: { outcome: "Table booked at 8pm" } },
+  ])("does NOT finalize on egress_ended while transcript turns are still arriving — $label", async ({ id, report }) => {
+    const clock = makeFakeClock();
     let getCallCalls = 0;
     const s = await runPhoneCall(
       BODY,
       12, // small cap: proves the fast-path never fired and the loop ran to the wait limit
-      deps({
-        dial: dialOk("eg2"),
-        // Egress dead from the first poll; the room never finishes (call keeps going).
-        getEvents: async () => [{ event_type: "sip.dial_started" }, EGRESS_SOURCE_CLOSED_EVENT] as any,
-        getCall: async () => {
-          getCallCalls += 1;
-          // The conversation continues: every read shows MORE turns than the last.
-          return {
-            status: "active",
-            transcript: {
-              entries: Array.from({ length: 2 + getCallCalls }, (_, k) => ({
-                source: k % 2 ? "user" : "agent",
-                text: `turn ${k}`,
-              })),
-            },
-          } as any;
+      deps(
+        {
+          dial: dialOk(id),
+          // Egress dead from the first poll; the room never finishes (call keeps going).
+          getEvents: async () => [{ event_type: "sip.dial_started" }, EGRESS_SOURCE_CLOSED_EVENT] as any,
+          getCall: async () => {
+            getCallCalls += 1;
+            // The conversation continues: every read shows MORE turns than the last.
+            return {
+              status: "active",
+              transcript: {
+                entries: Array.from({ length: 2 + getCallCalls }, (_, k) => ({
+                  source: k % 2 ? "user" : "agent",
+                  text: `turn ${k}`,
+                })),
+              },
+              report,
+            } as any;
+          },
+          getSession: async () =>
+            ({ status: "active", endedAt: null, phoneCall: { callControlId: `phone-${id}` }, usage: [] }) as any,
         },
-        getSession: async () =>
-          ({ status: "active", endedAt: null, phoneCall: { callControlId: "phone-eg2" }, usage: [] }) as any,
-      }),
-      noopSleep,
+        clock,
+      ),
+      clock.sleep,
     );
-    expect(s.status).toBe("timeout"); // live call was never cut short by the dead egress
+    expect(s.status).toBe("timeout"); // the live call was never cut short by the dead egress
     expect(getCallCalls).toBeGreaterThanOrEqual(2); // baseline + expiry comparison actually ran
   });
 
@@ -458,54 +514,16 @@ describe("runPhoneCall — egress_ended fast-path (phone leg dies ~20s before ro
     expect(getCallCalls).toBe(3); // baseline + confirm + the finalize transcript read
   });
 
-  it("does NOT let a report row finalize the window while turns are still arriving (reports exist on live calls)", async () => {
-    // getCall.test.ts models report rows on LIVE calls (the platform's report/finalize route has
-    // no terminality guard). A mid-call recording-egress death on such a call must not cut the
-    // call short while the conversation is visibly advancing — the report row is corroboration
-    // for a frozen transcript, never an end signal by itself.
-    let getCallCalls = 0;
-    const s = await runPhoneCall(
-      BODY,
-      12, // small cap: proves the fast-path never fired and the loop ran to the wait limit
-      deps({
-        dial: dialOk("eg5"),
-        getEvents: async () => [{ event_type: "sip.dial_started" }, EGRESS_SOURCE_CLOSED_EVENT] as any,
-        getCall: async () => {
-          getCallCalls += 1;
-          return {
-            status: "active",
-            // The conversation continues: every read shows MORE turns than the last.
-            transcript: {
-              entries: Array.from({ length: 2 + getCallCalls }, (_, k) => ({
-                source: k % 2 ? "user" : "agent",
-                text: `turn ${k}`,
-              })),
-            },
-            report: { outcome: "Table booked at 8pm" }, // present the whole time (live call)
-          } as any;
-        },
-        getSession: async () =>
-          ({ status: "active", endedAt: null, phoneCall: { callControlId: "phone-eg5" }, usage: [] }) as any,
-      }),
-      noopSleep,
-    );
-    expect(s.status).toBe("timeout"); // the live call was never cut short by the report row
-  });
-
   it("holds the confirm window for >=10s of WALL CLOCK in the fast-poll phase — 2 polls (~4s) are not enough", async () => {
     // In the fast-poll phase the polls are 2s apart, so the old 2-POLL window spanned only ~4s —
     // too short to tell "callee thinking" from "call dead". The window is a wall-clock minimum.
-    let nowMs = 0;
-    const nowSpy = vi.spyOn(Date, "now").mockImplementation(() => nowMs);
-    const fakeSleep = async (ms: number): Promise<void> => {
-      nowMs += ms;
-    };
+    const clock = makeFakeClock();
     let eventsCalls = 0;
-    try {
-      const s = await runPhoneCall(
-        BODY,
-        300,
-        deps({
+    const s = await runPhoneCall(
+      BODY,
+      300,
+      deps(
+        {
           dial: dialOk("eg7"),
           getEvents: async () => {
             eventsCalls += 1;
@@ -526,40 +544,43 @@ describe("runPhoneCall — egress_ended fast-path (phone leg dies ~20s before ro
             }) as any, // frozen turn count, no report
           getSession: async () =>
             ({ status: "active", endedAt: null, phoneCall: { callControlId: "phone-eg7" }, usage: [] }) as any,
-        }),
-        fakeSleep,
-      );
-      expect(s.status).toBe("completed");
-      expect(s.outcome).toBe("yes 8pm works");
-      // Armed at 4s of wall clock (poll 2). The frozen checks at 6s/8s/10s (deltas 2/4/6) all
-      // hold; the delta only crosses 10s at 15s (poll 6). The old poll-count window would have
-      // finalized at 8s — 4s after arming.
-      expect(eventsCalls).toBe(6);
-      expect(s.duration_seconds).toBe(15);
-    } finally {
-      nowSpy.mockRestore();
-    }
+        },
+        clock,
+      ),
+      clock.sleep,
+    );
+    expect(s.status).toBe("completed");
+    expect(s.outcome).toBe("yes 8pm works");
+    // Armed at 4s of wall clock (poll 2). The frozen checks at 6s/8s/10s (deltas 2/4/6) all
+    // hold; the delta only crosses 10s at 15s (poll 6). The old poll-count window would have
+    // finalized at 8s — 4s after arming.
+    expect(eventsCalls).toBe(6);
+    expect(s.duration_seconds).toBe(15);
   });
 
   it("disarms the fast-path when the transcript shape is unreadable (never finalize on missing evidence)", async () => {
     // countTranscriptTurns() returns null for a transcript with no recognizable turn list. That
     // null used to be coerced to a 0==0 "frozen" baseline, fast-finalizing on evidence the loop
     // could not actually read. An unreadable count must stand the fast-path down instead.
+    const clock = makeFakeClock();
     let getCallCalls = 0;
     const s = await runPhoneCall(
       BODY,
       12,
-      deps({
-        dial: dialOk("eg6"),
-        getEvents: async () => [{ event_type: "sip.dial_started" }, EGRESS_SOURCE_CLOSED_EVENT] as any,
-        getCall: async () => {
-          getCallCalls += 1;
-          return { status: "active", transcript: { text: "opaque blob with no turn list" } } as any;
+      deps(
+        {
+          dial: dialOk("eg6"),
+          getEvents: async () => [{ event_type: "sip.dial_started" }, EGRESS_SOURCE_CLOSED_EVENT] as any,
+          getCall: async () => {
+            getCallCalls += 1;
+            return { status: "active", transcript: { text: "opaque blob with no turn list" } } as any;
+          },
+          getSession: async () =>
+            ({ status: "active", endedAt: null, phoneCall: { callControlId: "phone-eg6" }, usage: [] }) as any,
         },
-        getSession: async () =>
-          ({ status: "active", endedAt: null, phoneCall: { callControlId: "phone-eg6" }, usage: [] }) as any,
-      }),
-      noopSleep,
+        clock,
+      ),
+      clock.sleep,
     );
     expect(s.status).toBe("timeout"); // fell back to the normal end signals (none came) — no fast-finalize
     expect(getCallCalls).toBe(1); // the unreadable baseline read; the window never armed after it
@@ -567,38 +588,33 @@ describe("runPhoneCall — egress_ended fast-path (phone leg dies ~20s before ro
 });
 
 describe("runPhoneCall — wall-clock elapsed (API latency counts toward the wait cap)", () => {
-  it("caps the wait by Date.now() deltas, not summed sleep intervals", async () => {
-    let nowMs = 0;
-    const nowSpy = vi.spyOn(Date, "now").mockImplementation(() => nowMs);
-    const fakeSleep = async (ms: number): Promise<void> => {
-      nowMs += ms;
-    };
+  it("caps the wait by wall-clock deltas, not summed sleep intervals", async () => {
+    const clock = makeFakeClock();
     let eventsCalls = 0;
-    try {
-      const s = await runPhoneCall(
-        BODY,
-        30,
-        deps({
+    const s = await runPhoneCall(
+      BODY,
+      30,
+      deps(
+        {
           dial: dialOk("wc1"),
           getEvents: async () => {
             eventsCalls += 1;
-            nowMs += 8000; // slow events endpoint: 8s of real latency per poll
+            clock.advance(8000); // slow events endpoint: 8s of real latency per poll
             return [{ event_type: "sip.dial_started" }] as any;
           },
           getCall: async () => ({ status: "active", transcript: null }) as any,
           getSession: async () =>
             ({ status: "active", endedAt: null, phoneCall: { callControlId: "phone-wc1" }, usage: [] }) as any,
-        }),
-        fakeSleep,
-      );
-      expect(s.status).toBe("timeout");
-      // 3 polls x (2s sleep + 8s API) = 30s of wall clock. Interval-summing would have needed
-      // 7 polls (2*5 + 10*2 = 30) — i.e. ~86s of real time to enforce a 30s cap.
-      expect(eventsCalls).toBe(3);
-      expect(s.duration_seconds).toBe(30);
-    } finally {
-      nowSpy.mockRestore();
-    }
+        },
+        clock,
+      ),
+      clock.sleep,
+    );
+    expect(s.status).toBe("timeout");
+    // 3 polls x (2s sleep + 8s API) = 30s of wall clock. Interval-summing would have needed
+    // 7 polls (2*5 + 10*2 = 30) — i.e. ~86s of real time to enforce a 30s cap.
+    expect(eventsCalls).toBe(3);
+    expect(s.duration_seconds).toBe(30);
   });
 });
 
@@ -729,6 +745,7 @@ describe("finalize — report-grace (finalize-vs-report race)", () => {
 
 describe("runPhoneCall — serialize guard released on every exit path", () => {
   it("allows a second dial after the first one TIMES OUT", async () => {
+    const clock = makeFakeClock();
     let terminal = false;
     const d: MakeCallDeps = {
       client: {
@@ -745,12 +762,13 @@ describe("runPhoneCall — serialize guard released on every exit path", () => {
       } as unknown as SpekoClient,
       cfg: { serializeCalls: true } as AppConfig,
       bearerHash: "test",
-      sleep: noopSleep,
+      sleep: clock.sleep,
+      now: clock.now,
     };
-    const first = await runPhoneCall(BODY, 3, d, noopSleep);
+    const first = await runPhoneCall(BODY, 3, d, clock.sleep);
     expect(first.status).toBe("timeout");
     terminal = true; // same guard, next call must be allowed through AND complete
-    const second = await runPhoneCall(BODY, 300, d, noopSleep);
+    const second = await runPhoneCall(BODY, 300, d, clock.sleep);
     expect(second.status).toBe("completed");
   });
 
