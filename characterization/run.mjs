@@ -26,19 +26,32 @@ const LOCAL_BUNDLE = join(HERE, "..", "mcp", "dist", "index.js");
 const args = process.argv.slice(2);
 const flag = (name) => {
   const i = args.indexOf(`--${name}`);
-  return i >= 0 ? (args[i + 1]?.startsWith("--") || args[i + 1] === undefined ? true : args[i + 1]) : undefined;
+  if (i < 0) return undefined;
+  const next = args[i + 1];
+  return next === undefined || next.startsWith("--") ? true : next;
+};
+const stringFlag = (name) => {
+  const v = flag(name);
+  return typeof v === "string" ? v : undefined;
 };
 
 const target = flag("target");
 const capture = flag("capture") === true;
-const outPath = typeof flag("out") === "string" ? flag("out") : undefined;
-if (!["tarball", "local"].includes(target)) {
-  console.error("Usage: run.mjs --target tarball|local [--capture] [--out file.json]");
-  process.exit(1);
-}
+const outPath = stringFlag("out");
 // --bundle <path> overrides the resolved bundle (used to characterize the actually-published
 // 0.5.0 tarball, not just the local build). Target still labels the run report.
-const bundleOverride = typeof flag("bundle") === "string" ? flag("bundle") : undefined;
+const bundleOverride = stringFlag("bundle");
+if (!["tarball", "local"].includes(target)) {
+  console.error("Usage: run.mjs --target tarball|local [--capture] [--out file.json] [--bundle path]");
+  process.exit(1);
+}
+// Integrity guard: --capture freezes the baseline and stamps meta.json as the 0.4.9 tarball
+// (hardcoded version + shasum of fixtures/mcp-calls-0.4.9.tgz). Allowing --bundle here would
+// let a DIFFERENT bundle overwrite the baseline under a meta that falsely claims 0.4.9.
+if (capture && bundleOverride) {
+  console.error("Refusing --capture with --bundle: the baseline may only be captured from the frozen 0.4.9 tarball.");
+  process.exit(1);
+}
 const bundle = bundleOverride ?? (target === "tarball" ? TARBALL_BUNDLE : LOCAL_BUNDLE);
 if (!existsSync(bundle)) {
   console.error(`Bundle not found: ${bundle}`);
@@ -140,7 +153,6 @@ for (const [id, actual] of Object.entries(results)) {
   const baselinePath = join(BASELINE_DIR, `${id}.json`);
   const baseline = existsSync(baselinePath) ? JSON.parse(readFileSync(baselinePath, "utf-8")) : undefined;
   const delta = deltaById.get(id);
-  const same = baseline !== undefined && JSON.stringify(baseline) === JSON.stringify(actual);
 
   if (delta) {
     if (!delta.justification || !(Array.isArray(delta.expectContains) || delta.expectRegex)) {
@@ -156,7 +168,7 @@ for (const [id, actual] of Object.entries(results)) {
     failures.push({ id, why: "no baseline snapshot and no delta entry (new probe must be captured or declared)", actual });
     continue;
   }
-  if (same) {
+  if (JSON.stringify(baseline) === JSON.stringify(actual)) {
     parityPass++;
   } else {
     failures.push({ id, why: "PARITY BREAK: differs from 0.4.9 baseline and not in expected-deltas", baseline, actual });

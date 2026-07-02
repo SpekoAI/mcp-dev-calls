@@ -34,10 +34,14 @@ export class McpSession {
     this.startupTimeoutMs = startupTimeoutMs;
   }
 
+  /** Frame + write one newline-delimited JSON-RPC message to the server's stdin. */
+  send(message) {
+    this.child.stdin.write(JSON.stringify(message) + "\n");
+  }
+
   request(method, params, timeoutMs = 60_000) {
     const id = this.nextId++;
-    const payload = { jsonrpc: "2.0", id, method, ...(params !== undefined ? { params } : {}) };
-    this.child.stdin.write(JSON.stringify(payload) + "\n");
+    this.send({ jsonrpc: "2.0", id, method, ...(params !== undefined ? { params } : {}) });
     return new Promise((resolve) => {
       const timer = setTimeout(() => {
         if (this.pending.has(id)) {
@@ -55,7 +59,7 @@ export class McpSession {
   }
 
   notify(method, params) {
-    this.child.stdin.write(JSON.stringify({ jsonrpc: "2.0", method, ...(params !== undefined ? { params } : {}) }) + "\n");
+    this.send({ jsonrpc: "2.0", method, ...(params !== undefined ? { params } : {}) });
   }
 
   async initialize() {
