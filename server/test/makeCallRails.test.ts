@@ -192,13 +192,22 @@ describe("make_call — dial-agent wiring (agent-initiated hangup)", () => {
   beforeEach(resetDialAgentForTests);
   afterEach(resetDialAgentForTests);
 
-  /** Happy-path poll/finalize client; dial is injectable so each test can capture/fail it. */
+  /**
+   * Happy-path poll/finalize client; dial is injectable so each test can capture/fail it.
+   * The agent-verify defaults model a clean platform: no tools attached, and a getAgent
+   * that 404s so a cached id falls back to whatever listAgents the test provides.
+   */
   function pollClient(over: Partial<Record<string, unknown>>): SpekoClient {
     return {
       getEvents: async () => [{ event_type: "room_finished" }],
       getCall: async () =>
         ({ status: "completed", transcript: { entries: [{ source: "agent", text: "hi" }, { source: "user", text: "yes" }] }, report: {} }),
       getSession: async () => ({ phoneCall: { callControlId: "leg-1" }, usage: [{ provider: "telnyx", metric: "outbound_minutes" }] }),
+      getAgent: async () => {
+        throw new SpekoApiError("Agent not found", 404, "AGENT_NOT_FOUND");
+      },
+      listAgentTools: async () => [],
+      deleteAgentTool: async () => ({ deleted: true }),
       ...over,
     } as unknown as SpekoClient;
   }
@@ -232,6 +241,50 @@ describe("make_call — dial-agent wiring (agent-initiated hangup)", () => {
     expect(body.firstMessage).toMatch(/Amir's AI assistant/i);
     expect(body.sttOptions?.keywords).toContain("Amir");
     expect(body.telephony).toEqual({ amd: { mode: "agent" } });
+  });
+
+  it("re-verifies the dial agent on EVERY call: an endCall toggle between calls is repaired, not trusted from cache", async () => {
+    const captured: VoiceDialParams[] = [];
+    const row: { id: string; name: string; voice: string | null; endCall: { enabled: boolean } } = {
+      id: "dial-agent-7",
+      name: DIAL_AGENT_NAME,
+      voice: null,
+      endCall: { enabled: true },
+    };
+    const updates: Array<Record<string, unknown>> = [];
+    const client = pollClient({
+      dial: dialOk(captured),
+      listAgents: async () => [{ ...row }],
+      getAgent: async () => ({ ...row }),
+      updateAgent: async (_id: string, params: Record<string, unknown>) => {
+        updates.push(params);
+        if ("endCall" in params) row.endCall = params.endCall as { enabled: boolean };
+        if ("voice" in params) row.voice = params.voice as string | null;
+        return { ...row };
+      },
+    });
+
+    const s1 = await makeCall(
+      { dialToken: mint(), objective: "do you have a table for 4 at 8pm tonight?", callerName: "Amir" },
+      deps(client),
+    );
+    expect(s1.status).toBe("completed");
+    expect(updates).toHaveLength(0); // clean row → verify only
+
+    // Someone toggles endCall OFF on the visible dashboard row between calls. The old
+    // trust-the-cache behavior would dial with the agentId AND the end_call prompt while
+    // the worker never registers the tool — the model may speak tool syntax aloud.
+    row.endCall = { enabled: false };
+
+    const s2 = await makeCall(
+      { dialToken: mint(), objective: "do you have a table for 4 at 8pm tonight?", callerName: "Amir" },
+      deps(client),
+    );
+    expect(s2.status).toBe("completed");
+    expect(updates).toEqual([{ endCall: { enabled: true } }]); // repaired BEFORE dialing
+    expect(captured).toHaveLength(2);
+    expect(captured[1].agentId).toBe("dial-agent-7");
+    expect(captured[1].systemPrompt).toMatch(/end_call/); // the prompt's promise is true again
   });
 
   it("still dials — without agentId, with the stay-silent prompt — when agent bootstrap fails (fail-open)", async () => {

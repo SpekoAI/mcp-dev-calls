@@ -8,6 +8,7 @@ import { Speko, SpekoApiError, SpekoAuthError, SpekoRateLimitError } from "@spek
 import type {
   AgentCreateParams,
   AgentRow,
+  AgentToolRow,
   AgentUpdateParams,
   CallDetail,
   OrganizationBalance,
@@ -69,8 +70,20 @@ export class SpekoClient {
     return this.speko.agents.create(params);
   }
 
+  getAgent(agentId: string): Promise<AgentRow> {
+    return this.speko.agents.get(agentId);
+  }
+
   updateAgent(agentId: string, params: AgentUpdateParams): Promise<AgentRow> {
     return this.speko.agents.update(agentId, params);
+  }
+
+  listAgentTools(agentId: string): Promise<AgentToolRow[]> {
+    return this.speko.agents.tools.list(agentId);
+  }
+
+  deleteAgentTool(agentId: string, toolId: string): Promise<{ deleted: boolean }> {
+    return this.speko.agents.tools.delete(agentId, toolId);
   }
 
   /**
