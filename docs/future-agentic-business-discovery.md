@@ -19,8 +19,8 @@ Split the two responsibilities cleanly:
 
 - **Discovery → moves to the agent:** find a candidate business name + phone number via web search.
 - **Authorization + safety → stays server-side, unchanged:** validate E.164, run the
-  **carrier line-type check (business-lines-only)**, screen the objective, enforce quiet hours,
-  and mint the HMAC `dial_token`.
+  **carrier line-type check (business-lines-only)**, apply abuse guardrails (screens, DNC,
+  rate caps, after-hours confirmation), and mint the HMAC `dial_token`.
 
 ⚠️ **Web search will NOT tell you whether a number is a mobile or a landline.** So the
 **line-type check is non-negotiable and must remain** — it's the legal/compliance moat

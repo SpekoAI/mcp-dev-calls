@@ -18,9 +18,9 @@ const schema = z.object({
     .int()
     .optional()
     .describe(
-      "Destination UTC offset in minutes for quiet-hours (e.g. -300 US Eastern, -480 US Pacific, 0 UK). " +
-        "Pass this alongside phone_number when you know the business's region but its number isn't auto-recognized " +
-        "(otherwise the offset is derived from the number).",
+      "Destination UTC offset in minutes for the after-hours gate (e.g. -300 US Eastern, -480 US Pacific, 0 UK). " +
+        "Pass this alongside phone_number when you know the business's region but its number isn't auto-recognized; " +
+        "unknown offset no longer blocks lookup, but placing the call later requires after_hours_confirmation.",
     ),
 });
 

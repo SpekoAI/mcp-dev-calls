@@ -223,7 +223,10 @@ export async function runInit(argv: string[], mode: "init" | "setup" | "login" =
   if (!quick) {
     console.log("  This MCP places " + c.bold("real, disclosed") + " outbound phone calls to " + c.bold("businesses") + ",");
     console.log("  straight from your coding agent. Every call opens with an AI disclosure;");
-    console.log("  business lines only; quiet hours 08:00–21:00 in the destination's local time.\n");
+    console.log(
+      "  business lines only for make_call; abuse guardrails: no-sell/harassment/impersonation screens, " +
+        "per-number rate caps, local do-not-call list (speko dnc), after-hours calls need your explicit confirmation.\n",
+    );
   }
 
   // 1) Get a key: flag > env > browser login (default) > manual paste (fallback).

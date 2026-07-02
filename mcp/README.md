@@ -53,11 +53,12 @@ backing server instead of running in-process, set `SPEKO_MCP_SERVER_URL`.
 
 ## Safety
 
-Every call opens with a **non-removable AI disclosure**. **Business lines only** (carrier
-line-type check). **Transactional objectives only** — selling, promotion, surveys,
-fundraising, and campaigning are refused. **Quiet hours** 08:00–21:00 in the destination's
-local time. `make_call` is authorized only by a fresh, single-use, signed `dial_token` from
-`lookup_business` — a raw phone number can never dial.
+Every call opens with a **non-removable AI disclosure**. `lookup_business` carrier-verifies
+business lines before minting a `dial_token`; `call_number` is for numbers the human has consent
+to call. Server guardrails include no-sell/no-spam + harassment + impersonation screens,
+per-number rate caps, a local do-not-call list (`speko dnc`), and an after-hours confirmation
+gate for late or unknown-timezone calls. `make_call` is authorized only by a fresh, single-use,
+signed `dial_token` from `lookup_business` — a raw phone number can never dial.
 
 ## Links
 
