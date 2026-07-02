@@ -55,15 +55,19 @@ export const ROOM_END_EVENTS: ReadonlySet<string> = new Set(["room_finished", "c
 // departureTimeout before tearing the room down). Matched defensively over the whole serialized
 // event, since the marker can sit in failure_cause or inside the raw LiveKit payload.
 export const EGRESS_SOURCE_CLOSED_RE = /source[\s_-]*closed/i;
-// Bounded confirm window after a source-closed egress_ended: this many extra polls, each at most
-// EGRESS_CONFIRM_POLL_SECONDS apart (<= ~10s total), before the call may finalize without
-// room_finished. See runPhoneCallInner for why egress_ended alone must never finalize.
-export const EGRESS_CONFIRM_POLLS = 2;
+// Bounded confirm window after a source-closed egress_ended: at least this much wall clock (with
+// polls at most EGRESS_CONFIRM_POLL_SECONDS apart inside it) before the call may finalize without
+// room_finished. A poll COUNT is the wrong unit here — in the fast-poll phase 2 polls span only
+// ~4s, too short to tell "callee thinking" from "call dead". See runPhoneCallInner for why
+// egress_ended alone must never finalize.
+export const EGRESS_CONFIRM_WINDOW_SECONDS = 10;
 export const EGRESS_CONFIRM_POLL_SECONDS = 5;
 
 // The platform writes the call report (summary/outcome) moments AFTER room teardown, so a fast
 // finalize can race it and degrade the outcome label to a transcript scrape. Wait at most this many
-// short polls for the report row — bounded, so a report that never comes can't block termination.
+// short polls for a SUBSTANTIVE report outcome — the row can land with a bare status word (the
+// platform's heuristic pass) before analysis rewrites it, so row presence alone doesn't stop the
+// wait. Bounded, so a report/outcome that never comes can't block termination.
 export const REPORT_GRACE_POLLS = 2;
 
 // Genuine non-recoverable failures (the agent never dispatched / the SIP dial failed). Unlike a

@@ -356,8 +356,9 @@ describe("runPhoneCall — egress_ended fast-path (phone leg dies ~20s before ro
     expect(s.status).toBe("completed");
     expect(s.answered).toBe(true);
     expect(s.outcome).toBe("Table booked at 8pm");
-    // Armed on poll 2, then exactly the bounded confirm window (2 polls) before finalizing.
-    expect(eventsCalls).toBe(4);
+    // Armed on poll 2 (elapsed 4s). The confirm window is a >=10s wall-clock minimum, so the
+    // frozen checks on polls 3-5 (deltas 2/4/6s) hold, and poll 6 (delta 11s) finalizes.
+    expect(eventsCalls).toBe(6);
   });
 
   it("does NOT finalize on egress_ended while transcript turns are still arriving (recording died mid-call)", async () => {
@@ -423,7 +424,7 @@ describe("runPhoneCall — egress_ended fast-path (phone leg dies ~20s before ro
     expect(eventsCalls).toBe(3); // ended on room_finished (poll 3), not by burning the whole window
   });
 
-  it("egress fast-path finalizes at the confirm-window expiry when the call report has arrived", async () => {
+  it("a report row shortens the FROZEN wait — finalizes before the 10s window expires", async () => {
     let eventsCalls = 0;
     let getCallCalls = 0;
     const s = await runPhoneCall(
@@ -439,15 +440,8 @@ describe("runPhoneCall — egress_ended fast-path (phone leg dies ~20s before ro
           getCallCalls += 1;
           return {
             status: "ended",
-            transcript: {
-              // One MORE turn on later reads (a final turn flushed at teardown) — the report's
-              // arrival must finalize even though the turn count moved.
-              entries: [
-                { source: "agent", text: "hi" },
-                { source: "user", text: "sure" },
-                ...(getCallCalls > 1 ? [{ source: "agent", text: "bye" }] : []),
-              ],
-            },
+            // Turn count frozen since the egress died; the teardown report lands one beat later.
+            transcript: { entries: [{ source: "agent", text: "hi" }, { source: "user", text: "sure" }] },
             report: getCallCalls > 1 ? { outcome: "They open at 9am" } : null,
           } as any;
         },
@@ -458,7 +452,117 @@ describe("runPhoneCall — egress_ended fast-path (phone leg dies ~20s before ro
     );
     expect(s.status).toBe("completed");
     expect(s.outcome).toBe("They open at 9am");
-    expect(eventsCalls).toBe(3); // armed on poll 1 + the 2-poll confirm window
+    // Armed on poll 1; the very next confirm poll sees frozen turns + the report row and
+    // finalizes at ~2s into the window instead of holding out for the full >=10s (poll 6).
+    expect(eventsCalls).toBe(2);
+    expect(getCallCalls).toBe(3); // baseline + confirm + the finalize transcript read
+  });
+
+  it("does NOT let a report row finalize the window while turns are still arriving (reports exist on live calls)", async () => {
+    // getCall.test.ts models report rows on LIVE calls (the platform's report/finalize route has
+    // no terminality guard). A mid-call recording-egress death on such a call must not cut the
+    // call short while the conversation is visibly advancing — the report row is corroboration
+    // for a frozen transcript, never an end signal by itself.
+    let getCallCalls = 0;
+    const s = await runPhoneCall(
+      BODY,
+      12, // small cap: proves the fast-path never fired and the loop ran to the wait limit
+      deps({
+        dial: dialOk("eg5"),
+        getEvents: async () => [{ event_type: "sip.dial_started" }, EGRESS_SOURCE_CLOSED_EVENT] as any,
+        getCall: async () => {
+          getCallCalls += 1;
+          return {
+            status: "active",
+            // The conversation continues: every read shows MORE turns than the last.
+            transcript: {
+              entries: Array.from({ length: 2 + getCallCalls }, (_, k) => ({
+                source: k % 2 ? "user" : "agent",
+                text: `turn ${k}`,
+              })),
+            },
+            report: { outcome: "Table booked at 8pm" }, // present the whole time (live call)
+          } as any;
+        },
+        getSession: async () =>
+          ({ status: "active", endedAt: null, phoneCall: { callControlId: "phone-eg5" }, usage: [] }) as any,
+      }),
+      noopSleep,
+    );
+    expect(s.status).toBe("timeout"); // the live call was never cut short by the report row
+  });
+
+  it("holds the confirm window for >=10s of WALL CLOCK in the fast-poll phase — 2 polls (~4s) are not enough", async () => {
+    // In the fast-poll phase the polls are 2s apart, so the old 2-POLL window spanned only ~4s —
+    // too short to tell "callee thinking" from "call dead". The window is a wall-clock minimum.
+    let nowMs = 0;
+    const nowSpy = vi.spyOn(Date, "now").mockImplementation(() => nowMs);
+    const fakeSleep = async (ms: number): Promise<void> => {
+      nowMs += ms;
+    };
+    let eventsCalls = 0;
+    try {
+      const s = await runPhoneCall(
+        BODY,
+        300,
+        deps({
+          dial: dialOk("eg7"),
+          getEvents: async () => {
+            eventsCalls += 1;
+            // Poll 1: live. Poll 2+: the phone leg died. room_finished NEVER fires.
+            return (eventsCalls >= 2
+              ? [{ event_type: "sip.dial_started" }, EGRESS_SOURCE_CLOSED_EVENT]
+              : [{ event_type: "sip.dial_started" }]) as any;
+          },
+          getCall: async () =>
+            ({
+              status: "active",
+              transcript: {
+                entries: [
+                  { source: "agent", text: "Hi!" },
+                  { source: "user", text: "one sec... OUTCOME: yes 8pm works" },
+                ],
+              },
+            }) as any, // frozen turn count, no report
+          getSession: async () =>
+            ({ status: "active", endedAt: null, phoneCall: { callControlId: "phone-eg7" }, usage: [] }) as any,
+        }),
+        fakeSleep,
+      );
+      expect(s.status).toBe("completed");
+      expect(s.outcome).toBe("yes 8pm works");
+      // Armed at 4s of wall clock (poll 2). The frozen checks at 6s/8s/10s (deltas 2/4/6) all
+      // hold; the delta only crosses 10s at 15s (poll 6). The old poll-count window would have
+      // finalized at 8s — 4s after arming.
+      expect(eventsCalls).toBe(6);
+      expect(s.duration_seconds).toBe(15);
+    } finally {
+      nowSpy.mockRestore();
+    }
+  });
+
+  it("disarms the fast-path when the transcript shape is unreadable (never finalize on missing evidence)", async () => {
+    // countTranscriptTurns() returns null for a transcript with no recognizable turn list. That
+    // null used to be coerced to a 0==0 "frozen" baseline, fast-finalizing on evidence the loop
+    // could not actually read. An unreadable count must stand the fast-path down instead.
+    let getCallCalls = 0;
+    const s = await runPhoneCall(
+      BODY,
+      12,
+      deps({
+        dial: dialOk("eg6"),
+        getEvents: async () => [{ event_type: "sip.dial_started" }, EGRESS_SOURCE_CLOSED_EVENT] as any,
+        getCall: async () => {
+          getCallCalls += 1;
+          return { status: "active", transcript: { text: "opaque blob with no turn list" } } as any;
+        },
+        getSession: async () =>
+          ({ status: "active", endedAt: null, phoneCall: { callControlId: "phone-eg6" }, usage: [] }) as any,
+      }),
+      noopSleep,
+    );
+    expect(s.status).toBe("timeout"); // fell back to the normal end signals (none came) — no fast-finalize
+    expect(getCallCalls).toBe(1); // the unreadable baseline read; the window never armed after it
   });
 });
 
@@ -555,6 +659,38 @@ describe("finalize — report-grace (finalize-vs-report race)", () => {
     expect(s.status).toBe("completed");
     expect(s.outcome).toBe("closed Mondays"); // transcript OUTCOME marker, not degraded to null
     expect(getCallCalls).toBe(3); // 1 transcript read (reply found) + exactly 2 grace polls
+  });
+
+  it("grace waits past a BARE report outcome for the substantive one (row presence is not the gate)", async () => {
+    // The platform's heuristic pass writes the report row FIRST with a bare status word
+    // ("completed") and analysis rewrites the real outcome moments later (upsert). Exiting the
+    // grace on mere row presence would ship outcome=null here — the grace must wait for
+    // substance, still bounded by REPORT_GRACE_POLLS.
+    let getCallCalls = 0;
+    const s = await runPhoneCall(
+      BODY,
+      300,
+      deps({
+        dial: dialOk("rg3"),
+        getEvents: async () => [{ event_type: "room_finished" }] as any,
+        getCall: async () => {
+          getCallCalls += 1;
+          return {
+            status: "ended",
+            // No OUTCOME: marker — the report is the only possible outcome source.
+            transcript: { entries: [{ source: "agent", text: "hi" }, { source: "user", text: "yes, 8 works" }] },
+            report:
+              getCallCalls > 1 ? { outcome: "Table for 4 confirmed at 8pm" } : { outcome: "completed" },
+          } as any;
+        },
+        getSession: async () =>
+          ({ status: "ended", endedAt: new Date().toISOString(), phoneCall: { callControlId: "phone-rg3" }, usage: [] }) as any,
+      }),
+      noopSleep,
+    );
+    expect(s.status).toBe("completed");
+    expect(s.outcome).toBe("Table for 4 confirmed at 8pm"); // not null, not the bare "completed"
+    expect(getCallCalls).toBe(2); // one read (bare row) + ONE grace poll that caught the real outcome
   });
 });
 
