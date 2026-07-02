@@ -51,10 +51,12 @@ export interface CallSummary {
 export interface SessionDetail {
   status?: string;
   /**
-   * Set the moment the call ACTUALLY ends: the platform's Telnyx `call.hangup` webhook
-   * stamps `status='ended', endedAt=now` on the session immediately when either side
-   * hangs up — long before the LiveKit `room_finished` event (the agent can idle in the
-   * room ~45-60s after the phone leg is dead). Authoritative "phone call is over" signal.
+   * Stamped when the platform tears the session down — measured 0.5s apart from the LiveKit
+   * `room_finished` event on live MCP calls. These calls dial out via LiveKit SIP, so the
+   * Telnyx `call.hangup` webhook never fires for them and nothing stamps endedAt early
+   * (telnyxCallControlId exists only on inbound). A terminal signal kept as cheap redundancy,
+   * NOT an early one: the early phone-leg-death signal is the source-closed `egress_ended`
+   * event, and the agent-initiated-hangup signal is `call.end_tool.completed`.
    */
   endedAt?: string | null;
   durationSeconds?: number;

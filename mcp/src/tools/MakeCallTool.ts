@@ -89,14 +89,18 @@ export default class MakeCallTool extends MCPTool {
     const maxWait = clamp(input.max_duration_seconds ?? MAX_WAIT, MIN_WAIT, MAX_WAIT);
     const client = getServerClient();
 
-    // Heartbeat so the call feels alive in the terminal. The authoritative
-    // status lives server-side; here we surface elapsed time (monotonic).
-    let elapsed = 0;
+    // Heartbeat so the call feels alive in the terminal. The authoritative status lives
+    // server-side; here we surface elapsed time from the wall clock — counting ticks drifts
+    // behind reality whenever the event loop is busy (skipped/late intervals), understating
+    // the progress %. Clamp the progress value to the cap so it never renders past 100%.
+    const startedAtMs = Date.now();
     // Immediate progress so the terminal isn't silent for the first ~5s while the call places + rings.
     void this.reportProgress(0, maxWait, "Placing the call…").catch(() => {});
     const timer = setInterval(() => {
-      elapsed += HEARTBEAT_MS / 1000;
-      void this.reportProgress(elapsed, maxWait, `Call in progress — ${elapsed}s elapsed`).catch(() => {});
+      const elapsed = Math.round((Date.now() - startedAtMs) / 1000);
+      void this.reportProgress(Math.min(elapsed, maxWait), maxWait, `Call in progress — ${elapsed}s elapsed`).catch(
+        () => {},
+      );
     }, HEARTBEAT_MS);
 
     try {

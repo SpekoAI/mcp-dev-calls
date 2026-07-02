@@ -11,6 +11,9 @@ import {
   BARE_OUTCOME_RE,
   DIAL_INTENT_LANGUAGE,
   DIAL_STT_KEYWORDS,
+  EGRESS_CONFIRM_POLLS,
+  EGRESS_CONFIRM_POLL_SECONDS,
+  EGRESS_SOURCE_CLOSED_RE,
   FAST_POLLS,
   FAST_POLL_SECONDS,
   HARD_FAILURE_EVENTS,
@@ -20,12 +23,13 @@ import {
   MAX_CALL_SECONDS,
   MIN_CALL_SECONDS,
   NOT_PLACED_STATUS,
+  REPORT_GRACE_POLLS,
   ROOM_END_EVENTS,
   SLOW_POLL_SECONDS,
   STUB_DIAL_STATUS,
 } from "../constants.js";
 import { AppError, RejectionError } from "../lib/errors.js";
-import { extractOutcome, extractReply } from "../lib/transcript.js";
+import { countTranscriptTurns, extractOutcome, extractReply } from "../lib/transcript.js";
 import {
   DialTokenError,
   dialBlockedReason,
@@ -253,6 +257,20 @@ function baseSummary(callId: string | null, to: string | null, from: string | nu
   };
 }
 
+/**
+ * True for a serialized `egress_ended` event that says the recording's audio source closed
+ * (the phone leg died). The marker can sit in `failure_cause` ("Source closed") or inside the
+ * raw LiveKit payload, so match over the whole serialized event.
+ */
+function isSourceClosedEgressEnd(e: Record<string, unknown>): boolean {
+  if (String(e.event_type ?? e.type ?? "").toLowerCase() !== "egress_ended") return false;
+  try {
+    return EGRESS_SOURCE_CLOSED_RE.test(JSON.stringify(e));
+  } catch {
+    return false;
+  }
+}
+
 let callInFlight = false;
 
 export async function runPhoneCall(
@@ -335,19 +353,74 @@ async function runPhoneCallInner(
   // first-audio SLA times out (~10-15s) even when the call is live and a full conversation
   // follows — so the authoritative end signal is the room-teardown EVENT, not the status.
   // (Finalizing on the premature "failed" was reporting working calls as not_connected.)
-  let elapsed = 0;
+  // Wall clock, not summed sleep intervals: every iteration also spends real time in the API
+  // calls below, so summing intervals understated elapsed and stretched the wait cap far past
+  // maxSeconds under API latency. The slept-seconds floor only matters under an instant fake
+  // sleep (tests) — in real time the wall clock always dominates — and keeps those tests
+  // terminating.
+  const startedAtMs = Date.now();
+  let sleptSeconds = 0;
+  const elapsedSeconds = (): number =>
+    Math.max(sleptSeconds, Math.round((Date.now() - startedAtMs) / 1000));
   let polls = 0;
   let ended = false;
   let hardFailed = false;
-  while (elapsed < maxSeconds) {
-    const interval = polls < FAST_POLLS ? FAST_POLL_SECONDS : SLOW_POLL_SECONDS;
+  // egress_ended fast-path state (armed/consumed once per call — the events list is
+  // cumulative, so without the seen-flag one egress_ended would re-arm every poll).
+  let egressEndedSeen = false;
+  let egressConfirmPollsLeft = 0;
+  let turnsAtEgressEnd: number | null = null;
+  while (elapsedSeconds() < maxSeconds) {
+    const baseInterval = polls < FAST_POLLS ? FAST_POLL_SECONDS : SLOW_POLL_SECONDS;
+    // Inside the egress confirm window poll faster, so the window stays <= ~10s of wall
+    // clock even during the slow-poll phase.
+    const interval =
+      egressConfirmPollsLeft > 0 ? Math.min(baseInterval, EGRESS_CONFIRM_POLL_SECONDS) : baseInterval;
     await sleep(interval * 1000);
-    elapsed += interval;
+    sleptSeconds += interval;
     polls += 1;
-    let events: Array<Record<string, unknown>>;
+
+    let events: Array<Record<string, unknown>> | null = null;
     try {
       events = await deps.client.getEvents(callId);
     } catch {
+      // Events endpoint hiccup — the session endedAt check below still runs this iteration
+      // (before this restructure it was skipped, so a hiccup could hide an ended call), and
+      // the call-status fallback after it keeps us from hanging silently.
+    }
+
+    if (events !== null) {
+      const types = new Set(events.map((e) => String(e.event_type ?? e.type ?? "").toLowerCase()));
+      // Room teardown = the call is genuinely over; a hard failure (agent never dispatched /
+      // SIP dial failed) never recovers. A bare "failed" status without these is ignored.
+      const roomEnded = [...ROOM_END_EVENTS].some((t) => types.has(t));
+      const hardFailure = [...HARD_FAILURE_EVENTS].some((t) => types.has(t));
+      if (roomEnded || hardFailure) {
+        ended = true;
+        hardFailed = hardFailure; // sip.dial_failed / agent.dispatch_failed → a real trunk failure (E1)
+        break;
+      }
+    }
+
+    // Cheap redundancy, NOT an early signal: endedAt is stamped by the platform AT room
+    // teardown (measured 0.5s apart from room_finished on live calls — these dials go out via
+    // LiveKit SIP, so the Telnyx call.hangup webhook never fires for them and nothing stamps
+    // endedAt early). It is kept so a missed/failed events read still ends the loop. The EARLY
+    // end signals are call.end_tool.completed (agent hangs up; in ROOM_END_EVENTS) and the
+    // egress_ended fast-path below (phone leg died; the room drains ~20s before room_finished).
+    // endedAt, never `status` — the platform flips status to "failed" prematurely on a
+    // first-audio SLA while the call is still live.
+    try {
+      const session = await deps.client.getSession(callId);
+      if (typeof session.endedAt === "string" && session.endedAt) {
+        ended = true;
+        break;
+      }
+    } catch {
+      // Best effort — the events loop above remains the primary end signal.
+    }
+
+    if (events === null) {
       // Events endpoint hiccup — fall back to the call status so we never hang silently.
       try {
         const d = await deps.client.getCall(callId);
@@ -363,32 +436,45 @@ async function runPhoneCallInner(
         ended = true;
         break;
       }
-      continue;
     }
-    const types = new Set(events.map((e) => String(e.event_type ?? e.type ?? "").toLowerCase()));
-    // Room teardown = the call is genuinely over; a hard failure (agent never dispatched /
-    // SIP dial failed) never recovers. A bare "failed" status without these is ignored.
-    const roomEnded = [...ROOM_END_EVENTS].some((t) => types.has(t));
-    const hardFailure = [...HARD_FAILURE_EVENTS].some((t) => types.has(t));
-    if (roomEnded || hardFailure) {
-      ended = true;
-      hardFailed = hardFailure; // sip.dial_failed / agent.dispatch_failed → a real trunk failure (E1)
-      break;
-    }
-    // The PHONE leg can die long before the room does: when either side hangs up, the
-    // Telnyx call.hangup webhook stamps the session's endedAt immediately, while the
-    // agent keeps idling in the LiveKit room (~45-60s) before room_finished fires.
-    // Without this check a human hanging up left the caller stuck "in call" until the
-    // room drained. endedAt (not status!) is the signal — the platform flips status to
-    // "failed" prematurely on first-audio SLA while calls are still live.
-    try {
-      const session = await deps.client.getSession(callId);
-      if (typeof session.endedAt === "string" && session.endedAt) {
-        ended = true;
-        break;
+
+    // egress_ended fast-path: when the phone leg dies, LiveKit closes the recording egress's
+    // audio source at once ("Source closed"), 11.5-21.3s BEFORE room_finished (measured on 5/5
+    // live calls — the worker idles out its ~20s departureTimeout before tearing the room down).
+    // But an egress can also die MID-CALL from a recording failure while the conversation
+    // continues, so egress_ended alone must NEVER finalize. Instead: arm a bounded confirm
+    // window (EGRESS_CONFIRM_POLLS extra polls, <= ~10s). If a real end signal (room_finished /
+    // endedAt / the call report) lands meanwhile, the checks above finalize normally. If the
+    // window expires with no new transcript turns since the egress died, nobody is talking into
+    // a dead leg — the call is over in practice, so finalize. New turns during the window mean
+    // the call is still alive (recording-only failure): stand down for good and rely on the
+    // normal end signals.
+    if (egressConfirmPollsLeft > 0) {
+      egressConfirmPollsLeft -= 1;
+      if (egressConfirmPollsLeft === 0) {
+        try {
+          const detail = await deps.client.getCall(callId);
+          const turnsNow = countTranscriptTurns(detail.transcript) ?? 0;
+          const reportArrived = detail.report != null; // the platform only writes it at teardown
+          if (reportArrived || (turnsAtEgressEnd !== null && turnsNow <= turnsAtEgressEnd)) {
+            ended = true;
+            break;
+          }
+        } catch {
+          // Couldn't compare — not enough evidence to end early; keep polling normally.
+        }
       }
-    } catch {
-      // Best effort — the events loop above remains the primary end signal.
+    } else if (!egressEndedSeen && events !== null && events.some(isSourceClosedEgressEnd)) {
+      egressEndedSeen = true;
+      egressConfirmPollsLeft = EGRESS_CONFIRM_POLLS;
+      try {
+        const detail = await deps.client.getCall(callId);
+        turnsAtEgressEnd = countTranscriptTurns(detail.transcript) ?? 0;
+      } catch {
+        // Baseline unreadable → the expiry check can't prove the transcript went quiet,
+        // so it won't fast-finalize (null never satisfies the comparison above).
+        turnsAtEgressEnd = null;
+      }
     }
   }
 
@@ -396,13 +482,13 @@ async function runPhoneCallInner(
     return {
       ...baseSummary(callId, to, from),
       status: "timeout",
-      duration_seconds: elapsed,
+      duration_seconds: elapsedSeconds(),
       connected: true,
       reason: "Reached the wait limit before the call ended; it may still be in progress.",
     };
   }
 
-  return finalize(callId, to, from, status, elapsed, deps, hardFailed);
+  return finalize(callId, to, from, status, elapsedSeconds(), deps, hardFailed);
 }
 
 /**
@@ -424,24 +510,41 @@ async function finalize(
   let transcript: unknown = null;
   let transcriptError: string | undefined;
   let outcome: string | null = null;
-  // The transcript can lag the room-teardown event by a moment; re-fetch briefly until the
-  // caller's turns appear (or attempts run out) so a real conversation isn't under-reported
-  // as not_connected just because we read it a beat too early.
-  for (let attempt = 0; attempt < 3; attempt += 1) {
+  let reportPresent = false;
+  let anyReadOk = false;
+  const readDetail = async (): Promise<void> => {
     try {
       const detail = await deps.client.getCall(callId);
       transcript = detail.transcript ?? null;
+      reportPresent = detail.report != null;
       const reportOutcome = typeof detail.report?.outcome === "string" ? detail.report.outcome.trim() : "";
       // Ignore bare platform status words ("failed"/"completed"/...) — prefer a substantive report
       // outcome, else an OUTCOME: marker in the transcript.
       const substantive = reportOutcome && !BARE_OUTCOME_RE.test(reportOutcome) ? reportOutcome : "";
       outcome = substantive || extractOutcome(transcript);
+      anyReadOk = true;
       transcriptError = undefined;
     } catch (e) {
-      transcriptError = (e as Error).message;
+      // A refresh failing after an earlier successful read must not brand the summary with
+      // transcript_error — we already hold a real transcript.
+      if (!anyReadOk) transcriptError = (e as Error).message;
     }
+  };
+  // The transcript can lag the room-teardown event by a moment; re-fetch briefly until the
+  // caller's turns appear (or attempts run out) so a real conversation isn't under-reported
+  // as not_connected just because we read it a beat too early.
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    await readDetail();
     if (extractReply(transcript) !== null) break;
     if (attempt < 2) await sleep(3000);
+  }
+  // Report-grace: the platform's report (the substantive outcome label) is written moments
+  // AFTER room teardown, so finalizing instantly can race it and degrade the outcome to a
+  // transcript scrape. Wait up to REPORT_GRACE_POLLS short polls for the report row — bounded,
+  // because a report that never comes (analysis disabled/failed) must never block termination.
+  for (let attempt = 0; !reportPresent && attempt < REPORT_GRACE_POLLS; attempt += 1) {
+    await sleep(3000);
+    await readDetail();
   }
 
   let session: SessionDetail | null = null;
