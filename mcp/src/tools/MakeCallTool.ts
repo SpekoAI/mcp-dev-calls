@@ -27,6 +27,14 @@ const schema = z.object({
         "them to say hello before you speak', 'be extra concise', 'if they offer takeout, decline'). " +
         "Steering/meta goes here; the ask itself goes in `objective`.",
     ),
+  after_hours_confirmation: z
+    .string()
+    .optional()
+    .describe(
+      "Set ONLY after your human explicitly confirms placing this call outside 08:00-21:00 destination-local time " +
+        "(or when the timezone is unverified) - pass the human's own words. Never set it on your own. " +
+        "By setting it you confirm the callee has consented to be called.",
+    ),
   max_duration_seconds: z
     .number()
     .int()
@@ -74,8 +82,9 @@ export default class MakeCallTool extends MCPTool {
   description =
     "Place a disclosed, objective-scoped phone call authorized by a dial_token from lookup_business. " +
     "Stays open until the call finishes and returns the OUTCOME line plus the transcript. Every call " +
-    "opens with a non-removable AI disclosure; selling, promotion, surveys, fundraising, and " +
-    "campaigning are blocked. All safety rails are enforced server-side.";
+    "opens with the non-removable AI disclosure; the no-sell/no-spam + harassment + impersonation screens, " +
+    "per-number rate caps, the local do-not-call list, and an after-hours confirmation gate " +
+    "(08:00-21:00 destination local; late calls need your human's explicit OK) all apply server-side.";
   schema = schema;
   override annotations = {
     title: "Make Call",
@@ -112,6 +121,7 @@ export default class MakeCallTool extends MCPTool {
           caller_name: input.caller_name,
           context: input.context,
           behavior: input.behavior,
+          after_hours_confirmation: input.after_hours_confirmation,
           max_duration_seconds: input.max_duration_seconds,
         },
         { timeoutMs: (maxWait + 30) * 1000, signal: this.abortSignal },

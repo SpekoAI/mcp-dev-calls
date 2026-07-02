@@ -1,12 +1,13 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
 import {
   ALLOWED_LINE_TYPES,
+  AFTER_HOURS_END_HOUR,
+  AFTER_HOURS_START_HOUR,
   DIAL_TOKEN_DEFAULT_TTL_SECONDS,
   DIAL_TOKEN_SECRET_ENV,
   E164_RE,
   EMERGENCY_NUMBERS,
-  QUIET_END_HOUR,
-  QUIET_START_HOUR,
+  MIN_AFTER_HOURS_CONFIRMATION_CHARS,
   US_PREMIUM_RE,
 } from "../constants.js";
 
@@ -172,24 +173,40 @@ export function lineTypeBlockedReason(lineType: string | null): string | null {
   return null;
 }
 
-/**
- * Why calling now violates destination quiet hours, or null when allowed.
- * Fails closed: an unknown destination UTC offset blocks the call.
- */
-export function quietHoursReason(utcOffsetMinutes: number | null, now?: number): string | null {
-  if (utcOffsetMinutes == null) {
-    return (
-      "Destination UTC offset is unknown, so quiet hours (08:00-21:00 destination local time) " +
-      "cannot be verified; calls to this number are blocked."
-    );
-  }
+const AFTER_HOURS_RETRY_INSTRUCTION =
+  "confirm with your human that they want to place this call now, then retry with after_hours_confirmation set to their words. By retrying you confirm the callee has consented to be called.";
+
+function destinationLocalTime(utcOffsetMinutes: number, now?: number): { hour: number; hhmm: string } {
   const currentMs = now != null ? now * 1000 : Date.now();
   const local = new Date(currentMs + utcOffsetMinutes * 60_000);
-  const hour = local.getUTCHours();
-  if (hour >= QUIET_START_HOUR || hour < QUIET_END_HOUR) {
-    const hh = String(local.getUTCHours()).padStart(2, "0");
-    const mm = String(local.getUTCMinutes()).padStart(2, "0");
-    return `Destination local time is ${hh}:${mm}, inside quiet hours (21:00-08:00); wait until between 08:00 and 21:00 destination time.`;
+  const hh = String(local.getUTCHours()).padStart(2, "0");
+  const mm = String(local.getUTCMinutes()).padStart(2, "0");
+  return { hour: local.getUTCHours(), hhmm: `${hh}:${mm}` };
+}
+
+export function afterHoursGateReason(
+  utcOffsetMinutes: number | null,
+  afterHoursConfirmation: string | null | undefined,
+  collectionMatched: boolean,
+  now?: number,
+): string | null {
+  const local = utcOffsetMinutes == null ? null : destinationLocalTime(utcOffsetMinutes, now);
+  if (local && local.hour >= AFTER_HOURS_END_HOUR && local.hour < AFTER_HOURS_START_HOUR) {
+    return null;
   }
-  return null;
+
+  const timeDescription = local ? `destination local time is ${local.hhmm}` : "timezone unverified";
+  if (collectionMatched) {
+    return (
+      `Call blocked: ${timeDescription}; collection-flavored calls are day-hours-only with no override under ` +
+      "the FDCPA 8am-9pm window (15 U.S.C. 1692c(a)(1))."
+    );
+  }
+
+  const confirmation = typeof afterHoursConfirmation === "string" ? afterHoursConfirmation.trim() : "";
+  if (confirmation.length >= MIN_AFTER_HOURS_CONFIRMATION_CHARS) {
+    return null;
+  }
+
+  return `Call blocked: ${timeDescription}; ${AFTER_HOURS_RETRY_INSTRUCTION}`;
 }

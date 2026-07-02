@@ -5,10 +5,10 @@
  * SPEKO_ALLOW_DIRECT_DIAL=0 disables this path entirely (businesses remain reachable
  * via lookup_business + make_call).
  *
- * Everything else still applies: the non-removable AI disclosure, quiet hours
- * (08:00–21:00 destination-local, fail-closed), the no-sell/no-spam objective screen,
- * and the emergency/premium-number block. The allowAnyLineType flag is set HERE
- * (server-side), never from agent-supplied input.
+ * Everything else still applies: the non-removable AI disclosure, abuse guardrails
+ * (DNC, rate caps, after-hours confirmation gate), the no-sell/no-spam objective
+ * screen, and the emergency/premium-number block. The allowAnyLineType flag is set
+ * HERE (server-side), never from agent-supplied input.
  */
 import type { AppConfig } from "../config.js";
 import { RejectionError } from "../lib/errors.js";
@@ -25,6 +25,7 @@ export interface CallNumberInput {
   context?: string | null;
   /** Private steering for HOW the assistant behaves. NEVER spoken. */
   behavior?: string | null;
+  afterHoursConfirmation?: string | null;
   recipientName?: string | null;
   utcOffsetMinutes?: number | null;
   maxDurationSeconds?: number;
@@ -56,8 +57,8 @@ export async function callNumber(input: CallNumberInput, deps: CallNumberDeps): 
     throw new RejectionError(blocked, "Pass a valid E.164 number (e.g. +77011234567) that you have consent to call.");
   }
 
-  // Quiet-hours offset: explicit override wins; else derive from the number (+7 → Asia/Almaty,
-  // etc.). null → make_call's quiet-hours rail fails closed and blocks.
+  // Destination offset: explicit override wins; else derive from the number (+7 → Asia/Almaty,
+  // etc.). null → make_call's after-hours gate requires confirmation unless trusted.
   const offset = typeof input.utcOffsetMinutes === "number" ? input.utcOffsetMinutes : offsetFromE164(e164);
 
   const token = mintDialToken({
@@ -76,6 +77,7 @@ export async function callNumber(input: CallNumberInput, deps: CallNumberDeps): 
       callerName: input.callerName,
       context: input.context ?? null,
       behavior: input.behavior ?? null,
+      afterHoursConfirmation: input.afterHoursConfirmation ?? null,
       maxDurationSeconds: input.maxDurationSeconds,
     },
     {

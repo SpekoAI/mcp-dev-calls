@@ -16,7 +16,7 @@ bring your own business-lookup (Google Places), and let Speko place the call.
 
 1. **Get a key, make a call.** `SPEKO_API_KEY` from [platform.speko.dev](https://platform.speko.dev) → real outbound calls via the official [`@spekoai/sdk`](https://www.npmjs.com/package/@spekoai/sdk).
 2. **Bring-your-own lookup.** The Google business lookup lives **in this demo's own server**, *not* baked into `api.speko.dev`. Speko's API stays focused on calling; discovery is the app's concern.
-3. **Safety as the product.** A non-removable AI disclosure, business-lines-only carrier checks, a transactional-objective screen, quiet hours, and signed dial tokens — all enforced **server-side**, where they can't be patched around.
+3. **Safety as the product.** A non-removable AI disclosure, business-line checks where required, no-sell/harassment/impersonation screens, rate caps, local DNC, after-hours confirmation, and signed dial tokens — all enforced **server-side**, where they can't be patched around.
 4. **Two clean tiers.** A thin, secret-free MCP ([`mcp-framework`](https://mcp-framework.com)) over a backing API that holds the keys.
 
 ---
@@ -35,7 +35,7 @@ bring your own business-lookup (Google Places), and let Speko place the call.
                                  │  • Google Places business lookup          │
                                  │  • Twilio carrier line-type check         │
                                  │  • signed HMAC dial tokens                │
-                                 │  • disclosure + objective + quiet-hours   │
+                                 │  • disclosure + abuse guardrails          │
                                  └──────────────────────────────────────────┘
 ```
 
@@ -106,12 +106,13 @@ while it rings → the `OUTCOME:` line lands back in your terminal.
 
 ## Safety rails (enforced in `server/`)
 
-Built to the only defensible TCPA lane (FCC 24-17): **business lines only** (carrier line-type
-check), a **hard-coded, non-overridable AI disclosure** opening line, a **transactional-objective
-screen** (selling / promotion / surveys / fundraising / campaigning refused), **quiet hours**
-(08:00–21:00 destination-local, fail-closed on unknown offset), **signed account-bound dial tokens**
-(HMAC-SHA256, 15-min TTL), and nonce-delimited prompt blocks against injection. These run server-side
-because an open npm package can be patched around.
+Built around consent and server-side enforcement: a **hard-coded, non-overridable AI disclosure**,
+business-line verification on `lookup_business`, **no-sell/no-spam + harassment + impersonation
+screens**, per-number rate caps, a local do-not-call list (`speko dnc`), an **after-hours
+confirmation gate** (08:00–21:00 destination-local; late or unknown-timezone calls need explicit
+human confirmation), **signed account-bound dial tokens** (HMAC-SHA256, 15-min TTL), and
+nonce-delimited prompt blocks against injection. These run server-side because an open npm package
+can be patched around.
 
 ---
 

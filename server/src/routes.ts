@@ -15,21 +15,23 @@ const lookupSchema = z.object({
   utc_offset_minutes: z.number().int().optional(),
 });
 
-const callSchema = z.object({
+export const callSchema = z.object({
   dial_token: z.string().min(1),
   objective: z.string().min(1),
   caller_name: z.string().min(1),
   context: z.string().optional(),
   behavior: z.string().optional(),
+  after_hours_confirmation: z.string().optional(),
   max_duration_seconds: z.number().int().optional(),
 });
 
-const callNumberSchema = z.object({
+export const callNumberSchema = z.object({
   phone_number: z.string().min(1),
   objective: z.string().min(1),
   caller_name: z.string().min(1),
   context: z.string().optional(),
   behavior: z.string().optional(),
+  after_hours_confirmation: z.string().optional(),
   recipient_name: z.string().optional(),
   utc_offset_minutes: z.number().int().optional(),
   max_duration_seconds: z.number().int().optional(),
@@ -83,6 +85,7 @@ export function registerRoutes(router: Router, ctx: ServerContext): void {
           callerName: b.caller_name,
           context: b.context ?? null,
           behavior: b.behavior ?? null,
+          afterHoursConfirmation: b.after_hours_confirmation ?? null,
           maxDurationSeconds: b.max_duration_seconds,
         },
         { client: ctx.client, cfg: ctx.cfg, bearerHash: ctx.bearerHash },
@@ -92,7 +95,7 @@ export function registerRoutes(router: Router, ctx: ServerContext): void {
   );
 
   // call_number — direct personal dial (opt-in via SPEKO_ALLOW_DIRECT_DIAL). Allows mobiles;
-  // keeps disclosure + quiet hours + objective screen + emergency/premium block.
+  // keeps disclosure + abuse guardrails + objective screen + emergency/premium block.
   router.post(
     "/call-number",
     asyncHandler(async (req, res) => {
@@ -104,6 +107,7 @@ export function registerRoutes(router: Router, ctx: ServerContext): void {
           callerName: b.caller_name,
           context: b.context ?? null,
           behavior: b.behavior ?? null,
+          afterHoursConfirmation: b.after_hours_confirmation ?? null,
           recipientName: b.recipient_name ?? null,
           utcOffsetMinutes: b.utc_offset_minutes,
           maxDurationSeconds: b.max_duration_seconds,

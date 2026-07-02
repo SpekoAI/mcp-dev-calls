@@ -30,15 +30,28 @@ import {
 } from "../constants.js";
 import { AppError, RejectionError } from "../lib/errors.js";
 import { eventType } from "../lib/events.js";
-import { bestOutcome, countTranscriptTurns, extractReply } from "../lib/transcript.js";
+import { bestOutcome, calleeTurns, countTranscriptTurns, extractReply } from "../lib/transcript.js";
 import {
   DialTokenError,
+  afterHoursGateReason,
   dialBlockedReason,
   lineTypeBlockedReason,
-  quietHoursReason,
   verifyDialToken,
 } from "../safety/dialToken.js";
-import { behaviorBlockedReason, objectiveBlockedReason } from "../safety/objective.js";
+import {
+  behaviorBlockedReason,
+  collectionMatch,
+  contextBlockedReason,
+  objectiveBlockedReason,
+} from "../safety/objective.js";
+import {
+  appendDialLedger,
+  dncAdd,
+  dncReason,
+  normalizeE164,
+  rateCapReason,
+  scanCalleeTurnsForOptOut,
+} from "../safety/guard.js";
 import { buildFirstMessage, buildSystemPrompt, sanitizeName } from "../safety/prompt.js";
 import { MAX_CALLER_NAME_CHARS } from "../constants.js";
 import { ensureDialAgent, resetDialAgent } from "../speko/agent.js";
@@ -85,6 +98,33 @@ export interface MakeCallDeps {
    * tool can't use it to bypass the mobile block.
    */
   allowAnyLineType?: boolean;
+  /** Internal: set only by makeCall so runPhoneCall unit tests do not write guard state. */
+  afterHoursConfirmationForLedger?: string | null;
+}
+
+function afterHoursNextStep(opts: {
+  direct: boolean;
+  offset: number | null;
+  collectionMatched: boolean;
+}): string {
+  const tool = opts.direct ? "call_number" : "make_call";
+  if (opts.collectionMatched) {
+    if (opts.offset == null) {
+      return opts.direct
+        ? "Re-run call_number with utc_offset_minutes for the destination's city so the FDCPA 8am-9pm window can be verified."
+        : "Run lookup_business with utc_offset_minutes to mint a token whose destination-local time can be verified, then retry make_call.";
+    }
+    return `Wait until the destination is inside the FDCPA 8am-9pm local-time window, then retry ${tool}.`;
+  }
+  const confirm =
+    `Re-run ${tool} with after_hours_confirmation set to the human's own words confirming they want to place this call now.`;
+  if (opts.offset == null && opts.direct) {
+    return (
+      `${confirm} If you know the destination's timezone, you can instead pass utc_offset_minutes ` +
+      "(e.g. -420 US Pacific summer, -300 US Eastern)."
+    );
+  }
+  return confirm;
 }
 
 export async function makeCall(input: MakeCallInput, deps: MakeCallDeps): Promise<CallSummary> {
@@ -105,6 +145,17 @@ export async function makeCall(input: MakeCallInput, deps: MakeCallDeps): Promis
   const dialReason = dialBlockedReason(e164);
   if (dialReason) throw new RejectionError(dialReason, MAKE_CALL_NEXT_STEP);
 
+  const normalizedE164 = normalizeE164(e164);
+  const trusted = (deps.cfg.trustedNumbers ?? []).includes(normalizedE164);
+
+  const dnc = dncReason(e164, deps.cfg.guardStateDir);
+  if (dnc) {
+    throw new RejectionError(
+      dnc,
+      `Run speko dnc list to review local do-not-call entries, or speko dnc remove ${normalizedE164} to remove this number before retrying.`,
+    );
+  }
+
   if (!deps.allowAnyLineType) {
     const lineReason = lineTypeBlockedReason(
       typeof payload.line_type === "string" ? payload.line_type : null,
@@ -113,18 +164,31 @@ export async function makeCall(input: MakeCallInput, deps: MakeCallDeps): Promis
   }
 
   const offset = typeof payload.utc_offset_minutes === "number" ? payload.utc_offset_minutes : null;
-  const quietReason = quietHoursReason(offset);
-  if (quietReason) {
-    // Path-aware recovery: the call_number (direct) path has no dial_token to re-mint, so guide
-    // it back to call_number + utc_offset_minutes rather than lookup_business/make_call.
-    const direct = deps.allowAnyLineType === true;
-    const next =
-      offset == null
-        ? direct
-          ? "Re-run call_number with utc_offset_minutes for the destination's city (e.g. -420 US Pacific summer, -300 US Eastern)."
-          : MAKE_CALL_NEXT_STEP
-        : `Wait until destination business hours (08:00-21:00 local time) and run ${direct ? "call_number" : "make_call"} again.`;
-    throw new RejectionError(quietReason, next);
+  if (!trusted) {
+    const rateReason = rateCapReason(e164, {
+      dir: deps.cfg.guardStateDir,
+      perHour: deps.cfg.rateCapPerNumberHour,
+      perDay: deps.cfg.rateCapPerNumberDay,
+    });
+    if (rateReason) {
+      throw new RejectionError(
+        rateReason,
+        "Retry after the wait time shown in the rate-cap message, when the oldest counted attempt ages out.",
+      );
+    }
+
+    const collectionMatched = collectionMatch([input.objective, input.behavior, input.context]);
+    const afterHoursReason = afterHoursGateReason(
+      offset,
+      input.afterHoursConfirmation,
+      collectionMatched,
+    );
+    if (afterHoursReason) {
+      throw new RejectionError(
+        afterHoursReason,
+        afterHoursNextStep({ direct: deps.allowAnyLineType === true, offset, collectionMatched }),
+      );
+    }
   }
 
   const objectiveReason = objectiveBlockedReason(input.objective);
@@ -141,7 +205,15 @@ export async function makeCall(input: MakeCallInput, deps: MakeCallDeps): Promis
   if (behaviorReason) {
     throw new RejectionError(
       behaviorReason,
-      "Remove any selling/promotion/survey/fundraising instructions from behavior and retry make_call.",
+      "Remove any selling/harassment/impersonation instructions from behavior and retry make_call.",
+    );
+  }
+
+  const contextReason = contextBlockedReason(input.context);
+  if (contextReason) {
+    throw new RejectionError(
+      contextReason,
+      "Remove any selling/harassment/impersonation instructions from context and retry make_call.",
     );
   }
 
@@ -220,7 +292,12 @@ export async function makeCall(input: MakeCallInput, deps: MakeCallDeps): Promis
 
   const placeCall = async (agentId: string | null): Promise<CallSummary> =>
     attachDashboardUrl(
-      await runPhoneCall(buildBody(agentId), durationCap, deps, sleep),
+      await runPhoneCall(
+        buildBody(agentId),
+        durationCap,
+        { ...deps, afterHoursConfirmationForLedger: input.afterHoursConfirmation ?? null },
+        sleep,
+      ),
       deps.cfg.dashboardBaseUrl,
     );
 
@@ -317,6 +394,16 @@ async function runPhoneCallInner(
   const to = body.to ?? null;
   let dial;
   try {
+    if (deps.afterHoursConfirmationForLedger !== undefined && to) {
+      appendDialLedger(
+        {
+          e164: to,
+          call_id: null,
+          after_hours_confirmation: deps.afterHoursConfirmationForLedger ?? undefined,
+        },
+        deps.cfg.guardStateDir,
+      );
+    }
     dial = await deps.client.dial(body);
   } catch (e) {
     const authFail = isAuthFailure(e);
@@ -557,6 +644,24 @@ async function finalize(
       await sleep(FINALIZE_RETRY_MS);
       await readDetail();
     }
+  }
+
+  try {
+    if (to) {
+      const turns = calleeTurns(transcript);
+      if (turns) {
+        const optOut = scanCalleeTurnsForOptOut(turns);
+        if (optOut.matched) {
+          dncAdd(
+            to,
+            { source: "auto", call_id: callId, ...(optOut.phrase ? { phrase: optOut.phrase } : {}) },
+            deps.cfg.guardStateDir,
+          );
+        }
+      }
+    }
+  } catch {
+    // Opt-out detection is best-effort and must never break finalization.
   }
 
   let session: SessionDetail | null = null;

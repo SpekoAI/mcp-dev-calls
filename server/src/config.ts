@@ -8,6 +8,8 @@ import { createHash } from "node:crypto";
 import { existsSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { RATE_CAP_PER_NUMBER_DAY, RATE_CAP_PER_NUMBER_HOUR } from "./constants.js";
+import { normalizeE164 } from "./safety/guard.js";
 
 export class ConfigError extends Error {
   override name = "ConfigError";
@@ -39,6 +41,11 @@ function loadDotenv(): void {
 
 function bearer(raw: string): string {
   return raw.startsWith("Bearer ") ? raw.slice(7) : raw;
+}
+
+function positiveIntEnv(name: string, fallback: number): number {
+  const n = Number(process.env[name]);
+  return Number.isInteger(n) && n > 0 ? n : fallback;
 }
 
 export interface DemoConfig {
@@ -90,10 +97,15 @@ export interface AppConfig {
    * Lets `call_number` dial ANY number — including mobiles — for personal calls.
    * ON by default (it's a first-class feature). Set SPEKO_ALLOW_DIRECT_DIAL=0 (or
    * false/no/off) to restrict a deployment to business lines only. Either way the AI
-   * disclosure, quiet hours, no-spam objective screen, and emergency/premium block all
-   * still apply — only the business-line-type check is relaxed.
+   * disclosure, abuse guardrails (DNC, rate caps, after-hours confirmation), no-spam
+   * objective screen, and emergency/premium block all still apply — only the
+   * business-line-type check is relaxed.
    */
   allowDirectDial: boolean;
+  trustedNumbers: string[];
+  guardStateDir: string | undefined;
+  rateCapPerNumberHour: number;
+  rateCapPerNumberDay: number;
   /** Base URL of the Speko dashboard; call summaries expose `${base}/sessions/{call_id}`. */
   dashboardBaseUrl: string;
   /**
@@ -163,6 +175,13 @@ export function loadConfig(): AppConfig {
         | "cost";
     })(),
     allowDirectDial: !["0", "false", "no", "off"].includes((process.env.SPEKO_ALLOW_DIRECT_DIAL ?? "").trim().toLowerCase()),
+    trustedNumbers: (process.env.SPEKO_TRUSTED_NUMBERS ?? "")
+      .split(",")
+      .map((number) => normalizeE164(number.trim()))
+      .filter(Boolean),
+    guardStateDir: (process.env.SPEKO_GUARD_STATE_DIR ?? "").trim() || undefined,
+    rateCapPerNumberHour: positiveIntEnv("SPEKO_MAX_CALLS_PER_NUMBER_HOUR", RATE_CAP_PER_NUMBER_HOUR),
+    rateCapPerNumberDay: positiveIntEnv("SPEKO_MAX_CALLS_PER_NUMBER_DAY", RATE_CAP_PER_NUMBER_DAY),
     dashboardBaseUrl:
       ((process.env.SPEKO_DASHBOARD_URL ?? process.env.SPEKO_PLATFORM_URL ?? "").trim() || "https://platform.speko.dev").replace(/\/+$/, ""),
     serializeCalls: !["0", "false", "no", "off"].includes((process.env.SPEKO_SERIALIZE_CALLS ?? "").trim().toLowerCase()),

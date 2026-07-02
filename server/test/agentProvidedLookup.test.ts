@@ -1,3 +1,6 @@
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 // Mock the carrier line-type check + Google Places so we drive both without network.
@@ -20,11 +23,17 @@ const SECRET = "test-agent-secret";
 const BEARER_HASH = "abc123def456abcd";
 
 /** Minimal config — lookupBusiness only reads twilio, dialTokenSecret, googlePlacesApiKey. */
+let guardDir = "";
+
 function cfg(overrides: Partial<AppConfig> = {}): AppConfig {
   return {
     dialTokenSecret: SECRET,
     googlePlacesApiKey: undefined,
     twilio: undefined,
+    trustedNumbers: [],
+    guardStateDir: guardDir,
+    rateCapPerNumberHour: 3,
+    rateCapPerNumberDay: 8,
     ...overrides,
   } as unknown as AppConfig;
 }
@@ -41,6 +50,7 @@ describe("agent-provided lookup", () => {
   const saved: Record<string, string | undefined> = {};
 
   beforeEach(() => {
+    guardDir = mkdtempSync(join(tmpdir(), "speko-agent-lookup-"));
     for (const k of ENV_KEYS) {
       saved[k] = process.env[k];
       delete process.env[k];
@@ -51,6 +61,7 @@ describe("agent-provided lookup", () => {
   });
 
   afterEach(() => {
+    rmSync(guardDir, { recursive: true, force: true });
     for (const k of ENV_KEYS) {
       if (saved[k] === undefined) delete process.env[k];
       else process.env[k] = saved[k];
@@ -126,7 +137,7 @@ describe("agent-provided lookup", () => {
   });
 
   // Cross-tool round-trip: the token minted by the agent-provided path must be accepted by
-  // make_call (which independently re-checks line type + quiet hours from the token bytes),
+  // make_call (which independently re-checks line type + the after-hours gate from the token bytes),
   // dial the EXACT number with the non-removable AI disclosure, and — with a realistic
   // connected session + a caller turn — be reported as a connected, answered call.
   it("agent-provided token round-trips through make_call: accepted, dials, discloses, connects", async () => {
@@ -199,15 +210,18 @@ describe("agent-provided lookup", () => {
     }
   });
 
-  it("blocks at lookup when the timezone can't be determined (unlisted region, no utc_offset)", async () => {
+  it("mints a token with null offset when the timezone can't be determined", async () => {
     const out = await lookupBusiness(
       { name: "Mystery Diner", phoneNumber: "+19995551234" }, // 999 not in the NANP table → null offset
       { cfg: cfg({ twilio: { sid: "s", token: "t" } }), bearerHash: BEARER_HASH },
     );
     const c = out.candidates[0];
-    expect(c.allowed).toBe(false);
-    expect(c.dial_token).toBeNull();
-    expect(c.blocked_reason).toMatch(/timezone|quiet hours|utc_offset/i);
+    expect(c.allowed).toBe(true);
+    expect(c.blocked_reason).toBeNull();
+    expect(c.dial_token).toBeTypeOf("string");
+    expect(c.utc_offset_minutes).toBeNull();
+    const payload = verifyDialToken(c.dial_token as string, { expectedBearerHash: BEARER_HASH, secret: SECRET });
+    expect(payload.utc_offset_minutes).toBeNull();
   });
 
   it("accepts an unlisted-region number when utc_offset_minutes is provided (escape hatch)", async () => {
@@ -223,7 +237,7 @@ describe("agent-provided lookup", () => {
   });
 
   // utc_offset_minutes must ALSO be honored on the Google Places path: if Places omits an
-  // offset, the caller's value fills the gap (otherwise the candidate is unrecoverably blocked).
+  // offset, the caller's value fills the gap; otherwise make_call can still require confirmation.
   it("fills a Places candidate's missing offset from utc_offset_minutes (recoverable on the Places path too)", async () => {
     vi.mocked(searchPlaces).mockResolvedValue([
       { name: "Joe's Pizza", address: "New York, NY", e164: "+12125550100", utcOffsetMinutes: null },
@@ -239,7 +253,7 @@ describe("agent-provided lookup", () => {
     expect(payload.utc_offset_minutes).toBe(-300);
   });
 
-  it("blocks a Places candidate with no offset and no utc_offset_minutes (not a make_call surprise)", async () => {
+  it("mints a Places candidate with no offset and no utc_offset_minutes", async () => {
     vi.mocked(searchPlaces).mockResolvedValue([
       { name: "Joe's Pizza", address: "New York, NY", e164: "+12125550100", utcOffsetMinutes: null },
     ]);
@@ -248,8 +262,10 @@ describe("agent-provided lookup", () => {
       { cfg: cfg({ twilio: { sid: "s", token: "t" }, googlePlacesApiKey: "g" }), bearerHash: BEARER_HASH },
     );
     const c = out.candidates[0];
-    expect(c.allowed).toBe(false);
-    expect(c.dial_token).toBeNull(); // no token minted on the blocked path
-    expect(c.blocked_reason).toMatch(/timezone|utc_offset/i);
+    expect(c.allowed).toBe(true);
+    expect(c.blocked_reason).toBeNull();
+    expect(c.dial_token).toBeTypeOf("string");
+    const payload = verifyDialToken(c.dial_token as string, { expectedBearerHash: BEARER_HASH, secret: SECRET });
+    expect(payload.utc_offset_minutes).toBeNull();
   });
 });

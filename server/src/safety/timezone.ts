@@ -1,19 +1,21 @@
 /**
- * Best-effort timezone derivation for the quiet-hours rail, so a target's local
- * time is computed automatically from its number instead of a hand-set
- * SPEKO_DEMO_UTC_OFFSET. Real Google Places lookups already return an offset;
- * this fills the gap for demo mode and as a fallback.
+ * Best-effort timezone derivation for the after-hours confirmation gate, so a
+ * target's local time is computed automatically from its number instead of a
+ * hand-set SPEKO_DEMO_UTC_OFFSET. Real Google Places lookups already return an
+ * offset; this fills the gap for demo mode and as a fallback.
  *
  * Maps E.164 -> IANA zone (NANP by area code, else by country code), then asks
  * Intl for that zone's CURRENT offset, so DST is always correct without a tz db.
+ * Unknown offsets require after-hours confirmation instead of blocking the call.
  *
  * Caveat: for a *virtual* number whose owner is in another country (e.g. a US DID
  * used by someone abroad), the nominal region is wrong — set an explicit
  * SPEKO_DEMO_UTC_OFFSET for those.
  */
 
-// Representative US/Canada area code -> IANA zone. Unlisted NANP returns null (fails closed —
-// see zoneFromE164), so an unknown region is never silently assumed to be Eastern.
+// Representative US/Canada area code -> IANA zone. Unlisted NANP returns null (offset unknown —
+// see zoneFromE164), so an unknown region is never silently assumed to be Eastern;
+// the after-hours gate then asks for confirmation instead of guessing.
 const NANP_AREA_TZ: Readonly<Record<string, string>> = {
   // Pacific
   "206": "America/Los_Angeles", "213": "America/Los_Angeles", "310": "America/Los_Angeles",
@@ -48,7 +50,7 @@ const NANP_AREA_TZ: Readonly<Record<string, string>> = {
 
 // Country calling code -> representative IANA zone. NANP (+1) is handled separately
 // (by area code) and intentionally NOT given a "1" fallback here — an unknown +1 area
-// code must fail closed (null) rather than guess a zone and risk calling in quiet hours.
+// code must return null (offset unknown) rather than guess a zone and misjudge local time.
 const COUNTRY_TZ: Readonly<Record<string, string>> = {
   "7": "Asia/Almaty", "20": "Africa/Cairo", "27": "Africa/Johannesburg",
   "30": "Europe/Athens", "31": "Europe/Amsterdam", "32": "Europe/Brussels", "33": "Europe/Paris",
@@ -88,7 +90,7 @@ export function zoneOffsetMinutes(timeZone: string, now: Date = new Date()): num
  * Map an E.164 number to an IANA zone (best effort). Null if unrecognized.
  *
  * For NANP (+1) we trust ONLY explicitly-known area codes; an unlisted or malformed
- * +1 number returns null so quiet hours fails closed (blocks) rather than guessing a
+ * +1 number returns null so the after-hours gate asks for confirmation rather than guessing a
  * zone that could be hours off in the callee's local time.
  */
 export function zoneFromE164(e164: string): string | null {
