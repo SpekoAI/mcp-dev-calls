@@ -8,8 +8,6 @@ import {
   E164_RE,
   EMERGENCY_NUMBERS,
   MIN_AFTER_HOURS_CONFIRMATION_CHARS,
-  QUIET_END_HOUR,
-  QUIET_START_HOUR,
   US_PREMIUM_RE,
 } from "../constants.js";
 
@@ -211,26 +209,4 @@ export function afterHoursGateReason(
   }
 
   return `Call blocked: ${timeDescription}; ${AFTER_HOURS_RETRY_INSTRUCTION}`;
-}
-
-/**
- * Why calling now violates destination quiet hours, or null when allowed.
- * Fails closed: an unknown destination UTC offset blocks the call.
- */
-export function quietHoursReason(utcOffsetMinutes: number | null, now?: number): string | null {
-  if (utcOffsetMinutes == null) {
-    return (
-      "Destination UTC offset is unknown, so quiet hours (08:00-21:00 destination local time) " +
-      "cannot be verified; calls to this number are blocked."
-    );
-  }
-  const currentMs = now != null ? now * 1000 : Date.now();
-  const local = new Date(currentMs + utcOffsetMinutes * 60_000);
-  const hour = local.getUTCHours();
-  if (hour >= QUIET_START_HOUR || hour < QUIET_END_HOUR) {
-    const hh = String(local.getUTCHours()).padStart(2, "0");
-    const mm = String(local.getUTCMinutes()).padStart(2, "0");
-    return `Destination local time is ${hh}:${mm}, inside quiet hours (21:00-08:00); wait until between 08:00 and 21:00 destination time.`;
-  }
-  return null;
 }

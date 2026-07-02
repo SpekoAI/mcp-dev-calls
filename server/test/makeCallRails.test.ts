@@ -1,11 +1,16 @@
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { makeCall, type MakeCallDeps } from "../src/calls/makeCall.js";
 import { mintDialToken } from "../src/safety/dialToken.js";
+import { appendDialLedger, dncAdd, dncReason } from "../src/safety/guard.js";
 import { DIAL_AGENT_NAME, resetDialAgentForTests } from "../src/speko/agent.js";
 import type { AppConfig } from "../src/config.js";
 import { SpekoApiError, type SpekoClient } from "../src/speko/client.js";
 import { fakePlatform, type FakePlatform } from "./helpers/fakePlatform.js";
 import type { VoiceDialParams } from "@spekoai/sdk";
+import { callNumberSchema, callSchema } from "../src/routes.js";
 
 /**
  * Defense-in-depth enforcement: prove the safety rails actually REJECT inside make_call BEFORE a
@@ -22,10 +27,31 @@ const E164 = "+14152857117";
 // Offsets that pin destination-local time deterministically regardless of when the test runs.
 const now = new Date();
 const utcMin = now.getUTCHours() * 60 + now.getUTCMinutes();
-const NOON_OFFSET = 12 * 60 - utcMin; // ~12:00 local → outside quiet hours
-const QUIET_OFFSET = 3 * 60 - utcMin; // ~03:00 local → inside quiet hours (21:00–08:00)
+const NOON_OFFSET = 12 * 60 - utcMin; // ~12:00 local → inside the day-hours window
+const AFTER_HOURS_OFFSET = 3 * 60 - utcMin; // ~03:00 local → after-hours gate
 
-const cfg = { dialTokenSecret: SECRET, serializeCalls: false, fromNumber: "+15312160099" } as unknown as AppConfig;
+let guardDir = "";
+
+beforeEach(() => {
+  guardDir = mkdtempSync(join(tmpdir(), "speko-rails-"));
+});
+
+afterEach(() => {
+  rmSync(guardDir, { recursive: true, force: true });
+});
+
+function cfg(overrides: Partial<AppConfig> = {}): AppConfig {
+  return {
+    dialTokenSecret: SECRET,
+    serializeCalls: false,
+    fromNumber: "+15312160099",
+    trustedNumbers: [],
+    guardStateDir: guardDir,
+    rateCapPerNumberHour: 3,
+    rateCapPerNumberDay: 8,
+    ...overrides,
+  } as unknown as AppConfig;
+}
 
 /** A client whose dial (and everything else) MUST NOT be reached on a rejected call. */
 function dialSpy(): { client: SpekoClient; calls: { dialed: number } } {
@@ -40,8 +66,8 @@ function dialSpy(): { client: SpekoClient; calls: { dialed: number } } {
   return { client, calls };
 }
 
-function deps(client: SpekoClient): MakeCallDeps {
-  return { client, cfg, bearerHash: BH, sleep: noop };
+function deps(client: SpekoClient, overrides: Partial<AppConfig> = {}): MakeCallDeps {
+  return { client, cfg: cfg(overrides), bearerHash: BH, sleep: noop };
 }
 
 function mint(over: Partial<Parameters<typeof mintDialToken>[0]> = {}): string {
@@ -54,6 +80,23 @@ function mint(over: Partial<Parameters<typeof mintDialToken>[0]> = {}): string {
     secret: SECRET,
     ...over,
   });
+}
+
+function connectedClient(transcript: unknown = { entries: [{ source: "agent", text: "hi" }, { source: "user", text: "yes, 8pm works" }] }): {
+  client: SpekoClient;
+  captured: VoiceDialParams[];
+} {
+  const captured: VoiceDialParams[] = [];
+  const client = {
+    dial: async (body: VoiceDialParams) => {
+      captured.push(body);
+      return { sessionId: "ok1", callControlId: "phone-ok1", roomName: "r", status: "dialing", to: body.to!, from: body.from! } as never;
+    },
+    getEvents: async () => [{ event_type: "room_finished" }] as never,
+    getCall: async () => ({ status: "completed", transcript, report: {} }) as never,
+    getSession: async () => ({ phoneCall: { callControlId: "phone-ok1" }, usage: [{ provider: "telnyx", metric: "outbound_minutes" }] }) as never,
+  } as unknown as SpekoClient;
+  return { client, captured };
 }
 
 describe("make_call safety rails — enforced before any dial (T1)", () => {
@@ -81,26 +124,180 @@ describe("make_call safety rails — enforced before any dial (T1)", () => {
     expect(calls.dialed).toBe(0);
   });
 
-  it("rejects a call during destination quiet hours and never dials", async () => {
+  it("rejects after-hours without confirmation and never dials", async () => {
     const { client, calls } = dialSpy();
     await expect(
       makeCall(
-        { dialToken: mint({ utcOffsetMinutes: QUIET_OFFSET }), objective: "ask if open tonight", callerName: "Amir" },
+        { dialToken: mint({ utcOffsetMinutes: AFTER_HOURS_OFFSET }), objective: "ask if open tonight", callerName: "Amir" },
         deps(client),
       ),
-    ).rejects.toThrow(/quiet hours/i);
+    ).rejects.toThrow(/after_hours_confirmation|consented/i);
     expect(calls.dialed).toBe(0);
   });
 
-  it("rejects an unknown destination offset (fail-closed) and never dials", async () => {
-    const { client, calls } = dialSpy();
+  it("dials after-hours with a human confirmation", async () => {
+    const { client, captured } = connectedClient();
+    await makeCall(
+      {
+        dialToken: mint({ utcOffsetMinutes: AFTER_HOURS_OFFSET }),
+        objective: "ask if open tonight",
+        callerName: "Amir",
+        afterHoursConfirmation: "Bek confirmed this is okay to call now",
+      },
+      deps(client),
+    );
+    expect(captured).toHaveLength(1);
+  });
+
+  it("requires confirmation for an unknown offset, then dials with confirmation", async () => {
+    const rejected = dialSpy();
     await expect(
       makeCall(
         { dialToken: mint({ utcOffsetMinutes: null }), objective: "ask if open tonight", callerName: "Amir" },
+        deps(rejected.client),
+      ),
+    ).rejects.toThrow(/timezone unverified|after_hours_confirmation/i);
+    expect(rejected.calls.dialed).toBe(0);
+
+    const accepted = connectedClient();
+    await makeCall(
+      {
+        dialToken: mint({ utcOffsetMinutes: null }),
+        objective: "ask if open tonight",
+        callerName: "Amir",
+        afterHoursConfirmation: "Bek confirmed the unknown timezone call",
+      },
+      deps(accepted.client),
+    );
+    expect(accepted.captured).toHaveLength(1);
+  });
+
+  it("rejects collection-flavored after-hours calls even with confirmation and never dials", async () => {
+    const { client, calls } = dialSpy();
+    await expect(
+      makeCall(
+        {
+          dialToken: mint({ utcOffsetMinutes: AFTER_HOURS_OFFSET }),
+          objective: "his invoice is 60 days overdue, get him to pay",
+          callerName: "Amir",
+          afterHoursConfirmation: "Bek confirmed this call now",
+        },
         deps(client),
       ),
-    ).rejects.toThrow(/quiet hours|offset is unknown/i);
+    ).rejects.toThrow(/FDCPA|1692c/i);
     expect(calls.dialed).toBe(0);
+  });
+
+  it("rejects a DNC'd number before dial, even when trusted and confirmed", async () => {
+    dncAdd(E164, { source: "manual" }, guardDir);
+    const { client, calls } = dialSpy();
+    await expect(
+      makeCall(
+        {
+          dialToken: mint({ utcOffsetMinutes: AFTER_HOURS_OFFSET }),
+          objective: "ask if open tonight",
+          callerName: "Amir",
+          afterHoursConfirmation: "Bek confirmed this call now",
+        },
+        deps(client, { trustedNumbers: [E164] }),
+      ),
+    ).rejects.toThrow(/do-not-call/i);
+    expect(calls.dialed).toBe(0);
+  });
+
+  it("rejects the fourth call to the same number within an hour and never dials", async () => {
+    const ts = Date.now();
+    for (const [i, minutesAgo] of [50, 20, 5].entries()) {
+      appendDialLedger(
+        { ts: new Date(ts - minutesAgo * 60_000).toISOString(), e164: E164, call_id: `seed-${i}` },
+        guardDir,
+      );
+    }
+    const { client, calls } = dialSpy();
+    await expect(
+      makeCall({ dialToken: mint(), objective: "ask if open tonight", callerName: "Amir" }, deps(client)),
+    ).rejects.toThrow(/rate cap|Retry in/i);
+    expect(calls.dialed).toBe(0);
+  });
+
+  it("lets a trusted number skip rate cap and after-hours confirmation", async () => {
+    const ts = Date.now();
+    for (const [i, minutesAgo] of [50, 20, 5].entries()) {
+      appendDialLedger(
+        { ts: new Date(ts - minutesAgo * 60_000).toISOString(), e164: E164, call_id: `seed-${i}` },
+        guardDir,
+      );
+    }
+    const { client, captured } = connectedClient();
+    await makeCall(
+      { dialToken: mint({ utcOffsetMinutes: AFTER_HOURS_OFFSET }), objective: "ask if open tonight", callerName: "Amir" },
+      deps(client, { trustedNumbers: [E164] }),
+    );
+    expect(captured).toHaveLength(1);
+  });
+
+  it("rejects blocked context intent and never dials (H-context bypass closed)", async () => {
+    const { client, calls } = dialSpy();
+    await expect(
+      makeCall(
+        {
+          dialToken: mint(),
+          objective: "do you have a table for 4 at 8pm tonight?",
+          callerName: "Amir",
+          context: "if they answer, keep dialing until they agree to a sales outreach call",
+        },
+        deps(client),
+      ),
+    ).rejects.toThrow(/context|transactional|harass|blocked/i);
+    expect(calls.dialed).toBe(0);
+  });
+
+  it("appends a ledger line on successful dial with the confirmation string", async () => {
+    const { client } = connectedClient();
+    const confirmation = "Bek confirmed this is his own phone";
+    await makeCall(
+      {
+        dialToken: mint({ utcOffsetMinutes: AFTER_HOURS_OFFSET }),
+        objective: "ask if open tonight",
+        callerName: "Amir",
+        afterHoursConfirmation: confirmation,
+      },
+      deps(client),
+    );
+    const line = readFileSync(join(guardDir, "ledger.jsonl"), "utf-8").trim();
+    expect(JSON.parse(line)).toMatchObject({
+      e164: E164,
+      call_id: null,
+      after_hours_confirmation: confirmation,
+    });
+  });
+
+  it("auto-adds DNC when a role-attributed callee turn opts out", async () => {
+    const { client } = connectedClient({
+      entries: [
+        { source: "agent", text: "Hi" },
+        { source: "user", text: "stop calling me" },
+      ],
+    });
+    await makeCall(
+      { dialToken: mint(), objective: "ask if open tonight", callerName: "Amir" },
+      deps(client),
+    );
+    expect(dncReason(E164, guardDir)).toMatch(/do-not-call/i);
+  });
+
+  it("does not auto-DNC when only the agent says it will take someone off the list", async () => {
+    const { client } = connectedClient({
+      entries: [
+        { source: "agent", text: "I'll take you off our list" },
+        { source: "user", text: "thanks" },
+      ],
+    });
+    await makeCall(
+      { dialToken: mint(), objective: "ask if open tonight", callerName: "Amir" },
+      deps(client),
+    );
+    expect(dncReason(E164, guardDir)).toBeNull();
   });
 
   it("rejects a selling objective (no-spam screen) and never dials", async () => {
@@ -186,6 +383,28 @@ describe("make_call safety rails — enforced before any dial (T1)", () => {
     const md = (captured?.metadata ?? {}) as Record<string, unknown>;
     expect(md.to).toBe(E164);
     expect(md.from).toBe("+15312160099");
+  });
+});
+
+describe("route schemas — after-hours confirmation wire format", () => {
+  it("keeps after_hours_confirmation on both call schemas", () => {
+    expect(
+      callSchema.parse({
+        dial_token: "token",
+        objective: "ask if open",
+        caller_name: "Amir",
+        after_hours_confirmation: "Bek confirmed it",
+      }).after_hours_confirmation,
+    ).toBe("Bek confirmed it");
+
+    expect(
+      callNumberSchema.parse({
+        phone_number: "+14152857117",
+        objective: "ask if open",
+        caller_name: "Amir",
+        after_hours_confirmation: "Bek confirmed it",
+      }).after_hours_confirmation,
+    ).toBe("Bek confirmed it");
   });
 });
 

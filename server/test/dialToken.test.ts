@@ -5,7 +5,6 @@ import {
   dialBlockedReason,
   lineTypeBlockedReason,
   mintDialToken,
-  quietHoursReason,
   verifyDialToken,
 } from "../src/safety/dialToken.js";
 
@@ -69,18 +68,6 @@ describe("dial predicates", () => {
     expect(lineTypeBlockedReason("mobile")).toMatch(/business-lines-only/);
     expect(lineTypeBlockedReason(null)).toMatch(/unknown/);
     expect(lineTypeBlockedReason("landline")).toBeNull();
-  });
-});
-
-describe("quiet hours", () => {
-  it("fails closed when the offset is unknown", () => {
-    expect(quietHoursReason(null)).toMatch(/unknown/);
-  });
-  it("allows midday local and blocks late-night local", () => {
-    const noon = Date.UTC(2026, 0, 1, 12, 0, 0) / 1000;
-    const lateNight = Date.UTC(2026, 0, 1, 23, 0, 0) / 1000;
-    expect(quietHoursReason(0, noon)).toBeNull();
-    expect(quietHoursReason(0, lateNight)).toMatch(/quiet hours/);
   });
 });
 
