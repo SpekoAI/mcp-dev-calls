@@ -171,7 +171,11 @@ const report = {
   totals: { probes: Object.keys(results).length, parityPass, deltaPass, failures: failures.length },
   failures,
 };
-if (outPath) writeFileSync(join(HERE, outPath), `${JSON.stringify({ report, results }, null, 2)}\n`);
+if (outPath) {
+  const outAbs = join(HERE, outPath);
+  mkdirSync(dirname(outAbs), { recursive: true }); // runs/ is gitignored; ensure it exists per checkout
+  writeFileSync(outAbs, `${JSON.stringify({ report, results }, null, 2)}\n`);
+}
 
 console.log(`probes=${report.totals.probes} parity=${parityPass} delta=${deltaPass} failures=${failures.length} sha=${sha}`);
 for (const f of failures) {
