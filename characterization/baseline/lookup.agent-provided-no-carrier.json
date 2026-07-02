@@ -1,0 +1,4 @@
+{
+  "isError": false,
+  "text": "{\"summary\":\"Char Demo Biz (+19075550142) is callable. Pass the chosen candidate's dial_token to make_call.\",\"candidates\":[{\"name\":\"Char Demo Biz\",\"address\":\"(demo target)\",\"phone\":\"+19075550142\",\"line_type\":\"voip\",\"allowed\":true,\"blocked_reason\":null,\"dial_token\":\"<TOKEN>\",\"utc_offset_minutes\":null}],\"source\":\"demo\"}"
+}

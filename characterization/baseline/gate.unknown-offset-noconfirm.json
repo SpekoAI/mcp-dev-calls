@@ -1,0 +1,4 @@
+{
+  "isError": true,
+  "text": "Destination UTC offset is unknown, so quiet hours (<TIME>-<TIME> destination local time) cannot be verified; calls to this number are blocked.; next_step=Re-run call_number with utc_offset_minutes for the destination's city (e.g. -420 US Pacific summer, -300 US Eastern)."
+}

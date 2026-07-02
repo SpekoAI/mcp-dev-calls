@@ -1,0 +1,4 @@
+{
+  "isError": true,
+  "text": "The behavior guidance is blocked by the transactional-only policy: selling, promotion, surveys, fundraising, and campaigning are not allowed on any call, and cannot be smuggled in via the behavior channel.; next_step=Remove any selling/promotion/survey/fundraising instructions from behavior and retry make_call."
+}
