@@ -69,6 +69,9 @@ export const EGRESS_CONFIRM_POLL_SECONDS = 5;
 // platform's heuristic pass) before analysis rewrites it, so row presence alone doesn't stop the
 // wait. Bounded, so a report/outcome that never comes can't block termination.
 export const REPORT_GRACE_POLLS = 2;
+// The other half of the finalize grace budget: the sleep between finalize-time re-reads, shared by
+// the transcript-lag retries and the report-grace polls (same retry cadence for both).
+export const FINALIZE_RETRY_MS = 3000;
 
 // Genuine non-recoverable failures (the agent never dispatched / the SIP dial failed). Unlike a
 // first-audio timeout, these never recover, so stop polling immediately.

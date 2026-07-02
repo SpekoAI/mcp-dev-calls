@@ -1,4 +1,4 @@
-import { OUTCOME_MARKER } from "../constants.js";
+import { BARE_OUTCOME_RE, OUTCOME_MARKER } from "../constants.js";
 
 // Speko transcripts come either bare (`[...]`) or wrapped; the turn list can sit
 // under any of these keys. `entries` is the shape returned by CallDetail.transcript.
@@ -32,6 +32,20 @@ export function extractOutcome(transcript: unknown): string | null {
     }
   }
   return outcome;
+}
+
+/**
+ * Best available outcome for a call: a SUBSTANTIVE report outcome wins, else the transcript's
+ * OUTCOME: marker, else null. Bare platform status words ("failed"/"completed"/...) in the
+ * report are ignored; on a connected call they read as a misleading headline.
+ */
+export function bestOutcome(
+  report: { outcome?: unknown } | null | undefined,
+  transcript: unknown,
+): string | null {
+  const reportOutcome = typeof report?.outcome === "string" ? report.outcome.trim() : "";
+  const substantive = reportOutcome && !BARE_OUTCOME_RE.test(reportOutcome) ? reportOutcome : "";
+  return substantive || extractOutcome(transcript);
 }
 
 function findTurnList(transcript: unknown): unknown[] | null {
