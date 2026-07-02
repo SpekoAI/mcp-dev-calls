@@ -182,6 +182,28 @@ export function loadConfig(): AppConfig {
 }
 
 /**
+ * The dial-time provider pins above as an `allowedProviders` map — the shape shared
+ * by dial-body constraints and agent-create stackPreferences. A modality is included
+ * only when its pin is set: loadConfig always pins all three, but the dial-agent
+ * bootstrap may run with no pins at all. The llm pin is a comma-separated failover
+ * chain; empty entries are dropped.
+ */
+export function allowedProvidersFromPins(pins: {
+  ttsPin?: string;
+  sttPin?: string;
+  llmPin?: string;
+}): { tts?: string[]; stt?: string[]; llm?: string[] } {
+  const tts = pins.ttsPin?.trim();
+  const stt = pins.sttPin?.trim();
+  const llm = (pins.llmPin ?? "").split(",").map((m) => m.trim()).filter(Boolean);
+  return {
+    ...(tts ? { tts: [tts] } : {}),
+    ...(stt ? { stt: [stt] } : {}),
+    ...(llm.length > 0 ? { llm } : {}),
+  };
+}
+
+/**
  * Account binding for dial tokens. Tokens are minted and verified by THIS server
  * with the configured Speko key, so a token can never be replayed against a
  * server wired to a different account.

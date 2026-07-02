@@ -5,7 +5,7 @@
  * api.speko.dev via @spekoai/sdk until the call reaches a terminal state.
  */
 import type { VoiceDialParams } from "@spekoai/sdk";
-import type { AppConfig } from "../config.js";
+import { allowedProvidersFromPins, type AppConfig } from "../config.js";
 import {
   AUTH_NEXT_STEP,
   DIAL_INTENT_LANGUAGE,
@@ -193,15 +193,7 @@ export async function makeCall(input: MakeCallInput, deps: MakeCallDeps): Promis
     // ElevenLabs TTS pin below — always verify a voice with scripts/verify-tts.mjs first. A voice
     // id from a different provider (Cartesia/OpenAI) routes wrong and produces SILENT audio.
     ...(deps.cfg.voice ? { voice: deps.cfg.voice } : {}),
-    constraints: {
-      allowedProviders: {
-        tts: [deps.cfg.ttsPin],
-        stt: [deps.cfg.sttPin],
-        ...(deps.cfg.llmPin
-          ? { llm: deps.cfg.llmPin.split(",").map((m) => m.trim()).filter(Boolean) }
-          : {}),
-      },
-    },
+    constraints: { allowedProviders: allowedProvidersFromPins(deps.cfg) },
     sttOptions: { keywords: [caller, businessName, ...DIAL_STT_KEYWORDS] },
     ttsOptions: { speed: deps.cfg.ttsSpeed ?? 1.0 },
     llm: { temperature: 0.5, maxTokens: 100 },
