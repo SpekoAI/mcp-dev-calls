@@ -18,4 +18,5 @@ export type { CallNumberInput } from "./calls/callNumber.js";
 export { checkReadiness } from "./calls/readiness.js";
 export { describeCall } from "./calls/getCall.js";
 export { AppError, RejectionError } from "./lib/errors.js";
+export { dncAdd, dncList, dncRemove, normalizeE164, resolveGuardStateDir } from "./safety/guard.js";
 export type { CallSummary, SessionDetail, MakeCallInput } from "./types.js";
