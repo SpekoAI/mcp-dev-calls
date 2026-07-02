@@ -4,6 +4,7 @@ import { mintDialToken } from "../src/safety/dialToken.js";
 import { DIAL_AGENT_NAME, resetDialAgentForTests } from "../src/speko/agent.js";
 import type { AppConfig } from "../src/config.js";
 import { SpekoApiError, type SpekoClient } from "../src/speko/client.js";
+import { fakePlatform, type FakePlatform } from "./helpers/fakePlatform.js";
 import type { VoiceDialParams } from "@spekoai/sdk";
 
 /**
@@ -193,21 +194,17 @@ describe("make_call — dial-agent wiring (agent-initiated hangup)", () => {
   afterEach(resetDialAgentForTests);
 
   /**
-   * Happy-path poll/finalize client; dial is injectable so each test can capture/fail it.
-   * The agent-verify defaults model a clean platform: no tools attached, and a getAgent
-   * that 404s so a cached id falls back to whatever listAgents the test provides.
+   * The shared dirty-create fakePlatform (the same platform physics dialAgent.test.ts
+   * verifies: create auto-picks a voice + auto-attaches the KB tool) layered under a
+   * happy-path poll/finalize client. Per-test poll-side overrides stay inline.
    */
-  function pollClient(over: Partial<Record<string, unknown>>): SpekoClient {
+  function wiringClient(f: FakePlatform, over: Partial<Record<string, unknown>> = {}): SpekoClient {
     return {
+      ...(f.client as unknown as Record<string, unknown>),
       getEvents: async () => [{ event_type: "room_finished" }],
       getCall: async () =>
         ({ status: "completed", transcript: { entries: [{ source: "agent", text: "hi" }, { source: "user", text: "yes" }] }, report: {} }),
       getSession: async () => ({ phoneCall: { callControlId: "leg-1" }, usage: [{ provider: "telnyx", metric: "outbound_minutes" }] }),
-      getAgent: async () => {
-        throw new SpekoApiError("Agent not found", 404, "AGENT_NOT_FOUND");
-      },
-      listAgentTools: async () => [],
-      deleteAgentTool: async () => ({ deleted: true }),
       ...over,
     } as unknown as SpekoClient;
   }
@@ -219,11 +216,8 @@ describe("make_call — dial-agent wiring (agent-initiated hangup)", () => {
 
   it("attaches the resolved agentId and switches the prompt to the end_call rules", async () => {
     const captured: VoiceDialParams[] = [];
-    const client = pollClient({
-      dial: dialOk(captured),
-      listAgents: async () => [],
-      createAgent: async (params: Record<string, unknown>) => ({ id: "dial-agent-1", ...params }),
-    });
+    const f = fakePlatform(); // empty platform → the bootstrap must create the agent
+    const client = wiringClient(f, { dial: dialOk(captured) });
 
     const s = await makeCall(
       { dialToken: mint(), objective: "do you have a table for 4 at 8pm tonight?", callerName: "Amir" },
@@ -232,7 +226,11 @@ describe("make_call — dial-agent wiring (agent-initiated hangup)", () => {
     expect(s.status).toBe("completed");
     expect(captured).toHaveLength(1);
     const body = captured[0];
-    expect(body.agentId).toBe("dial-agent-1");
+    expect(body.agentId).toBe("agent-created-1");
+    // The create landed DIRTY (real platform physics) and was cleaned before the dial:
+    // the auto-picked voice PATCHed to null, the auto-attached KB tool stripped.
+    expect(f.updated).toEqual([{ id: "agent-created-1", params: { voice: null } }]);
+    expect(f.tools).toEqual([]);
     // The endCall-enabled agent means the worker registers end_call — the prompt must say to use it...
     expect(body.systemPrompt).toMatch(/end_call/);
     expect(body.systemPrompt).not.toMatch(/staying silent is exactly how you end the call/i);
@@ -245,43 +243,30 @@ describe("make_call — dial-agent wiring (agent-initiated hangup)", () => {
 
   it("re-verifies the dial agent on EVERY call: an endCall toggle between calls is repaired, not trusted from cache", async () => {
     const captured: VoiceDialParams[] = [];
-    const row: { id: string; name: string; voice: string | null; endCall: { enabled: boolean } } = {
-      id: "dial-agent-7",
-      name: DIAL_AGENT_NAME,
-      voice: null,
-      endCall: { enabled: true },
-    };
-    const updates: Array<Record<string, unknown>> = [];
-    const client = pollClient({
-      dial: dialOk(captured),
-      listAgents: async () => [{ ...row }],
-      getAgent: async () => ({ ...row }),
-      updateAgent: async (_id: string, params: Record<string, unknown>) => {
-        updates.push(params);
-        if ("endCall" in params) row.endCall = params.endCall as { enabled: boolean };
-        if ("voice" in params) row.voice = params.voice as string | null;
-        return { ...row };
-      },
+    const f = fakePlatform({
+      rows: [{ id: "dial-agent-7", name: DIAL_AGENT_NAME, voice: null, endCall: { enabled: true } }],
     });
+    const client = wiringClient(f, { dial: dialOk(captured) });
 
     const s1 = await makeCall(
       { dialToken: mint(), objective: "do you have a table for 4 at 8pm tonight?", callerName: "Amir" },
       deps(client),
     );
     expect(s1.status).toBe("completed");
-    expect(updates).toHaveLength(0); // clean row → verify only
+    expect(f.updated).toHaveLength(0); // clean row → verify only
 
     // Someone toggles endCall OFF on the visible dashboard row between calls. The old
     // trust-the-cache behavior would dial with the agentId AND the end_call prompt while
     // the worker never registers the tool — the model may speak tool syntax aloud.
-    row.endCall = { enabled: false };
+    f.rows[0].endCall = { enabled: false };
 
     const s2 = await makeCall(
       { dialToken: mint(), objective: "do you have a table for 4 at 8pm tonight?", callerName: "Amir" },
       deps(client),
     );
     expect(s2.status).toBe("completed");
-    expect(updates).toEqual([{ endCall: { enabled: true } }]); // repaired BEFORE dialing
+    // Repaired BEFORE dialing.
+    expect(f.updated).toEqual([{ id: "dial-agent-7", params: { endCall: { enabled: true } } }]);
     expect(captured).toHaveLength(2);
     expect(captured[1].agentId).toBe("dial-agent-7");
     expect(captured[1].systemPrompt).toMatch(/end_call/); // the prompt's promise is true again
@@ -289,7 +274,7 @@ describe("make_call — dial-agent wiring (agent-initiated hangup)", () => {
 
   it("still dials — without agentId, with the stay-silent prompt — when agent bootstrap fails (fail-open)", async () => {
     const captured: VoiceDialParams[] = [];
-    const client = pollClient({
+    const client = wiringClient(fakePlatform(), {
       dial: dialOk(captured),
       listAgents: async () => {
         throw new Error("agents API down");
@@ -310,13 +295,11 @@ describe("make_call — dial-agent wiring (agent-initiated hangup)", () => {
 
   it("recovers when the cached agent was deleted out-of-band: retries the dial agentless and re-resolves next call", async () => {
     const captured: VoiceDialParams[] = [];
-    let listCalls = 0;
-    const client = pollClient({
-      // The row still lists (stale cache scenario), but the dial-side lookup 404s.
-      listAgents: async () => {
-        listCalls += 1;
-        return [{ id: "ghost", name: DIAL_AGENT_NAME, endCall: { enabled: true } }];
-      },
+    // The row still lists (stale platform read), but the dial itself 404s on it.
+    const f = fakePlatform({
+      rows: [{ id: "ghost", name: DIAL_AGENT_NAME, voice: null, endCall: { enabled: true } }],
+    });
+    const client = wiringClient(f, {
       dial: async (body: VoiceDialParams) => {
         captured.push(body);
         if (body.agentId) throw new SpekoApiError("Agent not found", 404, "AGENT_NOT_FOUND");
@@ -335,11 +318,13 @@ describe("make_call — dial-agent wiring (agent-initiated hangup)", () => {
     // The retry body's prompt must match its agentless reality (no end_call tool registered).
     expect(captured[1].systemPrompt).not.toMatch(/end_call/);
     expect(captured[1].systemPrompt).toMatch(/staying silent is exactly how you end the call/i);
-    // The dead id was evicted: a later call re-resolves through the agents API instead of reusing it.
+    // The dead id was evicted: a later call re-resolves through the agents API (a second
+    // find) instead of re-verifying the poisoned cached id (no get).
     await makeCall(
       { dialToken: mint(), objective: "do you have a table for 4 at 8pm tonight?", callerName: "Amir" },
       deps(client),
     );
-    expect(listCalls).toBe(2);
+    expect(f.calls.list).toBe(2);
+    expect(f.calls.get).toBe(0);
   });
 });

@@ -26,8 +26,9 @@
  * repaired on EVERY dial before the id is handed to the dial body.
  */
 import type { AgentCreateParams, AgentRow, AgentUpdateParams } from "@spekoai/sdk";
+import { allowedProvidersFromPins } from "../config.js";
 import { DIAL_INTENT_LANGUAGE } from "../constants.js";
-import { SpekoApiError, type SpekoClient } from "./client.js";
+import { isNotFound, type SpekoClient } from "./client.js";
 
 export const DIAL_AGENT_NAME = "speko-mcp-dial";
 
@@ -46,10 +47,6 @@ const KB_SEARCH_TOOL_NAME = "search_knowledge_base";
 // (applied verbatim, no re-synthesis). Extend the SDK types to match the API.
 type AgentRowWithEndCall = AgentRow & { endCall?: { enabled?: boolean } | null };
 type AgentCreateParamsWithEndCall = AgentCreateParams & { endCall: { enabled: boolean } };
-type AgentRepairParams = Omit<AgentUpdateParams, "voice"> & {
-  endCall?: { enabled: boolean };
-  voice?: string | null;
-};
 
 export interface DialAgentDeps {
   client: SpekoClient;
@@ -85,14 +82,7 @@ export function resetDialAgent(): void {
 
 /** The dial-time pins as agent stackPreferences; undefined when none configured. */
 function stackPreferencesFromPins(cfg: DialAgentDeps["cfg"]): AgentCreateParams["stackPreferences"] {
-  const tts = cfg?.ttsPin?.trim();
-  const stt = cfg?.sttPin?.trim();
-  const llm = (cfg?.llmPin ?? "").split(",").map((m) => m.trim()).filter(Boolean);
-  const allowedProviders = {
-    ...(tts ? { tts: [tts] } : {}),
-    ...(stt ? { stt: [stt] } : {}),
-    ...(llm.length > 0 ? { llm } : {}),
-  };
+  const allowedProviders = allowedProvidersFromPins(cfg ?? {});
   return Object.keys(allowedProviders).length > 0 ? { allowedProviders } : undefined;
 }
 
@@ -105,7 +95,7 @@ async function fetchCachedRow(client: SpekoClient, id: string): Promise<AgentRow
   try {
     return (await client.getAgent(id)) as AgentRowWithEndCall;
   } catch (e) {
-    if (e instanceof SpekoApiError && e.status === 404) {
+    if (isNotFound(e)) {
       cachedAgentId = null;
       return null;
     }
@@ -127,7 +117,7 @@ async function stripKnowledgeBaseTool(client: SpekoClient, agentId: string): Pro
     try {
       await client.deleteAgentTool(agentId, tool.id);
     } catch (e) {
-      if (e instanceof SpekoApiError && e.status === 404) continue;
+      if (isNotFound(e)) continue;
       throw e;
     }
   }
@@ -143,12 +133,37 @@ async function stripKnowledgeBaseTool(client: SpekoClient, agentId: string): Pro
 async function resolveDialAgent(deps: DialAgentDeps): Promise<string> {
   const { client } = deps;
   // Fresh row every dial; the cached id only skips the find (list) step.
-  let row = cachedAgentId ? await fetchCachedRow(client, cachedAgentId) : null;
+  let row: AgentRowWithEndCall | null = null;
+  // Whether the tools check already ran for row.id this pass (the cached-id path
+  // below overlaps it with the row fetch).
+  let stripped = false;
+  if (cachedAgentId) {
+    const id = cachedAgentId;
+    // The row fetch and the tools check are independent round-trips; run them
+    // together — every serial hop here eats into the BOOTSTRAP_WAIT_MS dial budget,
+    // and a blown budget means a spurious agentless dial. allSettled, not all: a
+    // strip failure must not preempt the deleted-row fallback (fetch → null), and
+    // neither outcome may float unhandled while the other is still in flight.
+    const [fetched, stripAttempt] = await Promise.allSettled([
+      fetchCachedRow(client, id),
+      stripKnowledgeBaseTool(client, id),
+    ]);
+    if (fetched.status === "rejected") throw fetched.reason;
+    row = fetched.value;
+    if (row) {
+      // The strip outcome binds only when the row survived; against a deleted row
+      // it ran on a dead id and is moot (find-or-create below re-runs it).
+      if (stripAttempt.status === "rejected") throw stripAttempt.reason;
+      stripped = true;
+    }
+  }
   if (!row) {
     const rows = (await client.listAgents()) as AgentRowWithEndCall[];
     row = rows.find((r) => r.name === DIAL_AGENT_NAME) ?? null;
   }
   if (!row) {
+    // Sequential by necessity (unlike the verify round-trips): the created row's id
+    // feeds the repair and tools check below.
     const stackPreferences = stackPreferencesFromPins(deps.cfg);
     const params: AgentCreateParamsWithEndCall = {
       name: DIAL_AGENT_NAME,
@@ -165,15 +180,19 @@ async function resolveDialAgent(deps: DialAgentDeps): Promise<string> {
 
   // Repair drift in one PATCH. A fresh create lands dirty BY DESIGN — the platform
   // auto-picks a voice when create omits one (only PATCH can express voice:null) —
-  // so the create path normally repairs immediately too.
-  const repairs: AgentRepairParams = {};
+  // so the create path normally repairs immediately too. stackPreferences is
+  // deliberately create-only belt-and-braces (see DialAgentDeps.cfg) and never
+  // verified or repaired here: every dial pins its providers in the dial body, so
+  // a drifted row preference cannot reach a call.
+  const repairs: { endCall?: { enabled: boolean }; voice?: string | null } = {};
   if (row.endCall?.enabled !== true) repairs.endCall = { enabled: true };
   if (row.voice != null) repairs.voice = null;
-  if (Object.keys(repairs).length > 0) {
-    // Cast: the SDK types update voice as `string?`; the platform schema is nullable.
-    await client.updateAgent(row.id, repairs as AgentUpdateParams);
-  }
-  await stripKnowledgeBaseTool(client, row.id);
+  // The repair PATCH and the tools check are independent; run them together.
+  // (Cast: the SDK types update `voice` as `string?`; the platform schema is nullable.)
+  await Promise.all([
+    Object.keys(repairs).length > 0 ? client.updateAgent(row.id, repairs as AgentUpdateParams) : undefined,
+    stripped ? undefined : stripKnowledgeBaseTool(client, row.id),
+  ]);
   return row.id;
 }
 
@@ -186,17 +205,12 @@ function boundedWait(work: Promise<string | null>, waitMs: number): Promise<stri
       );
       resolve(null);
     }, waitMs);
-    work.then(
-      (id) => {
-        clearTimeout(timer);
-        resolve(id);
-      },
-      () => {
-        // Unreachable in practice (the memoized chain never rejects) — belt and braces.
-        clearTimeout(timer);
-        resolve(null);
-      },
-    );
+    // No rejection handler: the memoized chain handed in never rejects (its catch
+    // in ensureDialAgent resolves failures to null).
+    work.then((id) => {
+      clearTimeout(timer);
+      resolve(id);
+    });
   });
 }
 
@@ -226,6 +240,8 @@ export function ensureDialAgent(deps: DialAgentDeps): Promise<string | null> {
         console.error(
           `[dial-agent] resolve failed; dialing without auto-hangup: ${e instanceof Error ? e.message : String(e)}`,
         );
+        // Resolving failures to null here is what makes the memoized chain NEVER
+        // reject — boundedWait leans on that and handles only fulfillment.
         return null;
       })
       .finally(() => {
