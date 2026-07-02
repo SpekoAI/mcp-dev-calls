@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   DialTokenError,
+  afterHoursGateReason,
   dialBlockedReason,
   lineTypeBlockedReason,
   mintDialToken,
@@ -9,6 +10,8 @@ import {
 } from "../src/safety/dialToken.js";
 
 const SECRET = "test-secret";
+const AFTER_HOURS_RETRY_INSTRUCTION =
+  "confirm with your human that they want to place this call now, then retry with after_hours_confirmation set to their words. By retrying you confirm the callee has consented to be called.";
 const base = {
   e164: "+14155550132",
   lineType: "landline",
@@ -78,5 +81,45 @@ describe("quiet hours", () => {
     const lateNight = Date.UTC(2026, 0, 1, 23, 0, 0) / 1000;
     expect(quietHoursReason(0, noon)).toBeNull();
     expect(quietHoursReason(0, lateNight)).toMatch(/quiet hours/);
+  });
+});
+
+describe("after-hours gate", () => {
+  const noon = Date.UTC(2026, 0, 1, 12, 0, 0) / 1000;
+  const lateNight = Date.UTC(2026, 0, 1, 23, 0, 0) / 1000;
+
+  it("allows calls in the day window when the offset is known", () => {
+    expect(afterHoursGateReason(0, undefined, false, noon)).toBeNull();
+  });
+
+  it("blocks after-hours calls without confirmation", () => {
+    const reason = afterHoursGateReason(0, undefined, false, lateNight);
+    expect(reason).toContain("23:00");
+    expect(reason).toContain(AFTER_HOURS_RETRY_INSTRUCTION);
+  });
+
+  it("allows after-hours calls with a confirmation of at least five trimmed characters", () => {
+    expect(afterHoursGateReason(0, "yes now", false, lateNight)).toBeNull();
+  });
+
+  it("rejects whitespace-only confirmation", () => {
+    const reason = afterHoursGateReason(0, "      ", false, lateNight);
+    expect(reason).toContain(AFTER_HOURS_RETRY_INSTRUCTION);
+  });
+
+  it("requires confirmation when the timezone is unverified", () => {
+    const reason = afterHoursGateReason(null, undefined, false, noon);
+    expect(reason).toContain("timezone unverified");
+    expect(reason).toContain(AFTER_HOURS_RETRY_INSTRUCTION);
+  });
+
+  it("rejects collection-flavored calls after hours even with confirmation", () => {
+    const reason = afterHoursGateReason(0, "yes now", true, lateNight);
+    expect(reason).toMatch(/FDCPA|1692c/);
+    expect(reason).toMatch(/no override/i);
+  });
+
+  it("allows collection-flavored calls in the day window", () => {
+    expect(afterHoursGateReason(0, undefined, true, noon)).toBeNull();
   });
 });

@@ -1,10 +1,13 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
 import {
   ALLOWED_LINE_TYPES,
+  AFTER_HOURS_END_HOUR,
+  AFTER_HOURS_START_HOUR,
   DIAL_TOKEN_DEFAULT_TTL_SECONDS,
   DIAL_TOKEN_SECRET_ENV,
   E164_RE,
   EMERGENCY_NUMBERS,
+  MIN_AFTER_HOURS_CONFIRMATION_CHARS,
   QUIET_END_HOUR,
   QUIET_START_HOUR,
   US_PREMIUM_RE,
@@ -170,6 +173,44 @@ export function lineTypeBlockedReason(lineType: string | null): string | null {
     return `Line type '${lineType}' is not an allowed business line type; allowed line types: ${allowed}.`;
   }
   return null;
+}
+
+const AFTER_HOURS_RETRY_INSTRUCTION =
+  "confirm with your human that they want to place this call now, then retry with after_hours_confirmation set to their words. By retrying you confirm the callee has consented to be called.";
+
+function destinationLocalTime(utcOffsetMinutes: number, now?: number): { hour: number; hhmm: string } {
+  const currentMs = now != null ? now * 1000 : Date.now();
+  const local = new Date(currentMs + utcOffsetMinutes * 60_000);
+  const hh = String(local.getUTCHours()).padStart(2, "0");
+  const mm = String(local.getUTCMinutes()).padStart(2, "0");
+  return { hour: local.getUTCHours(), hhmm: `${hh}:${mm}` };
+}
+
+export function afterHoursGateReason(
+  utcOffsetMinutes: number | null,
+  afterHoursConfirmation: string | null | undefined,
+  collectionMatched: boolean,
+  now?: number,
+): string | null {
+  const local = utcOffsetMinutes == null ? null : destinationLocalTime(utcOffsetMinutes, now);
+  if (local && local.hour >= AFTER_HOURS_END_HOUR && local.hour < AFTER_HOURS_START_HOUR) {
+    return null;
+  }
+
+  const timeDescription = local ? `destination local time is ${local.hhmm}` : "timezone unverified";
+  if (collectionMatched) {
+    return (
+      `Call blocked: ${timeDescription}; collection-flavored calls are day-hours-only with no override under ` +
+      "the FDCPA 8am-9pm window (15 U.S.C. 1692c(a)(1))."
+    );
+  }
+
+  const confirmation = typeof afterHoursConfirmation === "string" ? afterHoursConfirmation.trim() : "";
+  if (confirmation.length >= MIN_AFTER_HOURS_CONFIRMATION_CHARS) {
+    return null;
+  }
+
+  return `Call blocked: ${timeDescription}; ${AFTER_HOURS_RETRY_INSTRUCTION}`;
 }
 
 /**

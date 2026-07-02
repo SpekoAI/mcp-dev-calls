@@ -1,7 +1,7 @@
 /**
  * Shared constants — ported from the Python reference (SpekoAI/platform#582:
  * call_tools.py / dial_token.py) and the prior single-package scaffold. The
- * safety values (line types, objective block-list, quiet hours, dial-token TTL)
+ * safety values (line types, objective block-list, after-hours gate, dial-token TTL)
  * are the compliance moat; keep them in sync with the platform.
  */
 
@@ -121,15 +121,31 @@ export const EMERGENCY_NUMBERS: ReadonlySet<string> = new Set([
 
 // ── Objective screen (block-list wins over transactional wording) ────────────
 export const OBJECTIVE_BLOCK_RE =
-  /\bsell\b|sales pitch|promot|discount|sponsor|advertis|marketing|survey|donat|fundrais|vote|campaign|debt|warranty|crypto|investment|persuad|convinc|solicit|upsell|telemarket/i;
+  /\bsell\b|sales pitch|promot|discount|sponsor|advertis|marketing|survey|donat|fundrais|vote|campaign|debt|warranty|crypto|investment|persuad|convinc|solicit|upsell|telemarket|\bcold.?call\b|\bprospect(?:ing|s)?\s+(?:call|list|for)\b|\blead.?gen(?:eration)?\b|\bsales outreach\b/i;
+
+export const HARASSMENT_BLOCK_RE =
+  /\b(?:harass|prank(?:\s+(?:call|him|her|them|my))|threat(?:en|s)?|intimidat\w*|revenge|get back at|stalk\w*|(?:to|keep)\s+annoy(?:ing)?|mess with\s+(?:him|her|them|my)|wake\s+(?:him|her|them)\s+up|humiliat\w*|embarrass\w*|(?:repeatedly|repeated)\s+call|call\s+(?:\S+\s+){0,3}repeatedly|keep\s+(?:calling|dialing|phoning)(?:\s+\S+)?\s+until|call\s+(?:(?:him|her|them|it)\s+)?every\s+\d+\s*(?:minutes|mins|hours)|scare\s+(?:him|her|them|my)|teach\s+(?:him|her|them|my\s+\w+)\s+a\s+lesson)\b/i;
+
+export const IMPERSONATION_BLOCK_RE =
+  /\b(?:pretend\s+(?:to\s+be|you'?re|that)|impersonat\w*|pos(?:e|ing)\s+as|pretext|claim(?:ing)?\s+to\s+be|say\s+(?:you'?re|i'?m|we'?re)\s+(?:from|with|calling\s+from)|(?:you'?re|i'?m|we'?re|he'?s|she'?s)\s+(?:from|with)\s+the\s+(?:irs|fbi|ssa|social security|medicare|police|sheriff|court|government|immigration|ice)\b)/i;
+
+export const COLLECTION_RE =
+  /\b(?:owes?|overdue|past.?due|collect\s+(?:a\s+)?payment|pay\s+(?:his|her|their|the|an?)\s+(?:bill|invoice|balance)|money\s+(?:he|she|they)\s+owes?|debt)\b/i;
 
 // ── Dial token ───────────────────────────────────────────────────────────────
 export const DIAL_TOKEN_DEFAULT_TTL_SECONDS = 900;
 export const DIAL_TOKEN_SECRET_ENV = "SPEKO_DIAL_TOKEN_SECRET";
 
-// ── Quiet hours (destination local) ──────────────────────────────────────────
-export const QUIET_START_HOUR = 21;
-export const QUIET_END_HOUR = 8;
+// ── After-hours gate (destination local) ─────────────────────────────────────
+export const AFTER_HOURS_START_HOUR = 21;
+export const AFTER_HOURS_END_HOUR = 8;
+export const QUIET_START_HOUR = AFTER_HOURS_START_HOUR;
+export const QUIET_END_HOUR = AFTER_HOURS_END_HOUR;
+export const MIN_AFTER_HOURS_CONFIRMATION_CHARS = 5;
+
+// ── Per-number rate caps ─────────────────────────────────────────────────────
+export const RATE_CAP_PER_NUMBER_HOUR = 3;
+export const RATE_CAP_PER_NUMBER_DAY = 8;
 
 // ── Actionable next-step guidance (embedded in API errors → tool errors) ─────
 export const LOOKUP_BUSINESS_NEXT_STEP =
