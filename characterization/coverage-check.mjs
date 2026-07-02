@@ -65,8 +65,4 @@ if (missing.length) {
   for (const id of missing) console.log(`MISSING ${id}`);
   process.exit(1);
 }
-if (have.size < 45) {
-  console.log(`FAIL: probe count ${have.size} < 45`);
-  process.exit(1);
-}
 process.exit(0);

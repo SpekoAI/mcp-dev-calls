@@ -1,7 +1,7 @@
 import { spawn } from "node:child_process";
 
 /** Run a CLI invocation of a bundle; capture code/stdout/stderr with a hard timeout. */
-export function runCli(bundlePath, argv, { env = {}, cwd, timeoutMs = 30_000, input } = {}) {
+export function runCli(bundlePath, argv, { env = {}, cwd, timeoutMs = 30_000 } = {}) {
   return new Promise((resolve) => {
     const child = spawn(process.execPath, [bundlePath, ...argv], {
       cwd,
@@ -25,7 +25,6 @@ export function runCli(bundlePath, argv, { env = {}, cwd, timeoutMs = 30_000, in
       clearTimeout(timer);
       resolve({ code, stdout, stderr });
     });
-    if (input) child.stdin.write(input);
     child.stdin.end();
   });
 }
