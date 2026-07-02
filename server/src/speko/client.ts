@@ -31,6 +31,11 @@ export function isAuthFailure(e: unknown): boolean {
   );
 }
 
+/** True when the platform says the addressed resource doesn't exist (HTTP 404). */
+export function isNotFound(e: unknown): boolean {
+  return e instanceof SpekoApiError && e.status === 404;
+}
+
 export class SpekoClient {
   private readonly speko: Speko;
   private readonly apiKey: string;
