@@ -1,0 +1,166 @@
+{
+  "tools": [
+    {
+      "description": "Ring the account owner's own verified phone to deliver a message ('notify') or relay a spoken reply ('converse'). DEFERRED to v2: the Speko platform does not yet expose a verified personal phone, so this is not available in v1.",
+      "inputSchema": {
+        "properties": {
+          "message": {
+            "description": "Message to speak to the owner's verified phone (1-2000 chars).",
+            "type": "string"
+          },
+          "mode": {
+            "description": "'notify' delivers and hangs up; 'converse' also relays the spoken reply.",
+            "enum": [
+              "notify",
+              "converse"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "message"
+        ],
+        "type": "object"
+      },
+      "name": "call_me"
+    },
+    {
+      "description": "Place a disclosed call to a phone number you HAVE or FOUND (e.g. via web search) — the DEFAULT path for calling any business or person. Works with just the user's Speko key, no extra setup. Every call opens with the non-removable AI disclosure; quiet hours and the no-sell/no-spam screen still apply (mobiles allowed). lookup_business + make_call is the OPTIONAL verified-directory path (it needs the server's carrier/directory keys); prefer call_number when you already have or found the number. Only dial a number the user asked you to call or explicitly provided — never one you invented.",
+      "inputSchema": {
+        "properties": {
+          "behavior": {
+            "description": "PRIVATE instructions for HOW the assistant should behave — NEVER spoken aloud (e.g. 'wait for them to say hello before you speak', 'keep it brief'). Steering/meta here; the ask itself in `objective`.",
+            "type": "string"
+          },
+          "caller_name": {
+            "description": "Name of the human the call is on behalf of (1-80 chars); spoken in the AI-disclosure opening.",
+            "type": "string"
+          },
+          "context": {
+            "description": "Optional extra context for the message.",
+            "type": "string"
+          },
+          "max_duration_seconds": {
+            "description": "Max seconds to wait for the call to finish; clamped 30-300.",
+            "type": "integer"
+          },
+          "objective": {
+            "description": "What to accomplish, in plain words - the ask, not a script (e.g. 'Tell Sam that John says happy birthday and misses him'). The server composes the spoken opening line and always includes the AI disclosure automatically, so never write greetings or self-introductions ('Hi! I'm calling to...'). Behavior/steering instructions go in `behavior` (in the objective they can end up spoken to the callee).",
+            "type": "string"
+          },
+          "phone_number": {
+            "description": "Number to call in full international E.164 — leading + and country code (e.g. +14152857117, NOT (415) 285-7117). A number the user asked you to call or explicitly provided.",
+            "type": "string"
+          },
+          "recipient_name": {
+            "description": "Who you're calling, used in the greeting (e.g. 'Sam').",
+            "type": "string"
+          },
+          "utc_offset_minutes": {
+            "description": "Callee UTC offset in minutes for quiet hours (e.g. 300 = UTC+5). Auto-derived from the number; pass it only if a call is blocked for unknown timezone.",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "phone_number",
+          "objective",
+          "caller_name"
+        ],
+        "type": "object"
+      },
+      "name": "call_number"
+    },
+    {
+      "description": "Read-only preflight: can this account place calls? Reports auth, prepaid credit balance, and outbound caller-ID readiness — each with a concrete next step. Never dials. Run it first if calling does not work, or as the simple \"am I set up?\" check before the first make_call.",
+      "inputSchema": {
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "name": "check_call_readiness"
+    },
+    {
+      "description": "Read-only: re-check an existing call by its call_id — status, connected/answered, the OUTCOME line, and the transcript. Never dials. Use it after make_call or call_number reports a timeout, or to inspect a finished call.",
+      "inputSchema": {
+        "properties": {
+          "call_id": {
+            "description": "The call_id returned by make_call or call_number — to re-check a call's status, outcome, and transcript.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "call_id"
+        ],
+        "type": "object"
+      },
+      "name": "get_call"
+    },
+    {
+      "description": "Resolve a business to dialable candidates and mint a signed dial_token for each callable one — the only path that can authorize make_call (raw phone numbers are rejected). If you can find the business's official number via web search, pass it as phone_number to skip the directory lookup; otherwise pass name (plus optional location). Either way the number is carrier-verified as a business line.",
+      "inputSchema": {
+        "properties": {
+          "location": {
+            "description": "Optional city or area to disambiguate, e.g. 'New York'.",
+            "type": "string"
+          },
+          "name": {
+            "description": "Business name, e.g. \"Joe's Pizza\".",
+            "minLength": 1,
+            "type": "string"
+          },
+          "phone_number": {
+            "description": "The business's official phone number in E.164 (e.g. +14155551234) if you can find it via web search. When provided, this skips the directory lookup and verifies this exact number — it's still carrier-checked as a business line before any call. Omit it to resolve by name + location instead.",
+            "type": "string"
+          },
+          "utc_offset_minutes": {
+            "description": "Destination UTC offset in minutes for quiet-hours (e.g. -300 US Eastern, -480 US Pacific, 0 UK). Pass this alongside phone_number when you know the business's region but its number isn't auto-recognized (otherwise the offset is derived from the number).",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "type": "object"
+      },
+      "name": "lookup_business"
+    },
+    {
+      "description": "Place a disclosed, objective-scoped phone call authorized by a dial_token from lookup_business. Stays open until the call finishes and returns the OUTCOME line plus the transcript. Every call opens with a non-removable AI disclosure; selling, promotion, surveys, fundraising, and campaigning are blocked. All safety rails are enforced server-side.",
+      "inputSchema": {
+        "properties": {
+          "behavior": {
+            "description": "PRIVATE instructions for HOW the assistant should behave — NEVER spoken aloud (e.g. 'wait for them to say hello before you speak', 'be extra concise', 'if they offer takeout, decline'). Steering/meta goes here; the ask itself goes in `objective`.",
+            "type": "string"
+          },
+          "caller_name": {
+            "description": "Name of the human the call is on behalf of (1-80 chars); spoken in the AI-disclosure opening line.",
+            "type": "string"
+          },
+          "context": {
+            "description": "Optional extra task context (party size, dates, order numbers).",
+            "type": "string"
+          },
+          "dial_token": {
+            "description": "Signed dial token minted by lookup_business. Raw phone numbers are rejected.",
+            "type": "string"
+          },
+          "max_duration_seconds": {
+            "description": "Max seconds to wait for the call to finish; clamped to 30-300.",
+            "type": "integer"
+          },
+          "objective": {
+            "description": "Single transactional request in plain words - the ask, not a script (e.g. 'Book a table for 4 at 8pm tonight under Bek'). The server composes the spoken opening line from it and always prepends the AI disclosure, so never write greetings or self-introductions ('Hi! I'm calling to...') - they garble the opener. Do NOT put behavior/steering instructions here (they can end up spoken to the callee); use `behavior` for those.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "dial_token",
+          "objective",
+          "caller_name"
+        ],
+        "type": "object"
+      },
+      "name": "make_call"
+    }
+  ]
+}
