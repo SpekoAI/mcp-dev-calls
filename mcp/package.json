@@ -1,6 +1,6 @@
 {
   "name": "@spekoai/mcp-calls",
-  "version": "0.4.9",
+  "version": "0.5.0",
   "description": "Place real, disclosed phone calls to businesses straight from your coding agent — the Speko \"AI calls for devs\" MCP. Single self-contained package: `npx @spekoai/mcp-calls init` to set up.",
   "mcpName": "ai.speko/mcp-calls",
   "type": "module",

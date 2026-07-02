@@ -1,6 +1,7 @@
 /**
  * Speko Calls entry. One bin, cli + mcp:
  *  • `speko init|setup|login`        → onboarding wizard (may log to stdout).
+ *  • `speko dnc list|add|remove`     → local do-not-call guardrail ledger.
  *  • `speko audio speak|transcribe`  → terminal TTS/STT (voice on the CLI).
  *  • `speko voices|models`           → list voices the router can pick.
  *  • `speko --help|--version`        → help/version.
@@ -16,6 +17,7 @@
 import { MCPServer } from "mcp-framework";
 import { runInit } from "./cli/init.js";
 import { runAudio } from "./cli/audio/index.js";
+import { runDnc } from "./cli/dnc.js";
 import { runVoices } from "./cli/voices.js";
 import { resolveMode } from "./cli/router.js";
 import { loadEnv } from "./lib/env.js";
@@ -26,7 +28,7 @@ import GetCallTool from "./tools/GetCallTool.js";
 import LookupBusinessTool from "./tools/LookupBusinessTool.js";
 import MakeCallTool from "./tools/MakeCallTool.js";
 
-const VERSION = "0.4.8";
+const VERSION = "0.5.0";
 
 function printHelp(): number {
   process.stderr.write(
@@ -34,6 +36,7 @@ function printHelp(): number {
       "Usage:\n" +
       "  speko                          (when launched by an MCP host) the stdio MCP server\n" +
       "  speko init | setup | login     onboarding & auth\n" +
+      "  speko dnc list|add|remove      manage the local do-not-call list\n" +
       '  speko audio speak "<text>"     text-to-speech (TTS)\n' +
       "  speko audio transcribe <f|->   speech-to-text (STT)\n" +
       "  speko voices [--provider <p>]  list available voices\n" +
@@ -53,6 +56,7 @@ const CLI: Record<string, () => Promise<number> | number> = {
   init: async () => (await runInit(rest, "init"), 0),
   setup: async () => (await runInit(rest, "setup"), 0),
   login: async () => (await runInit(rest, "login"), 0),
+  dnc: () => runDnc(rest),
   audio: () => runAudio(rest),
   voices: () => runVoices(rest),
   models: () => runVoices(rest),

@@ -31,7 +31,7 @@ const r = await fetch(`${BASE}/call-number`, {
 });
 const call = await r.json().catch(() => ({}));
 
-// Pre-dial rejection (quiet hours, blocked objective, bad caller-ID) → nothing was placed.
+// Pre-dial rejection (after-hours gate, DNC/rate cap, blocked objective, bad caller-ID) → nothing was placed.
 if (!r.ok || call.error) {
   console.log(`\n⛔ REJECTED before dialing — nothing was placed (HTTP ${r.status})`);
   console.log(`  reason : ${call.error ?? "unknown error"}`);
