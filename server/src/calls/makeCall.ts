@@ -421,8 +421,9 @@ async function runPhoneCallInner(
   let status = String(dial.status ?? "").toLowerCase();
   const dialCallControlId = String(dial.callControlId ?? "").trim();
 
-  // Diagnostic log (server stdout; the MCP runs this as a separate process).
-  console.log(
+  // Diagnostic log — stderr, NEVER stdout: in single-process mode this runs inside the
+  // MCP server, whose stdout is reserved for JSON-RPC frames.
+  console.error(
     `[dial] session=${callId ?? "-"} status=${status} callControlId=${dialCallControlId || "(none)"} to=${to ?? "-"} from=${from ?? "-"}`,
   );
 
@@ -683,7 +684,7 @@ async function finalize(
     fallbackDuration: elapsed,
     dialFailed,
   });
-  console.log(
+  console.error(
     `[result] session=${callId} platformStatus=${status} -> reported=${summary.status} connected=${summary.connected} answered=${summary.answered}`,
   );
   return summary;
