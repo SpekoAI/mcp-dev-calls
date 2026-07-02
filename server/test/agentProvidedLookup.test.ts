@@ -185,6 +185,9 @@ describe("agent-provided lookup", () => {
       // Disclosure is always present + names the caller (buildFirstMessage is pure).
       expect(String(body.firstMessage)).toMatch(/AI assistant/i);
       expect(String(body.firstMessage)).toContain("Bruce");
+      // A question-form objective must be relayed, never spliced into "asked me to do you have...".
+      expect(String(body.firstMessage)).not.toMatch(/asked me to do you/i);
+      expect(String(body.firstMessage)).toMatch(/table for 4/i);
       expect(body.systemPrompt).toBeTypeOf("string");
       // Full happy path: connected (callControlId + carrier usage) → answered (caller turn) → outcome.
       expect(summary.call_id).toBe("sess1");
