@@ -133,7 +133,13 @@ if (capture) {
   for (const [id, value] of Object.entries(results)) {
     writeFileSync(join(BASELINE_DIR, `${id}.json`), `${JSON.stringify(value, null, 2)}\n`);
   }
-  const shasum = execSync("shasum fixtures/mcp-calls-0.4.9.tgz", { cwd: HERE }).toString().split(" ")[0];
+  // `shasum` (macOS/Perl) and `sha1sum` (Linux coreutils) both print "<hash>  <file>".
+  const shasum = execSync(
+    "shasum fixtures/mcp-calls-0.4.9.tgz 2>/dev/null || sha1sum fixtures/mcp-calls-0.4.9.tgz",
+    { cwd: HERE, shell: "/bin/sh" },
+  )
+    .toString()
+    .split(/\s+/)[0];
   writeFileSync(
     join(BASELINE_DIR, "meta.json"),
     `${JSON.stringify({ package: "@spekoai/mcp-calls", version: "0.4.9", tarballShasum: shasum, probeCount: Object.keys(results).length, capturedAt: new Date().toISOString() }, null, 2)}\n`,
@@ -145,6 +151,12 @@ if (capture) {
 // Compare mode
 const deltas = loadDeltas();
 const deltaById = new Map(deltas.map((d) => [d.probeId, d]));
+// Catch a probeId typo in expected-deltas.json early: an orphaned delta key never gets
+// looked up (its real probe silently falls through to the parity check), so surface it here.
+const orphanDeltas = [...deltaById.keys()].filter((id) => !(id in results));
+if (orphanDeltas.length) {
+  console.error(`WARNING: expected-deltas.json has entries for unknown probe ids: ${orphanDeltas.join(", ")}`);
+}
 let parityPass = 0;
 let deltaPass = 0;
 const failures = [];
