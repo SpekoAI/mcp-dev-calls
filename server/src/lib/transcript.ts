@@ -46,6 +46,16 @@ function findTurnList(transcript: unknown): unknown[] | null {
   return null;
 }
 
+/**
+ * Number of turns (any speaker) in a transcript's recognizable turn list, or null when no
+ * list exists. Used by the poll loop's egress fast-path to tell "the call is over" (turn
+ * count frozen) from "only the recording died" (turns still arriving).
+ */
+export function countTranscriptTurns(transcript: unknown): number | null {
+  const turns = findTurnList(transcript);
+  return turns ? turns.length : null;
+}
+
 // The B2 symptom: a receptionist speaks its end-call STRUCTURED output aloud — the tool verb
 // (end_call / transfer_call), field labels, and verbalized punctuation ("farewell colon",
 // "reason colon", "type colon"). Matches both the literal tokens and their spoken forms.
