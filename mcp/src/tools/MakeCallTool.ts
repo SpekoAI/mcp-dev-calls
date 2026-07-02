@@ -9,9 +9,11 @@ const schema = z.object({
   objective: z
     .string()
     .describe(
-      "Single transactional request — READ ALOUD VERBATIM after the AI disclosure. Put ONLY what " +
-        "should be spoken here (e.g. 'Do you have a table for 4 at 8pm tonight?'). Do NOT put " +
-        "behavior/steering instructions here — they would be spoken to the callee. Use `behavior` for those.",
+      "Single transactional request in plain words - the ask, not a script (e.g. 'Book a table " +
+        "for 4 at 8pm tonight under Bek'). The server composes the spoken opening line from it " +
+        "and always prepends the AI disclosure, so never write greetings or self-introductions " +
+        "('Hi! I'm calling to...') - they garble the opener. Do NOT put behavior/steering " +
+        "instructions here (they can end up spoken to the callee); use `behavior` for those.",
     ),
   caller_name: z
     .string()
@@ -23,7 +25,7 @@ const schema = z.object({
     .describe(
       "PRIVATE instructions for HOW the assistant should behave — NEVER spoken aloud (e.g. 'wait for " +
         "them to say hello before you speak', 'be extra concise', 'if they offer takeout, decline'). " +
-        "Steering/meta goes here; spoken content goes in `objective`.",
+        "Steering/meta goes here; the ask itself goes in `objective`.",
     ),
   max_duration_seconds: z
     .number()
@@ -87,14 +89,18 @@ export default class MakeCallTool extends MCPTool {
     const maxWait = clamp(input.max_duration_seconds ?? MAX_WAIT, MIN_WAIT, MAX_WAIT);
     const client = getServerClient();
 
-    // Heartbeat so the call feels alive in the terminal. The authoritative
-    // status lives server-side; here we surface elapsed time (monotonic).
-    let elapsed = 0;
+    // Heartbeat so the call feels alive in the terminal. The authoritative status lives
+    // server-side; here we surface elapsed time from the wall clock — counting ticks drifts
+    // behind reality whenever the event loop is busy (skipped/late intervals), understating
+    // the progress %. Clamp the progress value to the cap so it never renders past 100%.
+    const startedAtMs = Date.now();
     // Immediate progress so the terminal isn't silent for the first ~5s while the call places + rings.
     void this.reportProgress(0, maxWait, "Placing the call…").catch(() => {});
     const timer = setInterval(() => {
-      elapsed += HEARTBEAT_MS / 1000;
-      void this.reportProgress(elapsed, maxWait, `Call in progress — ${elapsed}s elapsed`).catch(() => {});
+      const elapsed = Math.round((Date.now() - startedAtMs) / 1000);
+      void this.reportProgress(Math.min(elapsed, maxWait), maxWait, `Call in progress — ${elapsed}s elapsed`).catch(
+        () => {},
+      );
     }, HEARTBEAT_MS);
 
     try {

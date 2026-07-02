@@ -6,6 +6,10 @@
  */
 import { Speko, SpekoApiError, SpekoAuthError, SpekoRateLimitError } from "@spekoai/sdk";
 import type {
+  AgentCreateParams,
+  AgentRow,
+  AgentToolRow,
+  AgentUpdateParams,
   CallDetail,
   OrganizationBalance,
   PhoneNumberRow,
@@ -25,6 +29,11 @@ export function isAuthFailure(e: unknown): boolean {
     e instanceof SpekoAuthError ||
     (e instanceof SpekoApiError && (e.status === 401 || e.status === 403))
   );
+}
+
+/** True when the platform says the addressed resource doesn't exist (HTTP 404). */
+export function isNotFound(e: unknown): boolean {
+  return e instanceof SpekoApiError && e.status === 404;
 }
 
 export class SpekoClient {
@@ -56,6 +65,30 @@ export class SpekoClient {
 
   listPhoneNumbers(): Promise<PhoneNumberRow[]> {
     return this.speko.phoneNumbers.list();
+  }
+
+  listAgents(): Promise<AgentRow[]> {
+    return this.speko.agents.list();
+  }
+
+  createAgent(params: AgentCreateParams): Promise<AgentRow> {
+    return this.speko.agents.create(params);
+  }
+
+  getAgent(agentId: string): Promise<AgentRow> {
+    return this.speko.agents.get(agentId);
+  }
+
+  updateAgent(agentId: string, params: AgentUpdateParams): Promise<AgentRow> {
+    return this.speko.agents.update(agentId, params);
+  }
+
+  listAgentTools(agentId: string): Promise<AgentToolRow[]> {
+    return this.speko.agents.tools.list(agentId);
+  }
+
+  deleteAgentTool(agentId: string, toolId: string): Promise<{ deleted: boolean }> {
+    return this.speko.agents.tools.delete(agentId, toolId);
   }
 
   /**

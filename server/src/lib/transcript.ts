@@ -1,4 +1,4 @@
-import { OUTCOME_MARKER } from "../constants.js";
+import { BARE_OUTCOME_RE, OUTCOME_MARKER } from "../constants.js";
 
 // Speko transcripts come either bare (`[...]`) or wrapped; the turn list can sit
 // under any of these keys. `entries` is the shape returned by CallDetail.transcript.
@@ -34,6 +34,20 @@ export function extractOutcome(transcript: unknown): string | null {
   return outcome;
 }
 
+/**
+ * Best available outcome for a call: a SUBSTANTIVE report outcome wins, else the transcript's
+ * OUTCOME: marker, else null. Bare platform status words ("failed"/"completed"/...) in the
+ * report are ignored; on a connected call they read as a misleading headline.
+ */
+export function bestOutcome(
+  report: { outcome?: unknown } | null | undefined,
+  transcript: unknown,
+): string | null {
+  const reportOutcome = typeof report?.outcome === "string" ? report.outcome.trim() : "";
+  const substantive = reportOutcome && !BARE_OUTCOME_RE.test(reportOutcome) ? reportOutcome : "";
+  return substantive || extractOutcome(transcript);
+}
+
 function findTurnList(transcript: unknown): unknown[] | null {
   if (Array.isArray(transcript)) return transcript;
   if (transcript && typeof transcript === "object") {
@@ -44,6 +58,16 @@ function findTurnList(transcript: unknown): unknown[] | null {
     }
   }
   return null;
+}
+
+/**
+ * Number of turns (any speaker) in a transcript's recognizable turn list, or null when no
+ * list exists. Used by the poll loop's egress fast-path to tell "the call is over" (turn
+ * count frozen) from "only the recording died" (turns still arriving).
+ */
+export function countTranscriptTurns(transcript: unknown): number | null {
+  const turns = findTurnList(transcript);
+  return turns ? turns.length : null;
 }
 
 // The B2 symptom: a receptionist speaks its end-call STRUCTURED output aloud — the tool verb
