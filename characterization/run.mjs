@@ -36,7 +36,10 @@ if (!["tarball", "local"].includes(target)) {
   console.error("Usage: run.mjs --target tarball|local [--capture] [--out file.json]");
   process.exit(1);
 }
-const bundle = target === "tarball" ? TARBALL_BUNDLE : LOCAL_BUNDLE;
+// --bundle <path> overrides the resolved bundle (used to characterize the actually-published
+// 0.5.0 tarball, not just the local build). Target still labels the run report.
+const bundleOverride = typeof flag("bundle") === "string" ? flag("bundle") : undefined;
+const bundle = bundleOverride ?? (target === "tarball" ? TARBALL_BUNDLE : LOCAL_BUNDLE);
 if (!existsSync(bundle)) {
   console.error(`Bundle not found: ${bundle}`);
   process.exit(1);
