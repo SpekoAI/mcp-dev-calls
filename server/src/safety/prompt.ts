@@ -32,8 +32,10 @@ const SPEAKING_DIRECTIVE_RE =
  * period after a common abbreviation ("Dr. Smith", "Main St.") or a single capital initial
  * ("John Q. Public") from reading as a sentence end, so a grafted clause can never be cut off at
  * "...a message for Dr.". "No." is guarded only when a number follows ("Order No. 4512") because
- * bare "No." legitimately ends a sentence. Flat literal alternations only — the objective is
- * attacker-influenced, so this must stay linear-time.
+ * bare "No." legitimately ends a sentence. The objective is attacker-influenced, so this must stay
+ * linear-time: alternations are flat literals and every lookbehind is fixed-length; the one
+ * lookahead (the "No." guard) nests a fixed-length lookbehind with a bounded \s+\d scan — no
+ * nested quantifiers anywhere, so no backtracking blowup.
  */
 const SENTENCE_SPLIT_RE =
   /(?<=[.!?])(?<!\b(?:[Dd]r|[Mm]r|[Mm]rs|[Mm]s|[Pp]rof|[Ss]t|[Aa]ve|[Aa]pt|[Jj]r|[Ss]r|[Vv]s|[Ee]tc)\.)(?<!\b[A-Z]\.)(?!(?<=\b[Nn]o\.)\s+\d)\s+/;
@@ -78,6 +80,9 @@ export function sanitizeName(raw: string): string {
  * the call itself. With MAX_CALLER_NAME_CHARS bounding the name, this bounds the whole opener.
  */
 export const MAX_SPOKEN_OBJECTIVE_CHARS = 220;
+
+/** Joiner between chained imperative clauses in the grafted opener ("...book a table, and to ask..."). */
+const GRAFT_JOINER = ", and to ";
 
 /**
  * A sentence that is ONLY a greeting ("Hi!", "Hey there.", "Good morning, Sam.") - dropped before
@@ -272,9 +277,12 @@ export function buildFirstMessage(callerName: string, objective: string): string
   for (const sentence of sentences) {
     const clause = imperativeClause(sentence, name);
     if (clause == null) break;
-    if (clauses.length > 0 && spokenLength + clause.length > MAX_SPOKEN_OBJECTIVE_CHARS) break;
+    // The joiner is spoken too, so it counts toward the cap — otherwise a chain could silently
+    // exceed MAX_SPOKEN_OBJECTIVE_CHARS by a joiner per clause.
+    const addition = clauses.length > 0 ? GRAFT_JOINER.length + clause.length : clause.length;
+    if (clauses.length > 0 && spokenLength + addition > MAX_SPOKEN_OBJECTIVE_CHARS) break;
     clauses.push(clause);
-    spokenLength += clause.length;
+    spokenLength += addition;
   }
 
   if (clauses.length > 0) {
@@ -282,7 +290,7 @@ export function buildFirstMessage(callerName: string, objective: string): string
     // allow-listed verb, never a proper noun.
     const lowered = clauses.map((c) => `${c.charAt(0).toLowerCase()}${c.slice(1)}`);
     const first = truncateAtWordBoundary(lowered[0], MAX_SPOKEN_OBJECTIVE_CHARS);
-    const chain = [first, ...lowered.slice(1).map((c) => `, and to ${c}`)].join("");
+    const chain = [first, ...lowered.slice(1).map((c) => `${GRAFT_JOINER}${c}`)].join("");
     return `Hi, I'm ${possessive} AI assistant and ${subject} asked me to ${chain}.`;
   }
 

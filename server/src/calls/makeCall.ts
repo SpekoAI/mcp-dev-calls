@@ -522,7 +522,6 @@ async function finalize(
   let transcript: unknown = null;
   let transcriptError: string | undefined;
   let outcome: string | null = null;
-  let reportOutcomeSubstantive = false;
   let anyReadOk = false;
   const readDetail = async (): Promise<void> => {
     try {
@@ -532,7 +531,6 @@ async function finalize(
       // Ignore bare platform status words ("failed"/"completed"/...) — prefer a substantive report
       // outcome, else an OUTCOME: marker in the transcript.
       const substantive = reportOutcome && !BARE_OUTCOME_RE.test(reportOutcome) ? reportOutcome : "";
-      reportOutcomeSubstantive = substantive !== "";
       outcome = substantive || extractOutcome(transcript);
       anyReadOk = true;
       transcriptError = undefined;
@@ -554,10 +552,12 @@ async function finalize(
   // AFTER room teardown, so finalizing instantly can race it and degrade the outcome to a
   // transcript scrape. Row presence isn't the gate — the platform's heuristic pass can write
   // the row with a bare status word ("completed") before analysis rewrites the real outcome —
-  // so wait up to REPORT_GRACE_POLLS short polls for a SUBSTANTIVE outcome. Bounded, because a
-  // substantive outcome that never comes (analysis disabled/failed) must never block
-  // termination; the transcript extraction above then stands.
-  for (let attempt = 0; !reportOutcomeSubstantive && attempt < REPORT_GRACE_POLLS; attempt += 1) {
+  // so wait up to REPORT_GRACE_POLLS short polls for a SUBSTANTIVE outcome from EITHER source.
+  // An OUTCOME: marker already scraped from the transcript is the agent's own explicit statement,
+  // so there is nothing left to wait for (the common happy path skips the grace entirely).
+  // Bounded, because a substantive outcome that never comes (analysis disabled/failed) must
+  // never block termination; the transcript extraction above then stands.
+  for (let attempt = 0; !outcome && attempt < REPORT_GRACE_POLLS; attempt += 1) {
     await sleep(3000);
     await readDetail();
   }

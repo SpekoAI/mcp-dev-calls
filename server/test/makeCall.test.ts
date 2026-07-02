@@ -629,7 +629,9 @@ describe("finalize — report-grace (finalize-vs-report race)", () => {
     expect(getCallCalls).toBe(2); // one transcript read + ONE grace poll, then it stopped waiting
   });
 
-  it("never blocks termination on a report that never comes (bounded, falls back to the transcript)", async () => {
+  it("skips the grace entirely when the transcript already carries the agent's OUTCOME statement", async () => {
+    // The OUTCOME: marker is the agent's own explicit outcome — there is nothing better to wait
+    // for, so the happy path must not burn grace polls waiting on report analysis.
     let getCallCalls = 0;
     const s = await runPhoneCall(
       BODY,
@@ -658,7 +660,38 @@ describe("finalize — report-grace (finalize-vs-report race)", () => {
     );
     expect(s.status).toBe("completed");
     expect(s.outcome).toBe("closed Mondays"); // transcript OUTCOME marker, not degraded to null
-    expect(getCallCalls).toBe(3); // 1 transcript read (reply found) + exactly 2 grace polls
+    expect(getCallCalls).toBe(1); // reply found on the first read + outcome already substantive -> zero grace polls
+  });
+
+  it("never blocks termination on a report that never comes (bounded, no outcome from any source)", async () => {
+    let getCallCalls = 0;
+    const s = await runPhoneCall(
+      BODY,
+      300,
+      deps({
+        dial: dialOk("rg4"),
+        getEvents: async () => [{ event_type: "room_finished" }] as any,
+        getCall: async () => {
+          getCallCalls += 1;
+          return {
+            status: "ended",
+            transcript: {
+              entries: [
+                { source: "agent", text: "hi" },
+                { source: "user", text: "we close Mondays" },
+              ],
+            },
+            report: null,
+          } as any;
+        },
+        getSession: async () =>
+          ({ status: "ended", endedAt: new Date().toISOString(), phoneCall: { callControlId: "phone-rg4" }, usage: [] }) as any,
+      }),
+      noopSleep,
+    );
+    expect(s.status).toBe("completed");
+    expect(s.outcome).toBeNull(); // nothing substantive ever came - honest null, not a hang
+    expect(getCallCalls).toBe(3); // 1 transcript read (reply found) + exactly 2 bounded grace polls
   });
 
   it("grace waits past a BARE report outcome for the substantive one (row presence is not the gate)", async () => {

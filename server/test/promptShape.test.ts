@@ -53,6 +53,21 @@ describe("G1 — objective-to-opener composition (no mangled grafts)", () => {
     expect(sys).toContain(objective);
   });
 
+  it("the chain joiner counts toward the spoken cap - a clause that only fits without it is dropped", () => {
+    // Two imperative clauses sized so they fit the cap WITHOUT the ", and to " joiner but exceed
+    // it WITH the joiner - the old accounting silently overshot the cap in exactly this window.
+    const c1 =
+      "book a large corner table for two people at eight pm tonight under the name Bek near the front window if possible";
+    const c2 =
+      "ask about the parking options near the restaurant entrance and the closing time for the kitchen tonight";
+    expect(c1.length + c2.length).toBeLessThanOrEqual(MAX_SPOKEN_OBJECTIVE_CHARS); // precondition
+    expect(c1.length + ", and to ".length + c2.length).toBeGreaterThan(MAX_SPOKEN_OBJECTIVE_CHARS); // precondition
+    const fm = buildFirstMessage("Bek", `${c1[0].toUpperCase()}${c1.slice(1)}. ${c2[0].toUpperCase()}${c2.slice(1)}.`);
+    expect(fm).toMatch(/asked me to book a large corner table/);
+    expect(fm).not.toMatch(/and to ask about the parking/); // dropped: joiner would breach the cap
+    expect(fm.length).toBeLessThanOrEqual(MAX_SPOKEN_OBJECTIVE_CHARS + 120); // cap + disclosure frame
+  });
+
   it("a non-imperative later sentence is left to the system prompt, not spoken raw after the graft", () => {
     const objective = "Book a table for two at 8pm. My name should be easy to spell.";
     const fm = buildFirstMessage("Bek", objective);
