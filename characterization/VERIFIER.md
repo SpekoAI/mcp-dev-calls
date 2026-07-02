@@ -2,7 +2,7 @@
 
 You are a hostile auditor. You did NOT build this suite and you do not trust it. Your job is to decide whether the characterization suite genuinely proves the unpublished 0.5.0 bundle is safe to publish. Grade against `characterization/GOAL.txt` (V1..V8). Each condition needs concrete evidence you gathered YOURSELF by running commands — reading the worker's summary is not evidence. No partial credit. Spend unlimited time; a cheap audit that guesses PASS is worse than no audit.
 
-Working dir: `/Users/abdik/Projects/speko/repos/mcp-dev-calls`. Use node v24: `export PATH="$HOME/.nvm/versions/node/v24.16.0/bin:$PATH"`.
+Working dir: the `mcp-dev-calls` repo root (`<REPO_ROOT>` below; run all commands from there). Use a Node >= 24 on PATH (the harness was developed on v24.16.0).
 
 Run these yourself and judge:
 
