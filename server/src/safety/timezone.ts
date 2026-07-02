@@ -1,11 +1,12 @@
 /**
- * Best-effort timezone derivation for the quiet-hours rail, so a target's local
- * time is computed automatically from its number instead of a hand-set
- * SPEKO_DEMO_UTC_OFFSET. Real Google Places lookups already return an offset;
- * this fills the gap for demo mode and as a fallback.
+ * Best-effort timezone derivation for the after-hours confirmation gate, so a
+ * target's local time is computed automatically from its number instead of a
+ * hand-set SPEKO_DEMO_UTC_OFFSET. Real Google Places lookups already return an
+ * offset; this fills the gap for demo mode and as a fallback.
  *
  * Maps E.164 -> IANA zone (NANP by area code, else by country code), then asks
  * Intl for that zone's CURRENT offset, so DST is always correct without a tz db.
+ * Unknown offsets require after-hours confirmation instead of blocking the call.
  *
  * Caveat: for a *virtual* number whose owner is in another country (e.g. a US DID
  * used by someone abroad), the nominal region is wrong — set an explicit
