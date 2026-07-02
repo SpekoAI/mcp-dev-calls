@@ -49,6 +49,23 @@ export const HARD_TERMINAL_STATUSES: ReadonlySet<string> = new Set([
 // The authoritative "the call is really over" signals from GET /v1/calls/{id}/events.
 export const ROOM_END_EVENTS: ReadonlySet<string> = new Set(["room_finished", "call.end_tool.completed"]);
 
+// When the phone leg dies, LiveKit closes the recording egress's audio source immediately and the
+// platform stores an `egress_ended` event whose failure_cause/payload says "Source closed" — measured
+// 11.5-21.3s BEFORE room_finished on 5/5 live outbound calls (the worker idles out its ~20s
+// departureTimeout before tearing the room down). Matched defensively over the whole serialized
+// event, since the marker can sit in failure_cause or inside the raw LiveKit payload.
+export const EGRESS_SOURCE_CLOSED_RE = /source[\s_-]*closed/i;
+// Bounded confirm window after a source-closed egress_ended: this many extra polls, each at most
+// EGRESS_CONFIRM_POLL_SECONDS apart (<= ~10s total), before the call may finalize without
+// room_finished. See runPhoneCallInner for why egress_ended alone must never finalize.
+export const EGRESS_CONFIRM_POLLS = 2;
+export const EGRESS_CONFIRM_POLL_SECONDS = 5;
+
+// The platform writes the call report (summary/outcome) moments AFTER room teardown, so a fast
+// finalize can race it and degrade the outcome label to a transcript scrape. Wait at most this many
+// short polls for the report row — bounded, so a report that never comes can't block termination.
+export const REPORT_GRACE_POLLS = 2;
+
 // Genuine non-recoverable failures (the agent never dispatched / the SIP dial failed). Unlike a
 // first-audio timeout, these never recover, so stop polling immediately.
 export const HARD_FAILURE_EVENTS: ReadonlySet<string> = new Set(["agent.dispatch_failed", "sip.dial_failed"]);
