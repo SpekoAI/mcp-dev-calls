@@ -98,13 +98,17 @@ export function buildMatrix() {
         { id: "token.malformed", tool: "make_call", args: () => ({ dial_token: "not-a-token", objective: "Ask if they have a table for four.", caller_name: CALLER }) },
         { id: "token.expired", tool: "make_call", args: () => ({ dial_token: mintToken({ e164: NUM, utcOffsetMinutes: DAY(), ttlSeconds: -60 }), objective: "Ask if they have a table for four.", caller_name: CALLER }) },
         {
+          // Deterministically invalid signature: mint with the WRONG secret. Well-formed base64url,
+          // correct exp/bearer, but the HMAC won't verify against the server's secret -> "signature
+          // check failed". (Char-flipping the last base64url char is NOT reliable: trailing-bit
+          // aliasing can decode to identical signature bytes, letting a "tampered" token verify.)
           id: "token.tampered",
           tool: "make_call",
-          args: () => {
-            const t = mintToken({ e164: NUM, utcOffsetMinutes: DAY() });
-            const flip = t.endsWith("A") ? `${t.slice(0, -1)}B` : `${t.slice(0, -1)}A`;
-            return { dial_token: flip, objective: "Ask if they have a table for four.", caller_name: CALLER };
-          },
+          args: () => ({
+            dial_token: mintToken({ e164: NUM, utcOffsetMinutes: DAY(), secret: "a-different-wrong-secret-than-the-server" }),
+            objective: "Ask if they have a table for four.",
+            caller_name: CALLER,
+          }),
         },
         { id: "token.wrong-account", tool: "make_call", args: () => ({ dial_token: mintToken({ e164: NUM, utcOffsetMinutes: DAY(), bearerHash: "deadbeefdeadbeef" }), objective: "Ask if they have a table for four.", caller_name: CALLER }) },
         { id: "token.mobile-blocked", tool: "make_call", args: () => ({ dial_token: mintToken({ e164: NUM, lineType: "mobile", utcOffsetMinutes: DAY() }), objective: "Ask if they have a table for four.", caller_name: CALLER }) },
