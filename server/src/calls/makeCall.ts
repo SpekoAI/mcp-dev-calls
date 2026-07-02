@@ -8,7 +8,6 @@ import type { VoiceDialParams } from "@spekoai/sdk";
 import type { AppConfig } from "../config.js";
 import {
   AUTH_NEXT_STEP,
-  BARE_OUTCOME_RE,
   DIAL_INTENT_LANGUAGE,
   DIAL_STT_KEYWORDS,
   EGRESS_CONFIRM_POLL_SECONDS,
@@ -16,6 +15,7 @@ import {
   EGRESS_SOURCE_CLOSED_RE,
   FAST_POLLS,
   FAST_POLL_SECONDS,
+  FINALIZE_RETRY_MS,
   HARD_FAILURE_EVENTS,
   HARD_TERMINAL_STATUSES,
   MAKE_CALL_DIAL_NEXT_STEP,
@@ -29,7 +29,8 @@ import {
   STUB_DIAL_STATUS,
 } from "../constants.js";
 import { AppError, RejectionError } from "../lib/errors.js";
-import { countTranscriptTurns, extractOutcome, extractReply } from "../lib/transcript.js";
+import { eventType } from "../lib/events.js";
+import { bestOutcome, countTranscriptTurns, extractReply } from "../lib/transcript.js";
 import {
   DialTokenError,
   dialBlockedReason,
@@ -75,6 +76,8 @@ export interface MakeCallDeps {
   cfg: AppConfig;
   bearerHash: string;
   sleep?: (ms: number) => Promise<void>;
+  /** Wall-clock source for the poll-loop wait cap (tests inject one tied to their fake sleep). */
+  now?: () => number;
   /**
    * Server-side ONLY — set by the direct-dial (`call_number`) path, which is itself
    * gated by cfg.allowDirectDial. Skips the business-lines-only check so personal calls
@@ -223,11 +226,14 @@ export async function makeCall(input: MakeCallInput, deps: MakeCallDeps): Promis
     telephony: { amd: { mode: "agent" } },
   });
 
-  try {
-    return attachDashboardUrl(
-      await runPhoneCall(buildBody(dialAgentId), durationCap, deps, sleep),
+  const placeCall = async (agentId: string | null): Promise<CallSummary> =>
+    attachDashboardUrl(
+      await runPhoneCall(buildBody(agentId), durationCap, deps, sleep),
       deps.cfg.dashboardBaseUrl,
     );
+
+  try {
+    return await placeCall(dialAgentId);
   } catch (e) {
     // The dial agent can be deleted out-of-band (dashboard cleanup) in the window
     // between the pre-dial verify and the dial itself; the platform then 404s
@@ -236,10 +242,7 @@ export async function makeCall(input: MakeCallInput, deps: MakeCallDeps): Promis
     if (dialAgentId != null && e instanceof AppError && e.code === "AGENT_NOT_FOUND") {
       resetDialAgent();
       console.error(`[dial-agent] agent ${dialAgentId} gone at dial time; retrying without auto-hangup`);
-      return attachDashboardUrl(
-        await runPhoneCall(buildBody(null), durationCap, deps, sleep),
-        deps.cfg.dashboardBaseUrl,
-      );
+      return placeCall(null);
     }
     throw e;
   }
@@ -266,7 +269,7 @@ function baseSummary(callId: string | null, to: string | null, from: string | nu
  * raw LiveKit payload, so match over the whole serialized event.
  */
 function isSourceClosedEgressEnd(e: Record<string, unknown>): boolean {
-  if (String(e.event_type ?? e.type ?? "").toLowerCase() !== "egress_ended") return false;
+  if (eventType(e) !== "egress_ended") return false;
   try {
     return EGRESS_SOURCE_CLOSED_RE.test(JSON.stringify(e));
   } catch {
@@ -302,6 +305,16 @@ export async function runPhoneCall(
     if (serialize) callInFlight = false;
   }
 }
+
+/**
+ * egress_ended fast-path lifecycle: idle (no source-closed egress seen yet) -> armed (confirm
+ * window open, carrying the wall-clock arm time and the frozen-turn baseline) -> done (stood
+ * down or consumed; the events list is cumulative, so the fast-path never re-arms).
+ */
+type EgressFastPath =
+  | { phase: "idle" }
+  | { phase: "armed"; atSeconds: number; turns: number }
+  | { phase: "done" };
 
 async function runPhoneCallInner(
   body: VoiceDialParams,
@@ -358,31 +371,23 @@ async function runPhoneCallInner(
   // (Finalizing on the premature "failed" was reporting working calls as not_connected.)
   // Wall clock, not summed sleep intervals: every iteration also spends real time in the API
   // calls below, so summing intervals understated elapsed and stretched the wait cap far past
-  // maxSeconds under API latency. The slept-seconds floor only matters under an instant fake
-  // sleep (tests) — in real time the wall clock always dominates — and keeps those tests
-  // terminating.
-  const startedAtMs = Date.now();
-  let sleptSeconds = 0;
-  const elapsedSeconds = (): number =>
-    Math.max(sleptSeconds, Math.round((Date.now() - startedAtMs) / 1000));
+  // maxSeconds under API latency.
+  const now = deps.now ?? Date.now;
+  const startedAtMs = now();
+  const elapsedSeconds = (): number => Math.round((now() - startedAtMs) / 1000);
   let polls = 0;
   let ended = false;
   let hardFailed = false;
-  // egress_ended fast-path state (armed/consumed once per call — the events list is
-  // cumulative, so without the seen-flag one egress_ended would re-arm every poll).
-  // egressArmedAtSeconds is in elapsedSeconds() units (same wall-clock/slept hybrid),
-  // so the confirm window is measured in real time, not in elastic poll counts.
-  let egressEndedSeen = false;
-  let egressArmedAtSeconds: number | null = null;
-  let turnsAtEgressEnd: number | null = null;
+  // `armed.atSeconds` is in elapsedSeconds() units (wall clock), so the confirm window is
+  // measured in real time, not in elastic poll counts.
+  let egress: EgressFastPath = { phase: "idle" };
   while (elapsedSeconds() < maxSeconds) {
     const baseInterval = polls < FAST_POLLS ? FAST_POLL_SECONDS : SLOW_POLL_SECONDS;
     // Inside the egress confirm window poll faster, so a dead leg is confirmed soon after
     // the window's wall-clock minimum even during the slow-poll phase.
     const interval =
-      egressArmedAtSeconds !== null ? Math.min(baseInterval, EGRESS_CONFIRM_POLL_SECONDS) : baseInterval;
+      egress.phase === "armed" ? Math.min(baseInterval, EGRESS_CONFIRM_POLL_SECONDS) : baseInterval;
     await sleep(interval * 1000);
-    sleptSeconds += interval;
     polls += 1;
 
     let events: Array<Record<string, unknown>> | null = null;
@@ -395,7 +400,7 @@ async function runPhoneCallInner(
     }
 
     if (events !== null) {
-      const types = new Set(events.map((e) => String(e.event_type ?? e.type ?? "").toLowerCase()));
+      const types = new Set(events.map(eventType));
       // Room teardown = the call is genuinely over; a hard failure (agent never dispatched /
       // SIP dial failed) never recovers. A bare "failed" status without these is ignored.
       const roomEnded = [...ROOM_END_EVENTS].some((t) => types.has(t));
@@ -458,15 +463,15 @@ async function runPhoneCallInner(
     // POST /calls/:id/report/finalize), so new turns during the window — or a turn count we
     // cannot read — mean the fast-path can't prove the call is over: stand down for good and
     // rely on the normal end signals.
-    if (egressArmedAtSeconds !== null) {
+    if (egress.phase === "armed") {
       try {
         const detail = await deps.client.getCall(callId);
         const turnsNow = countTranscriptTurns(detail.transcript);
-        if (turnsNow === null || turnsAtEgressEnd === null || turnsNow > turnsAtEgressEnd) {
-          egressArmedAtSeconds = null;
+        if (turnsNow === null || turnsNow > egress.turns) {
+          egress = { phase: "done" };
         } else if (
           detail.report != null ||
-          elapsedSeconds() - egressArmedAtSeconds >= EGRESS_CONFIRM_WINDOW_SECONDS
+          elapsedSeconds() - egress.atSeconds >= EGRESS_CONFIRM_WINDOW_SECONDS
         ) {
           ended = true;
           break;
@@ -475,18 +480,18 @@ async function runPhoneCallInner(
         // Couldn't read this poll — no evidence either way; the window stays armed and the
         // next poll retries (fast-finalizing always requires a successful frozen read).
       }
-    } else if (!egressEndedSeen && events !== null && events.some(isSourceClosedEgressEnd)) {
-      egressEndedSeen = true;
+    } else if (egress.phase === "idle" && events !== null && events.some(isSourceClosedEgressEnd)) {
+      let turns: number | null;
       try {
         const detail = await deps.client.getCall(callId);
-        turnsAtEgressEnd = countTranscriptTurns(detail.transcript);
+        turns = countTranscriptTurns(detail.transcript);
       } catch {
-        turnsAtEgressEnd = null;
+        turns = null;
       }
       // Arm only with a readable baseline: a turn count we couldn't read (endpoint error or an
       // unrecognized transcript shape) can never prove the transcript went quiet, so the
       // fast-path stands down instead of finalizing on missing evidence.
-      if (turnsAtEgressEnd !== null) egressArmedAtSeconds = elapsedSeconds();
+      egress = turns !== null ? { phase: "armed", atSeconds: elapsedSeconds(), turns } : { phase: "done" };
     }
   }
 
@@ -527,11 +532,7 @@ async function finalize(
     try {
       const detail = await deps.client.getCall(callId);
       transcript = detail.transcript ?? null;
-      const reportOutcome = typeof detail.report?.outcome === "string" ? detail.report.outcome.trim() : "";
-      // Ignore bare platform status words ("failed"/"completed"/...) — prefer a substantive report
-      // outcome, else an OUTCOME: marker in the transcript.
-      const substantive = reportOutcome && !BARE_OUTCOME_RE.test(reportOutcome) ? reportOutcome : "";
-      outcome = substantive || extractOutcome(transcript);
+      outcome = bestOutcome(detail.report, transcript);
       anyReadOk = true;
       transcriptError = undefined;
     } catch (e) {
@@ -546,7 +547,7 @@ async function finalize(
   for (let attempt = 0; attempt < 3; attempt += 1) {
     await readDetail();
     if (extractReply(transcript) !== null) break;
-    if (attempt < 2) await sleep(3000);
+    if (attempt < 2) await sleep(FINALIZE_RETRY_MS);
   }
   // Report-grace: the platform's report (the substantive outcome label) is written moments
   // AFTER room teardown, so finalizing instantly can race it and degrade the outcome to a
@@ -556,10 +557,14 @@ async function finalize(
   // An OUTCOME: marker already scraped from the transcript is the agent's own explicit statement,
   // so there is nothing left to wait for (the common happy path skips the grace entirely).
   // Bounded, because a substantive outcome that never comes (analysis disabled/failed) must
-  // never block termination; the transcript extraction above then stands.
-  for (let attempt = 0; !outcome && attempt < REPORT_GRACE_POLLS; attempt += 1) {
-    await sleep(3000);
-    await readDetail();
+  // never block termination; the transcript extraction above then stands. Skipped entirely on a
+  // hard dial failure: a call that never connected can never produce a report or transcript
+  // outcome, so the grace would only delay the failure report.
+  if (!dialFailed) {
+    for (let attempt = 0; !outcome && attempt < REPORT_GRACE_POLLS; attempt += 1) {
+      await sleep(FINALIZE_RETRY_MS);
+      await readDetail();
+    }
   }
 
   let session: SessionDetail | null = null;
