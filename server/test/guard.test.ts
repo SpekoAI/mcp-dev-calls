@@ -98,6 +98,12 @@ describe("do-not-call ledger", () => {
     expect(dncReason("+14155550142", dir)).toBeNull();
     expect(dncList(dir)).toEqual([]);
     expect(readFileSync(join(dir, "dnc.jsonl"), "utf-8")).toContain('"removed":true');
+
+    // Removing a never-listed number is a no-op: false, and NO tombstone line written.
+    const linesBefore = readFileSync(join(dir, "dnc.jsonl"), "utf-8").split("\n").filter(Boolean).length;
+    expect(dncRemove("+16505550100", dir)).toBe(false);
+    const linesAfter = readFileSync(join(dir, "dnc.jsonl"), "utf-8").split("\n").filter(Boolean).length;
+    expect(linesAfter).toBe(linesBefore);
   });
 });
 

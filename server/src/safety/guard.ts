@@ -179,7 +179,11 @@ export function dncRemove(e164: string, dir = resolveGuardStateDir()): boolean {
   const normalized = normalizeE164(e164);
   if (!normalized) return false;
   const wasListed = readDncNet(dir).has(normalized);
-  appendJsonLine(dir, DNC_FILE, { e164: normalized, ts: new Date().toISOString(), removed: true });
+  // Only write a tombstone for a live entry — removing a never-listed number is a no-op,
+  // not a useless ledger record.
+  if (wasListed) {
+    appendJsonLine(dir, DNC_FILE, { e164: normalized, ts: new Date().toISOString(), removed: true });
+  }
   return wasListed;
 }
 
