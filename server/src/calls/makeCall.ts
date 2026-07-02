@@ -11,8 +11,8 @@ import {
   BARE_OUTCOME_RE,
   DIAL_INTENT_LANGUAGE,
   DIAL_STT_KEYWORDS,
-  EGRESS_CONFIRM_POLLS,
   EGRESS_CONFIRM_POLL_SECONDS,
+  EGRESS_CONFIRM_WINDOW_SECONDS,
   EGRESS_SOURCE_CLOSED_RE,
   FAST_POLLS,
   FAST_POLL_SECONDS,
@@ -370,15 +370,17 @@ async function runPhoneCallInner(
   let hardFailed = false;
   // egress_ended fast-path state (armed/consumed once per call — the events list is
   // cumulative, so without the seen-flag one egress_ended would re-arm every poll).
+  // egressArmedAtSeconds is in elapsedSeconds() units (same wall-clock/slept hybrid),
+  // so the confirm window is measured in real time, not in elastic poll counts.
   let egressEndedSeen = false;
-  let egressConfirmPollsLeft = 0;
+  let egressArmedAtSeconds: number | null = null;
   let turnsAtEgressEnd: number | null = null;
   while (elapsedSeconds() < maxSeconds) {
     const baseInterval = polls < FAST_POLLS ? FAST_POLL_SECONDS : SLOW_POLL_SECONDS;
-    // Inside the egress confirm window poll faster, so the window stays <= ~10s of wall
-    // clock even during the slow-poll phase.
+    // Inside the egress confirm window poll faster, so a dead leg is confirmed soon after
+    // the window's wall-clock minimum even during the slow-poll phase.
     const interval =
-      egressConfirmPollsLeft > 0 ? Math.min(baseInterval, EGRESS_CONFIRM_POLL_SECONDS) : baseInterval;
+      egressArmedAtSeconds !== null ? Math.min(baseInterval, EGRESS_CONFIRM_POLL_SECONDS) : baseInterval;
     await sleep(interval * 1000);
     sleptSeconds += interval;
     polls += 1;
@@ -445,39 +447,46 @@ async function runPhoneCallInner(
     // audio source at once ("Source closed"), 11.5-21.3s BEFORE room_finished (measured on 5/5
     // live calls — the worker idles out its ~20s departureTimeout before tearing the room down).
     // But an egress can also die MID-CALL from a recording failure while the conversation
-    // continues, so egress_ended alone must NEVER finalize. Instead: arm a bounded confirm
-    // window (EGRESS_CONFIRM_POLLS extra polls, <= ~10s). If a real end signal (room_finished /
-    // endedAt / the call report) lands meanwhile, the checks above finalize normally. If the
-    // window expires with no new transcript turns since the egress died, nobody is talking into
-    // a dead leg — the call is over in practice, so finalize. New turns during the window mean
-    // the call is still alive (recording-only failure): stand down for good and rely on the
-    // normal end signals.
-    if (egressConfirmPollsLeft > 0) {
-      egressConfirmPollsLeft -= 1;
-      if (egressConfirmPollsLeft === 0) {
-        try {
-          const detail = await deps.client.getCall(callId);
-          const turnsNow = countTranscriptTurns(detail.transcript) ?? 0;
-          const reportArrived = detail.report != null; // the platform only writes it at teardown
-          if (reportArrived || (turnsAtEgressEnd !== null && turnsNow <= turnsAtEgressEnd)) {
-            ended = true;
-            break;
-          }
-        } catch {
-          // Couldn't compare — not enough evidence to end early; keep polling normally.
+    // continues, so egress_ended alone must NEVER finalize. Instead: arm a confirm window of at
+    // least EGRESS_CONFIRM_WINDOW_SECONDS of wall clock (a poll count is too elastic — 2 fast
+    // polls span only ~4s, not enough to tell "callee thinking" from "call dead"). If a real end
+    // signal (room_finished / endedAt / a hard status) lands meanwhile, the checks above finalize
+    // normally. The fast-path itself finalizes ONLY on frozen evidence: a readable turn count
+    // that has not grown since the egress died — then a call report row (normally written at
+    // teardown) shortens the frozen wait, and otherwise the window's expiry ends it. The report
+    // alone never finalizes: reports can exist on live calls (see the platform's unguarded
+    // POST /calls/:id/report/finalize), so new turns during the window — or a turn count we
+    // cannot read — mean the fast-path can't prove the call is over: stand down for good and
+    // rely on the normal end signals.
+    if (egressArmedAtSeconds !== null) {
+      try {
+        const detail = await deps.client.getCall(callId);
+        const turnsNow = countTranscriptTurns(detail.transcript);
+        if (turnsNow === null || turnsAtEgressEnd === null || turnsNow > turnsAtEgressEnd) {
+          egressArmedAtSeconds = null;
+        } else if (
+          detail.report != null ||
+          elapsedSeconds() - egressArmedAtSeconds >= EGRESS_CONFIRM_WINDOW_SECONDS
+        ) {
+          ended = true;
+          break;
         }
+      } catch {
+        // Couldn't read this poll — no evidence either way; the window stays armed and the
+        // next poll retries (fast-finalizing always requires a successful frozen read).
       }
     } else if (!egressEndedSeen && events !== null && events.some(isSourceClosedEgressEnd)) {
       egressEndedSeen = true;
-      egressConfirmPollsLeft = EGRESS_CONFIRM_POLLS;
       try {
         const detail = await deps.client.getCall(callId);
-        turnsAtEgressEnd = countTranscriptTurns(detail.transcript) ?? 0;
+        turnsAtEgressEnd = countTranscriptTurns(detail.transcript);
       } catch {
-        // Baseline unreadable → the expiry check can't prove the transcript went quiet,
-        // so it won't fast-finalize (null never satisfies the comparison above).
         turnsAtEgressEnd = null;
       }
+      // Arm only with a readable baseline: a turn count we couldn't read (endpoint error or an
+      // unrecognized transcript shape) can never prove the transcript went quiet, so the
+      // fast-path stands down instead of finalizing on missing evidence.
+      if (turnsAtEgressEnd !== null) egressArmedAtSeconds = elapsedSeconds();
     }
   }
 
@@ -513,17 +522,17 @@ async function finalize(
   let transcript: unknown = null;
   let transcriptError: string | undefined;
   let outcome: string | null = null;
-  let reportPresent = false;
+  let reportOutcomeSubstantive = false;
   let anyReadOk = false;
   const readDetail = async (): Promise<void> => {
     try {
       const detail = await deps.client.getCall(callId);
       transcript = detail.transcript ?? null;
-      reportPresent = detail.report != null;
       const reportOutcome = typeof detail.report?.outcome === "string" ? detail.report.outcome.trim() : "";
       // Ignore bare platform status words ("failed"/"completed"/...) — prefer a substantive report
       // outcome, else an OUTCOME: marker in the transcript.
       const substantive = reportOutcome && !BARE_OUTCOME_RE.test(reportOutcome) ? reportOutcome : "";
+      reportOutcomeSubstantive = substantive !== "";
       outcome = substantive || extractOutcome(transcript);
       anyReadOk = true;
       transcriptError = undefined;
@@ -543,9 +552,12 @@ async function finalize(
   }
   // Report-grace: the platform's report (the substantive outcome label) is written moments
   // AFTER room teardown, so finalizing instantly can race it and degrade the outcome to a
-  // transcript scrape. Wait up to REPORT_GRACE_POLLS short polls for the report row — bounded,
-  // because a report that never comes (analysis disabled/failed) must never block termination.
-  for (let attempt = 0; !reportPresent && attempt < REPORT_GRACE_POLLS; attempt += 1) {
+  // transcript scrape. Row presence isn't the gate — the platform's heuristic pass can write
+  // the row with a bare status word ("completed") before analysis rewrites the real outcome —
+  // so wait up to REPORT_GRACE_POLLS short polls for a SUBSTANTIVE outcome. Bounded, because a
+  // substantive outcome that never comes (analysis disabled/failed) must never block
+  // termination; the transcript extraction above then stands.
+  for (let attempt = 0; !reportOutcomeSubstantive && attempt < REPORT_GRACE_POLLS; attempt += 1) {
     await sleep(3000);
     await readDetail();
   }
