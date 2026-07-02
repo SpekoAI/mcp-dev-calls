@@ -142,6 +142,59 @@ describe("runPhoneCall — terminal detection (the not_connected false-negative 
   });
 });
 
+describe("runPhoneCall — agent-initiated hangup (the worker's end_call tool)", () => {
+  it("finalizes the instant call.end_tool.completed appears — before room_finished and before endedAt", async () => {
+    // Realistic sequence for an endCall-enabled dial: the agent confirms the answer, invokes
+    // end_call (farewell spoken by the tool), and the platform records call.end_tool.completed.
+    // room_finished lags the drain (11.5-21.3s on live calls) and the session's endedAt is only
+    // stamped AT room_finished — so the end-tool event ALONE must end the poll loop.
+    const eventSeq = [
+      [{ event_type: "sip.dial_started" }],
+      [{ event_type: "sip.dial_started" }, { event_type: "worker.first_agent_audio" }],
+      [
+        { event_type: "sip.dial_started" },
+        { event_type: "worker.first_agent_audio" },
+        { event_type: "call.end_tool.completed", payload: { reason: "objective answered" } },
+      ],
+    ];
+    let polls = 0;
+    const s = await runPhoneCall(
+      BODY,
+      300,
+      deps({
+        dial: dialOk("end1"),
+        getEvents: async () => {
+          polls += 1;
+          return eventSeq[Math.min(polls - 1, eventSeq.length - 1)] as any;
+        },
+        getCall: async () =>
+          ({
+            status: "ended",
+            transcript: {
+              entries: [
+                { source: "agent", text: "Hi!" },
+                { source: "user", text: "we're open till 10 tonight" },
+                { source: "agent", text: "got it, open till 10 — thanks, bye!" },
+              ],
+            },
+            report: { outcome: "Open until 10pm tonight" },
+          }) as any,
+        // endedAt stays null the whole loop: the phone leg is only torn down at room_finished,
+        // which this sequence never reaches — proving the end-tool event is what finalized.
+        getSession: async () =>
+          ({ status: "active", endedAt: null, phoneCall: { callControlId: "phone-end1" }, usage: [{ provider: "telnyx", metric: "outbound_minutes" }] }) as any,
+      }),
+      noopSleep,
+    );
+    expect(polls).toBe(3); // stopped on the poll that surfaced the end-tool event — zero extra polls
+    expect(s.status).toBe("completed");
+    expect(s.connected).toBe(true);
+    expect(s.answered).toBe(true);
+    expect(s.outcome).toBe("Open until 10pm tonight");
+    expect(s.call_id).toBe("end1");
+  });
+});
+
 describe("runPhoneCall — phone-leg hangup detection (Bek: 'I hang up but terminal keeps showing in call')", () => {
   it("finalizes as soon as the session endedAt is stamped (callee hung up), without waiting for room_finished", async () => {
     // Telnyx call.hangup sets session endedAt immediately; the LiveKit room (and its

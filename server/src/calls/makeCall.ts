@@ -36,7 +36,8 @@ import {
 import { behaviorBlockedReason, objectiveBlockedReason } from "../safety/objective.js";
 import { buildFirstMessage, buildSystemPrompt, sanitizeName } from "../safety/prompt.js";
 import { MAX_CALLER_NAME_CHARS } from "../constants.js";
-import { isAuthFailure, type SpekoClient } from "../speko/client.js";
+import { ensureDialAgent, resetDialAgent } from "../speko/agent.js";
+import { isAuthFailure, SpekoApiError, type SpekoClient } from "../speko/client.js";
 import type { CallSummary, MakeCallInput, SessionDetail } from "../types.js";
 import { attachDashboardUrl, shapeCallSummary } from "./summary.js";
 
@@ -160,11 +161,19 @@ export async function makeCall(input: MakeCallInput, deps: MakeCallDeps): Promis
       : "the business";
   const durationCap = clamp(input.maxDurationSeconds ?? MAX_CALL_SECONDS, MIN_CALL_SECONDS, MAX_CALL_SECONDS);
 
-  const fromNumber = await resolveFromNumber(deps);
+  // Both pre-dial lookups are independent; resolve them together. ensureDialAgent is
+  // FAIL-OPEN (null after a bounded wait), so agent bootstrap can never block a dial.
+  const [fromNumber, dialAgentId] = await Promise.all([resolveFromNumber(deps), ensureDialAgent(deps)]);
 
-  const body: VoiceDialParams = {
+  // agentId is rebuilt per attempt (see the retry below), and the prompt's rule set must
+  // mirror it: the end_call instructions are emitted ONLY when the endCall-enabled agent
+  // rides along, because that's what makes the worker register the hangup tool.
+  const buildBody = (agentId: string | null): VoiceDialParams => ({
     to: e164,
     ...(fromNumber ? { from: fromNumber } : {}),
+    // The persisted "speko-mcp-dial" agent exists solely to enable the worker's end_call
+    // hangup tool; every field below overrides the agent's defaults per-call.
+    ...(agentId ? { agentId } : {}),
     // optimizeFor=latency is best for a LIVE call: it routes to a fast streaming STT + a low
     // time-to-first-token LLM, avoiding the multi-second dead air the balanced/accuracy modes
     // introduce. The actual LLM/TTS/STT models are pinned below via constraints
@@ -187,7 +196,14 @@ export async function makeCall(input: MakeCallInput, deps: MakeCallDeps): Promis
     ttsOptions: { speed: deps.cfg.ttsSpeed ?? 1.0 },
     llm: { temperature: 0.5, maxTokens: 100 },
     firstMessage: buildFirstMessage(caller, input.objective),
-    systemPrompt: buildSystemPrompt(input.objective, input.context ?? null, businessName, caller, input.behavior ?? null),
+    systemPrompt: buildSystemPrompt(
+      input.objective,
+      input.context ?? null,
+      businessName,
+      caller,
+      input.behavior ?? null,
+      agentId != null,
+    ),
     metadata: {
       source: "speko-mcp-calls-demo",
       objective: input.objective,
@@ -198,9 +214,28 @@ export async function makeCall(input: MakeCallInput, deps: MakeCallDeps): Promis
       from: fromNumber ?? null,
     },
     telephony: { amd: { mode: "agent" } },
-  };
+  });
 
-  return attachDashboardUrl(await runPhoneCall(body, durationCap, deps, sleep), deps.cfg.dashboardBaseUrl);
+  try {
+    return attachDashboardUrl(
+      await runPhoneCall(buildBody(dialAgentId), durationCap, deps, sleep),
+      deps.cfg.dashboardBaseUrl,
+    );
+  } catch (e) {
+    // The cached dial agent can be deleted out-of-band (dashboard cleanup) after this
+    // long-lived process resolved it; the platform then 404s (AGENT_NOT_FOUND) on EVERY
+    // dial until restart. Same fail-open stance as bootstrap: drop the cache and place
+    // this call agentless (no auto-hangup), with the prompt rebuilt to match.
+    if (dialAgentId != null && e instanceof AppError && e.code === "AGENT_NOT_FOUND") {
+      resetDialAgent();
+      console.error(`[dial-agent] agent ${dialAgentId} gone at dial time; retrying without auto-hangup`);
+      return attachDashboardUrl(
+        await runPhoneCall(buildBody(null), durationCap, deps, sleep),
+        deps.cfg.dashboardBaseUrl,
+      );
+    }
+    throw e;
+  }
 }
 
 /** A CallSummary skeleton with the honest defaults (nothing connected/answered yet). */
@@ -262,6 +297,9 @@ async function runPhoneCallInner(
     throw new AppError((e as Error).message, {
       statusCode: authFail ? 401 : 502,
       nextStep: authFail ? AUTH_NEXT_STEP : MAKE_CALL_DIAL_NEXT_STEP,
+      // Preserve the platform's machine code (e.g. AGENT_NOT_FOUND) so makeCall can
+      // recover from a deleted dial agent instead of failing every call until restart.
+      ...(e instanceof SpekoApiError ? { code: e.code } : {}),
     });
   }
 
