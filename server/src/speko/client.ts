@@ -6,6 +6,9 @@
  */
 import { Speko, SpekoApiError, SpekoAuthError, SpekoRateLimitError } from "@spekoai/sdk";
 import type {
+  AgentCreateParams,
+  AgentRow,
+  AgentUpdateParams,
   CallDetail,
   OrganizationBalance,
   PhoneNumberRow,
@@ -56,6 +59,18 @@ export class SpekoClient {
 
   listPhoneNumbers(): Promise<PhoneNumberRow[]> {
     return this.speko.phoneNumbers.list();
+  }
+
+  listAgents(): Promise<AgentRow[]> {
+    return this.speko.agents.list();
+  }
+
+  createAgent(params: AgentCreateParams): Promise<AgentRow> {
+    return this.speko.agents.create(params);
+  }
+
+  updateAgent(agentId: string, params: AgentUpdateParams): Promise<AgentRow> {
+    return this.speko.agents.update(agentId, params);
   }
 
   /**
