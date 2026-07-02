@@ -213,13 +213,32 @@ describe("agent hangup — the call-ending rules track whether the end_call tool
     const sys = buildSystemPrompt("ask about a table for 4 at 8pm", null, "Biz", "Bruce", null, true);
     expect(sys).toMatch(/calling the end_call tool/i);
     expect(sys).toMatch(/farewell/); // the goodbye rides the tool argument (the tool speaks it)
-    expect(sys).toMatch(/never say the goodbye as a separate message/i); // no double-spoken goodbye
+    expect(sys).toMatch(/the farewell is the ONLY goodbye on this call/); // no double-spoken goodbye
     expect(sys).toMatch(/If THEY say goodbye first/i); // callee-initiated close still ends via the tool
     expect(sys).toMatch(/Never call end_call while the objective is still unresolved/i);
     // The stay-silent ending is GONE — silence is no longer how a call ends.
     expect(sys).not.toMatch(/no hangup button/i);
     expect(sys).not.toMatch(/staying silent is exactly how you end the call/i);
     expect(sys).not.toMatch(/stay silent/i);
+  });
+
+  it("with the tool: the confirmation is fact-only and the farewell example is disjoint (double-goodbye regression, call 90d9370c)", () => {
+    // Live bug: a FUSED confirm+goodbye example taught the model to end its spoken confirmation
+    // with farewell words, and the worker then spoke the end_call farewell on top — two goodbyes
+    // in a row. The endCall arm must show a confirm example with NO farewell words and a separate
+    // short farewell example, plus the explicit ban.
+    const sys = buildSystemPrompt("ask about a table for 4 at 8pm", null, "Biz", "Bruce", null, true);
+    expect(sys).toMatch(/confirmation must contain NO farewell words/);
+    expect(sys).toMatch(/they hear two goodbyes in a row — never do that/);
+    expect(sys).toMatch(/I'll let Bruce know\."\)/); // confirm example ends on facts, no "thanks, bye"
+    expect(sys).toMatch(/"thanks so much, bye!"/); // the farewell example stands alone
+    expect(sys).not.toMatch(/know — thanks, bye!/); // the fused example must NOT appear in this arm
+  });
+
+  it("without the tool: the fused confirm+goodbye example is kept (single spoken goodbye is correct there)", () => {
+    const sys = buildSystemPrompt("ask about a table for 4 at 8pm", null, "Biz", "Bruce");
+    expect(sys).toMatch(/know — thanks, bye!/); // one utterance = confirmation + goodbye, then silence
+    expect(sys).not.toMatch(/confirmation must contain NO farewell words/);
   });
 
   it("without the tool (agentless fail-open dial): keeps goodbye-then-silence and never names end_call", () => {
