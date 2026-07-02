@@ -42,15 +42,6 @@ async function verifyAndMint(
     lineType = cfg.twilio ? await carrierLineType(c.e164, cfg.twilio) : null;
     blocked = lineTypeBlockedReason(lineType);
   }
-  // Quiet hours can only be enforced if we know the destination's timezone. If the offset is
-  // unknown, block HERE (at lookup) with an actionable reason instead of minting a token that
-  // make_call would later reject — so lookup_business never claims "callable" for a call that
-  // would then be blocked.
-  if (!blocked && c.utcOffsetMinutes == null) {
-    blocked =
-      "Couldn't determine the destination's local timezone, so quiet hours (08:00-21:00 local) " +
-      "can't be enforced. Pass utc_offset_minutes (e.g. -300 for US Eastern, -480 for US Pacific) to proceed.";
-  }
   if (blocked) {
     return {
       name: c.name,
@@ -96,9 +87,9 @@ export async function lookupBusiness(
   // Agent-provided number: the coding agent found the business's official number itself
   // (e.g. via web search) and passed it in. Skip Google Places discovery and verify the
   // number directly — the carrier line-type check still gates it, so a wrong or mobile
-  // number is never dialed as a "business". Quiet-hours offset is derived from the number's
-  // country/area code (fail-closed to blocked downstream if it can't be determined) — an
-  // approximation vs the Places path's address-based offset, but never a safety bypass.
+  // number is never dialed as a "business". Destination offset is derived from the number's
+  // country/area code when possible; if it is unknown, make_call's after-hours gate requires
+  // confirmation before dialing.
   const provided = typeof input.phoneNumber === "string" ? input.phoneNumber.replace(/[^\d+]/g, "") : "";
   if (provided) {
     const candidate = await verifyAndMint(

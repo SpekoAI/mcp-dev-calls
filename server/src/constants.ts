@@ -5,7 +5,7 @@
  * are the compliance moat; keep them in sync with the platform.
  */
 
-export const VERSION = "0.1.0";
+export const VERSION = "0.2.0";
 
 // ── Disclosure (non-overridable opening line) ────────────────────────────────
 export const DISCLOSURE_PREFIX = "Hi, this is an AI assistant calling on behalf of ";
@@ -139,8 +139,6 @@ export const DIAL_TOKEN_SECRET_ENV = "SPEKO_DIAL_TOKEN_SECRET";
 // ── After-hours gate (destination local) ─────────────────────────────────────
 export const AFTER_HOURS_START_HOUR = 21;
 export const AFTER_HOURS_END_HOUR = 8;
-export const QUIET_START_HOUR = AFTER_HOURS_START_HOUR;
-export const QUIET_END_HOUR = AFTER_HOURS_END_HOUR;
 export const MIN_AFTER_HOURS_CONFIRMATION_CHARS = 5;
 
 // ── Per-number rate caps ─────────────────────────────────────────────────────

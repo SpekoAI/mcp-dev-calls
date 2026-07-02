@@ -1,23 +1,44 @@
-import { describe, expect, it } from "vitest";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { callNumber } from "../src/calls/callNumber.js";
 import type { AppConfig } from "../src/config.js";
 import type { SpekoClient } from "../src/speko/client.js";
 
 const noop = async (): Promise<void> => {};
-const baseCfg = {
-  allowDirectDial: true,
-  dialTokenSecret: "test-secret",
-  fromNumber: "+15312160099", // set so resolveFromNumber skips the listPhoneNumbers network call
-} as unknown as AppConfig;
+let guardDir = "";
 
-function deps(client: Partial<SpekoClient>, cfg: AppConfig = baseCfg) {
-  return { client: client as unknown as SpekoClient, cfg, bearerHash: "test", sleep: noop };
+beforeEach(() => {
+  guardDir = mkdtempSync(join(tmpdir(), "speko-call-number-"));
+});
+
+afterEach(() => {
+  rmSync(guardDir, { recursive: true, force: true });
+});
+
+function cfg(overrides: Partial<AppConfig> = {}): AppConfig {
+  return {
+    allowDirectDial: true,
+    dialTokenSecret: "test-secret",
+    fromNumber: "+15312160099", // set so resolveFromNumber skips the listPhoneNumbers network call
+    trustedNumbers: [],
+    guardStateDir: guardDir,
+    rateCapPerNumberHour: 3,
+    rateCapPerNumberDay: 8,
+    ...overrides,
+  } as unknown as AppConfig;
 }
 
-// An offset that puts the destination's local time around noon, so the quiet-hours rail (08:00-21:00)
+function deps(client: Partial<SpekoClient>, config: AppConfig = cfg()) {
+  return { client: client as unknown as SpekoClient, cfg: config, bearerHash: "test", sleep: noop };
+}
+
+// An offset that puts the destination's local time around noon, so the after-hours gate
 // never blocks the test regardless of when it runs (deterministic).
 const now = new Date();
 const NOON_OFFSET = 12 * 60 - (now.getUTCHours() * 60 + now.getUTCMinutes());
+const AFTER_HOURS_OFFSET = 3 * 60 - (now.getUTCHours() * 60 + now.getUTCMinutes());
 
 function connectedClient(captured: { to?: string }): Partial<SpekoClient> {
   return {
@@ -37,7 +58,7 @@ describe("callNumber (the npx hero path)", () => {
     await expect(
       callNumber(
         { phoneNumber: "+14152857117", objective: "ask if open", callerName: "Amir", utcOffsetMinutes: NOON_OFFSET },
-        deps({}, { ...baseCfg, allowDirectDial: false }),
+        deps({}, cfg({ allowDirectDial: false })),
       ),
     ).rejects.toThrow(/direct dialing/i);
   });
@@ -61,6 +82,24 @@ describe("callNumber (the npx hero path)", () => {
     expect(s.connected).toBe(true);
     expect(s.answered).toBe(true);
     expect(s.status).toBe("completed");
+  });
+
+  it("passes afterHoursConfirmation through to makeCall", async () => {
+    const cap: { to?: string } = {};
+    const confirmation = "Bek confirmed this personal call";
+    await callNumber(
+      {
+        phoneNumber: "+14152857117",
+        objective: "ask if open",
+        callerName: "Amir",
+        utcOffsetMinutes: AFTER_HOURS_OFFSET,
+        afterHoursConfirmation: confirmation,
+      },
+      deps(connectedClient(cap)),
+    );
+    expect(cap.to).toBe("+14152857117");
+    const line = readFileSync(join(guardDir, "ledger.jsonl"), "utf-8").trim();
+    expect(JSON.parse(line).after_hours_confirmation).toBe(confirmation);
   });
 
   it("dials a clean E.164 number unchanged", async () => {

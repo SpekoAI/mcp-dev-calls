@@ -40,7 +40,7 @@ export function demoLookupCandidate(
   const lineType = (process.env.SPEKO_DEMO_LINE_TYPE ?? DEFAULT_LINE_TYPE).trim() || DEFAULT_LINE_TYPE;
   const address = (process.env.SPEKO_DEMO_ADDRESS ?? "").trim() || DEFAULT_ADDRESS;
   // Explicit override wins; otherwise auto-derive the callee's offset from the number
-  // so quiet hours is evaluated against the right region without hand-set config.
+  // so the after-hours confirmation gate has the best available local-time info.
   const utcOffsetMinutes = parseOffset(process.env.SPEKO_DEMO_UTC_OFFSET) ?? offsetFromE164(e164);
 
   const blockedReason = dialBlockedReason(e164) ?? lineTypeBlockedReason(lineType);
