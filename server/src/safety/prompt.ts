@@ -195,14 +195,27 @@ const DISCLOSURE_UNDERMINING_RE =
   /\b(?:i|you|this)\s*(?:'m|'re|am|are|is)\s+(?:really\s+|actually\s+|totally\s+)?(?:an?\s+)?(?:real\s+|actual\s+|live\s+)?(?:human(?:\s+being)?|person)\b|\b(?:i|you|this)\s*(?:'m|'re|am|are|is)\s+not\s+(?:an?\s+)?(?:ai|a\.i\.|bot|robot|assistant|machine|artificial)\b|\b(?:human|person)\s*,\s*not\s+an?\s+(?:ai|a\.i\.|bot|robot)\b/i;
 
 /**
- * Trailing call-management adverbials ("before ending the call") are private execution timing,
- * not the transactional ask, and sound absurd in the spoken opener. These are anchored at the end
- * only and contain flat literal alternations, keeping the attacker-influenced sanitizer linear-time.
+ * Trailing call-management adverbials ("before ending the call", "then hang up") are private
+ * execution timing, not the transactional ask, and sound absurd in the spoken opener. Each is
+ * anchored at the end only with flat literal alternations, keeping the attacker-influenced
+ * sanitizer linear-time. Deliberately only "before"/"then" forms: an "after/when ... the call"
+ * tail can be real ask content ("ask whether I can still update the order after ending the
+ * call"), and a false strip there weakens a legitimate opener. Chained tails ("... before
+ * ending the call, then end the call") are handled by the fixpoint loop in
+ * scrubTrailingCallManagement, which re-applies every pattern until nothing matches.
  */
-const TRAILING_CALL_MANAGEMENT_RE =
-  /,?\s*(?:right\s+)?(?:before|after|when|then)\s+(?:ending|you\s+end|hanging\s+up|you\s+hang\s+up|wrapping\s+up)\s+(?:the\s+|this\s+)?call[.!?]?\s*$/i;
-const TRAILING_END_CALL_RE =
-  /,?\s*(?:and\s+)?then\s+(?:end|hang\s+up)\s+(?:the\s+|this\s+)?call[.!?]?\s*$/i;
+const TRAILING_CALL_MANAGEMENT_RES: readonly RegExp[] = [
+  // "(and) (right) before ending/you end/we end/hanging up/... the call"
+  /,?\s*(?:and\s+)?(?:right\s+)?(?:before|then)\s+(?:ending|you\s+end|we\s+end|hanging\s+up|you\s+hang\s+up|we\s+hang\s+up|wrapping\s+up)\s+(?:the\s+|this\s+)?call[.!?]?\s*$/i,
+  // "before the call ends"
+  /,?\s*(?:and\s+)?(?:right\s+)?before\s+(?:the\s+|this\s+)?call\s+ends[.!?]?\s*$/i,
+  // "and/then (end|hang up) the call"
+  /,?\s*(?:and\s+then|and|then)\s+(?:end|hang\s+up)\s+(?:the\s+|this\s+)?call[.!?]?\s*$/i,
+  // bare "and/then hang up" ("end" alone is too ambiguous to strip without an object)
+  /,?\s*(?:and\s+then|and|then)\s+hang\s+up[.!?]?\s*$/i,
+  // "before we/you hang up" (no "the call" object)
+  /,?\s*(?:and\s+)?(?:right\s+)?before\s+(?:we|you)\s+hang\s+up[.!?]?\s*$/i,
+];
 
 /** Cut overlong text at a word boundary (a mid-word cut sounds broken in TTS). */
 function truncateAtWordBoundary(text: string, max: number): string {
@@ -213,11 +226,22 @@ function truncateAtWordBoundary(text: string, max: number): string {
 }
 
 function scrubTrailingCallManagement(sentence: string): string {
-  return sentence
-    .replace(TRAILING_CALL_MANAGEMENT_RE, "")
-    .replace(TRAILING_END_CALL_RE, "")
-    .replace(/[\s,;:]+$/, "")
-    .trim();
+  let out = sentence;
+  // Fixpoint, because stripping one tail can expose another ("... before ending the call,
+  // then end the call"). Bounded: every replacement shortens the string, and 6 passes
+  // outlasts any realistic stack of tails.
+  for (let pass = 0; pass < 6; pass += 1) {
+    let changed = false;
+    for (const re of TRAILING_CALL_MANAGEMENT_RES) {
+      const next = out.replace(re, "");
+      if (next !== out) {
+        out = next;
+        changed = true;
+      }
+    }
+    if (!changed) break;
+  }
+  return out.replace(/[\s,;:]+$/, "").trim();
 }
 
 /**

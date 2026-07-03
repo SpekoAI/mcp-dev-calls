@@ -44,7 +44,10 @@ describe("extractEndCallReason", () => {
       ],
     };
     expect(extractEndCallReason(transcript)).toBe("exact requested time not available, offered 9pm instead");
-    expect(bestOutcome({ outcome: "" }, transcript)).toBe("exact requested time not available, offered 9pm instead");
+    // bestOutcome deliberately does NOT fold the reason in: makeCall's report-grace loop keys
+    // on it returning null so it keeps waiting for the substantive report. Call sites compose
+    // extractEndCallReason as their own last fallback once done waiting.
+    expect(bestOutcome({ outcome: "" }, transcript)).toBeNull();
   });
 
   it("returns null for malformed args JSON", () => {

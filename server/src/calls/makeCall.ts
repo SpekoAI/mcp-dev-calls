@@ -32,7 +32,7 @@ import {
 } from "../constants.js";
 import { AppError, RejectionError } from "../lib/errors.js";
 import { eventType } from "../lib/events.js";
-import { bestOutcome, calleeTurns, countTranscriptTurns, extractReply } from "../lib/transcript.js";
+import { bestOutcome, calleeTurns, countTranscriptTurns, extractEndCallReason, extractReply } from "../lib/transcript.js";
 import {
   DialTokenError,
   afterHoursGateReason,
@@ -749,6 +749,11 @@ async function finalize(
       await readDetail();
     }
   }
+  // Only after the grace is done waiting: the end_call tool's reason is a decent outcome
+  // ("exact requested time not available, offered 9pm instead") but it exists from the first
+  // read, so folding it into bestOutcome would short-circuit the grace loop above and lock in
+  // a worse label than the substantive report about to land.
+  if (!outcome) outcome = extractEndCallReason(transcript);
 
   try {
     if (to) {

@@ -57,6 +57,25 @@ describe("G1 — objective-to-opener composition (no mangled grafts)", () => {
     expect(fm).toMatch(/asked me to ask when the call center closes/i);
   });
 
+  it("scrubs CHAINED call-management tails (fixpoint): stripping one tail exposes the next", () => {
+    const objective = "Book a table for two, confirm it before ending the call, then end the call";
+    const fm = buildFirstMessage("Bek", objective);
+    expect(fm).toMatch(/asked me to book a table for two, confirm it\b/i);
+    expect(fm).not.toMatch(/end(?:ing)? the call/i);
+  });
+
+  it("scrubs the natural tail variants: 'and hang up', 'before we hang up', 'before the call ends'", () => {
+    expect(buildFirstMessage("Bek", "Order a large pepperoni pizza and hang up")).toMatch(/asked me to order a large pepperoni pizza\.$/i);
+    expect(buildFirstMessage("Bek", "Ask for their hours before we hang up")).toMatch(/asked me to ask for their hours\.$/i);
+    expect(buildFirstMessage("Bek", "Confirm the booking before the call ends")).toMatch(/asked me to confirm the booking\.$/i);
+  });
+
+  it("does NOT scrub an 'after ... the call' tail that is real ask content", () => {
+    const objective = "Ask support whether the order can still be updated after ending the call";
+    const fm = buildFirstMessage("Bek", objective);
+    expect(fm).toMatch(/after ending the call/i);
+  });
+
   it("multi-sentence imperatives: both asks reach the opener, and the FULL objective reaches the system prompt", () => {
     const objective = "Book a table for two at 8pm tonight. Ask for a window seat if possible.";
     const fm = buildFirstMessage("Bek", objective);
