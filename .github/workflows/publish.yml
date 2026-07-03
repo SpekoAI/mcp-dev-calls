@@ -1,6 +1,10 @@
 # Tag-triggered npm publish for @spekoai/mcp-calls via npm Trusted Publishing (OIDC
 # provenance — no long-lived NPM_TOKEN secret). Gated on the version-lockstep check
-# (which also asserts the tag matches the package version), typecheck, tests, and build.
+# (which also asserts the tag matches the package version), build, typecheck, and tests.
+#
+# Build runs BEFORE typecheck/test on purpose: the mcp workspace imports the server's
+# `@spekoai/mcp-calls-demo-server/core` subpath, whose types resolve to server/dist
+# (`./dist/core.d.ts`) — so typecheck and the dnc tests only resolve after a build.
 #
 # One-time setup on npmjs.com (package settings → Trusted Publisher):
 #   repository SpekoAI/mcp-dev-calls · workflow publish.yml · environment (none)
@@ -27,12 +31,12 @@ jobs:
         run: node scripts/check-version-lockstep.mjs --tag "${GITHUB_REF_NAME}"
       - name: Install
         run: npm ci
+      - name: Build
+        run: npm run build
       - name: Typecheck
         run: npm run typecheck
       - name: Test
         run: npm test
-      - name: Build
-        run: npm run build
       - name: Publish with provenance
         working-directory: mcp
         run: npm publish --provenance --access public
