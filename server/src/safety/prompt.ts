@@ -194,12 +194,30 @@ const FIRST_PERSON_RE = /\bi\b/i;
 const DISCLOSURE_UNDERMINING_RE =
   /\b(?:i|you|this)\s*(?:'m|'re|am|are|is)\s+(?:really\s+|actually\s+|totally\s+)?(?:an?\s+)?(?:real\s+|actual\s+|live\s+)?(?:human(?:\s+being)?|person)\b|\b(?:i|you|this)\s*(?:'m|'re|am|are|is)\s+not\s+(?:an?\s+)?(?:ai|a\.i\.|bot|robot|assistant|machine|artificial)\b|\b(?:human|person)\s*,\s*not\s+an?\s+(?:ai|a\.i\.|bot|robot)\b/i;
 
+/**
+ * Trailing call-management adverbials ("before ending the call") are private execution timing,
+ * not the transactional ask, and sound absurd in the spoken opener. These are anchored at the end
+ * only and contain flat literal alternations, keeping the attacker-influenced sanitizer linear-time.
+ */
+const TRAILING_CALL_MANAGEMENT_RE =
+  /,?\s*(?:right\s+)?(?:before|after|when|then)\s+(?:ending|you\s+end|hanging\s+up|you\s+hang\s+up|wrapping\s+up)\s+(?:the\s+|this\s+)?call[.!?]?\s*$/i;
+const TRAILING_END_CALL_RE =
+  /,?\s*(?:and\s+)?then\s+(?:end|hang\s+up)\s+(?:the\s+|this\s+)?call[.!?]?\s*$/i;
+
 /** Cut overlong text at a word boundary (a mid-word cut sounds broken in TTS). */
 function truncateAtWordBoundary(text: string, max: number): string {
   if (text.length <= max) return text;
   const cut = text.slice(0, max + 1);
   const lastSpace = cut.lastIndexOf(" ");
   return (lastSpace > 0 ? cut.slice(0, lastSpace) : text.slice(0, max)).replace(/[\s,.;:!?-]+$/, "");
+}
+
+function scrubTrailingCallManagement(sentence: string): string {
+  return sentence
+    .replace(TRAILING_CALL_MANAGEMENT_RE, "")
+    .replace(TRAILING_END_CALL_RE, "")
+    .replace(/[\s,;:]+$/, "")
+    .trim();
 }
 
 /**
@@ -218,7 +236,8 @@ function speakableSentences(objective: string): string[] {
   for (const sentence of sentences) {
     const screened = normalizeApostrophes(sentence);
     if (SPEAKING_DIRECTIVE_RE.test(screened) || DISCLOSURE_UNDERMINING_RE.test(screened)) break;
-    out.push(sentence);
+    const scrubbed = scrubTrailingCallManagement(sentence);
+    if (scrubbed) out.push(scrubbed);
   }
   return out;
 }
@@ -341,7 +360,7 @@ const ANSWER_OR_ASK_AGAIN =
 
 /** Rule 8's confirm-first preamble, shared by both ending mechanics. */
 const CONFIRM_PREAMBLE =
-  "As soon as you have every answer the objective asks for, repeat it back in one short sentence to confirm, then";
+  "As soon as you have every answer the objective asks for, confirm it back in ONE short sentence — a flat statement of what you learned, never a question, and don't wait for or invite a reply to it — then";
 
 /**
  * Hard-ruled system prompt with delimited, nonce-protected user blocks.

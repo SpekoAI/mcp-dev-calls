@@ -34,10 +34,50 @@ export function extractOutcome(transcript: unknown): string | null {
   return outcome;
 }
 
+function asRecord(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === "object" ? (value as Record<string, unknown>) : null;
+}
+
+function toolCallsForEntry(entry: Record<string, unknown>): unknown[] {
+  if (Array.isArray(entry.toolCalls)) return entry.toolCalls;
+  const metadata = asRecord(entry.metadata);
+  return Array.isArray(metadata?.toolCalls) ? metadata.toolCalls : [];
+}
+
+function parseToolArgs(args: unknown): Record<string, unknown> | null {
+  if (typeof args === "string") {
+    try {
+      return asRecord(JSON.parse(args));
+    } catch {
+      return null;
+    }
+  }
+  return asRecord(args);
+}
+
+/** Reason carried by the worker's end_call tool args, or null when absent/unreadable. */
+export function extractEndCallReason(transcript: unknown): string | null {
+  const turns = findTurnList(transcript);
+  if (!turns) return null;
+  for (const turn of turns) {
+    const entry = asRecord(turn);
+    if (!entry) continue;
+    for (const toolCall of toolCallsForEntry(entry)) {
+      const call = asRecord(toolCall);
+      if (call?.name !== "end_call") continue;
+      const args = parseToolArgs(call.args);
+      const reason = typeof args?.reason === "string" ? args.reason.trim() : "";
+      if (reason) return reason;
+    }
+  }
+  return null;
+}
+
 /**
  * Best available outcome for a call: a SUBSTANTIVE report outcome wins, else the transcript's
- * OUTCOME: marker, else null. Bare platform status words ("failed"/"completed"/...) in the
- * report are ignored; on a connected call they read as a misleading headline.
+ * OUTCOME: marker, else the end_call tool's reason, else null. Bare platform status words
+ * ("failed"/"completed"/...) in the report are ignored; on a connected call they read as a
+ * misleading headline.
  */
 export function bestOutcome(
   report: { outcome?: unknown } | null | undefined,
@@ -45,7 +85,7 @@ export function bestOutcome(
 ): string | null {
   const reportOutcome = typeof report?.outcome === "string" ? report.outcome.trim() : "";
   const substantive = reportOutcome && !BARE_OUTCOME_RE.test(reportOutcome) ? reportOutcome : "";
-  return substantive || extractOutcome(transcript);
+  return substantive || extractOutcome(transcript) || extractEndCallReason(transcript);
 }
 
 function findTurnList(transcript: unknown): unknown[] | null {
