@@ -43,6 +43,39 @@ describe("G1 — objective-to-opener composition (no mangled grafts)", () => {
     expect(fm).toMatch(/Alice asked me to book a table for two under Bek at 8pm\./i);
   });
 
+  it("scrubs trailing call-management timing from the spoken opener but keeps the booking ask", () => {
+    const objective = "Book a table for 2 tonight at 8pm under the name Bek, and confirm the reservation details back before ending the call";
+    const fm = buildFirstMessage("Bek", objective);
+    expect(fm).toMatch(/asked me to book a table for 2 tonight at 8pm under the name Bek/i);
+    expect(fm).not.toMatch(/before ending the call/i);
+    expect(buildSystemPrompt(objective, null, "Biz", "Bek")).toContain(objective);
+  });
+
+  it("does not scrub legitimate objectives that mention a call center", () => {
+    const objective = "ask when the call center closes";
+    const fm = buildFirstMessage("Bek", objective);
+    expect(fm).toMatch(/asked me to ask when the call center closes/i);
+  });
+
+  it("scrubs CHAINED call-management tails (fixpoint): stripping one tail exposes the next", () => {
+    const objective = "Book a table for two, confirm it before ending the call, then end the call";
+    const fm = buildFirstMessage("Bek", objective);
+    expect(fm).toMatch(/asked me to book a table for two, confirm it\b/i);
+    expect(fm).not.toMatch(/end(?:ing)? the call/i);
+  });
+
+  it("scrubs the natural tail variants: 'and hang up', 'before we hang up', 'before the call ends'", () => {
+    expect(buildFirstMessage("Bek", "Order a large pepperoni pizza and hang up")).toMatch(/asked me to order a large pepperoni pizza\.$/i);
+    expect(buildFirstMessage("Bek", "Ask for their hours before we hang up")).toMatch(/asked me to ask for their hours\.$/i);
+    expect(buildFirstMessage("Bek", "Confirm the booking before the call ends")).toMatch(/asked me to confirm the booking\.$/i);
+  });
+
+  it("does NOT scrub an 'after ... the call' tail that is real ask content", () => {
+    const objective = "Ask support whether the order can still be updated after ending the call";
+    const fm = buildFirstMessage("Bek", objective);
+    expect(fm).toMatch(/after ending the call/i);
+  });
+
   it("multi-sentence imperatives: both asks reach the opener, and the FULL objective reaches the system prompt", () => {
     const objective = "Book a table for two at 8pm tonight. Ask for a window seat if possible.";
     const fm = buildFirstMessage("Bek", objective);
@@ -233,6 +266,12 @@ describe("agent hangup — the call-ending rules track whether the end_call tool
     expect(sys).toMatch(/I'll let Bruce know\."\)/); // confirm example ends on facts, no "thanks, bye"
     expect(sys).toMatch(/"thanks so much, bye!"/); // the farewell example stands alone
     expect(sys).not.toMatch(/know — thanks, bye!/); // the fused example must NOT appear in this arm
+  });
+
+  it("rule 8 requires a statement confirmation, not a question or acknowledgment request", () => {
+    const sys = buildSystemPrompt("ask about a table for 4 at 8pm", null, "Biz", "Bruce", null, true);
+    expect(sys).toMatch(/a flat statement of what you learned, never a question/i);
+    expect(sys).toMatch(/don't wait for or invite a reply/i);
   });
 
   it("without the tool: the fused confirm+goodbye example is kept (single spoken goodbye is correct there)", () => {

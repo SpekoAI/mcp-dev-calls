@@ -116,6 +116,12 @@ export interface AppConfig {
    * re-enable it as a kill switch for one release before the guard is removed entirely.
    */
   serializeCalls: boolean;
+  /**
+   * Ask the platform worker to play the greeting immediately on answer while AMD classifies in
+   * the background. ON by default; SPEKO_DIAL_GREET_FIRST=0/false/no/off omits the field for rollback
+   * (same falsy convention as SPEKO_SERIALIZE_CALLS).
+   */
+  dialGreetFirst: boolean;
   dialTokenSecret: string;
   googlePlacesApiKey: string | undefined;
   twilio: { sid: string; token: string } | undefined;
@@ -187,6 +193,7 @@ export function loadConfig(): AppConfig {
       ((process.env.SPEKO_DASHBOARD_URL ?? process.env.SPEKO_PLATFORM_URL ?? "").trim() || "https://platform.speko.dev").replace(/\/+$/, ""),
     // OFF unless explicitly opted in (kill switch); #903 per-call rooms made the guard redundant (#37 M4).
     serializeCalls: ["1", "true", "yes", "on"].includes((process.env.SPEKO_SERIALIZE_CALLS ?? "").trim().toLowerCase()),
+    dialGreetFirst: !["0", "false", "no", "off"].includes((process.env.SPEKO_DIAL_GREET_FIRST ?? "").trim().toLowerCase()),
     dialTokenSecret,
     googlePlacesApiKey: (process.env.GOOGLE_PLACES_API_KEY ?? "").trim() || undefined,
     twilio: twilioSid && twilioToken ? { sid: twilioSid, token: twilioToken } : undefined,

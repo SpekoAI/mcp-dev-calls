@@ -194,12 +194,54 @@ const FIRST_PERSON_RE = /\bi\b/i;
 const DISCLOSURE_UNDERMINING_RE =
   /\b(?:i|you|this)\s*(?:'m|'re|am|are|is)\s+(?:really\s+|actually\s+|totally\s+)?(?:an?\s+)?(?:real\s+|actual\s+|live\s+)?(?:human(?:\s+being)?|person)\b|\b(?:i|you|this)\s*(?:'m|'re|am|are|is)\s+not\s+(?:an?\s+)?(?:ai|a\.i\.|bot|robot|assistant|machine|artificial)\b|\b(?:human|person)\s*,\s*not\s+an?\s+(?:ai|a\.i\.|bot|robot)\b/i;
 
+/**
+ * Trailing call-management adverbials ("before ending the call", "then hang up") are private
+ * execution timing, not the transactional ask, and sound absurd in the spoken opener. Each is
+ * anchored at the end only with flat literal alternations, keeping the attacker-influenced
+ * sanitizer linear-time. Deliberately only "before"/"then" forms: an "after/when ... the call"
+ * tail can be real ask content ("ask whether I can still update the order after ending the
+ * call"), and a false strip there weakens a legitimate opener. Chained tails ("... before
+ * ending the call, then end the call") are handled by the fixpoint loop in
+ * scrubTrailingCallManagement, which re-applies every pattern until nothing matches.
+ */
+const TRAILING_CALL_MANAGEMENT_RES: readonly RegExp[] = [
+  // "(and) (right) before ending/you end/we end/hanging up/... the call"
+  /,?\s*(?:and\s+)?(?:right\s+)?(?:before|then)\s+(?:ending|you\s+end|we\s+end|hanging\s+up|you\s+hang\s+up|we\s+hang\s+up|wrapping\s+up)\s+(?:the\s+|this\s+)?call[.!?]?\s*$/i,
+  // "before the call ends"
+  /,?\s*(?:and\s+)?(?:right\s+)?before\s+(?:the\s+|this\s+)?call\s+ends[.!?]?\s*$/i,
+  // "and/then (end|hang up) the call"
+  /,?\s*(?:and\s+then|and|then)\s+(?:end|hang\s+up)\s+(?:the\s+|this\s+)?call[.!?]?\s*$/i,
+  // bare "and/then hang up" ("end" alone is too ambiguous to strip without an object)
+  /,?\s*(?:and\s+then|and|then)\s+hang\s+up[.!?]?\s*$/i,
+  // "before we/you hang up" (no "the call" object)
+  /,?\s*(?:and\s+)?(?:right\s+)?before\s+(?:we|you)\s+hang\s+up[.!?]?\s*$/i,
+];
+
 /** Cut overlong text at a word boundary (a mid-word cut sounds broken in TTS). */
 function truncateAtWordBoundary(text: string, max: number): string {
   if (text.length <= max) return text;
   const cut = text.slice(0, max + 1);
   const lastSpace = cut.lastIndexOf(" ");
   return (lastSpace > 0 ? cut.slice(0, lastSpace) : text.slice(0, max)).replace(/[\s,.;:!?-]+$/, "");
+}
+
+function scrubTrailingCallManagement(sentence: string): string {
+  let out = sentence;
+  // Fixpoint, because stripping one tail can expose another ("... before ending the call,
+  // then end the call"). Bounded: every replacement shortens the string, and 6 passes
+  // outlasts any realistic stack of tails.
+  for (let pass = 0; pass < 6; pass += 1) {
+    let changed = false;
+    for (const re of TRAILING_CALL_MANAGEMENT_RES) {
+      const next = out.replace(re, "");
+      if (next !== out) {
+        out = next;
+        changed = true;
+      }
+    }
+    if (!changed) break;
+  }
+  return out.replace(/[\s,;:]+$/, "").trim();
 }
 
 /**
@@ -218,7 +260,8 @@ function speakableSentences(objective: string): string[] {
   for (const sentence of sentences) {
     const screened = normalizeApostrophes(sentence);
     if (SPEAKING_DIRECTIVE_RE.test(screened) || DISCLOSURE_UNDERMINING_RE.test(screened)) break;
-    out.push(sentence);
+    const scrubbed = scrubTrailingCallManagement(sentence);
+    if (scrubbed) out.push(scrubbed);
   }
   return out;
 }
@@ -341,7 +384,7 @@ const ANSWER_OR_ASK_AGAIN =
 
 /** Rule 8's confirm-first preamble, shared by both ending mechanics. */
 const CONFIRM_PREAMBLE =
-  "As soon as you have every answer the objective asks for, repeat it back in one short sentence to confirm, then";
+  "As soon as you have every answer the objective asks for, confirm it back in ONE short sentence — a flat statement of what you learned, never a question, and don't wait for or invite a reply to it — then";
 
 /**
  * Hard-ruled system prompt with delimited, nonce-protected user blocks.

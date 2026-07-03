@@ -7,7 +7,7 @@
 import { AUTH_NEXT_STEP, HARD_FAILURE_EVENTS, ROOM_END_EVENTS } from "../constants.js";
 import { AppError } from "../lib/errors.js";
 import { eventType } from "../lib/events.js";
-import { bestOutcome } from "../lib/transcript.js";
+import { bestOutcome, extractEndCallReason } from "../lib/transcript.js";
 import { isAuthFailure, type SpekoClient } from "../speko/client.js";
 import type { CallSummary, SessionDetail } from "../types.js";
 import { attachDashboardUrl, shapeCallSummary } from "./summary.js";
@@ -41,7 +41,9 @@ export async function describeCall(
   const transcript = detail.transcript ?? null;
   const to = strField(detail.metadata, "to") ?? strField(detail.metadata, "dialedNumber");
   const from = strField(detail.metadata, "from");
-  const outcome = bestOutcome(detail.report, transcript);
+  // Finished-call re-check: no grace loop to protect here, so the end_call reason is a
+  // safe last fallback after the report and the OUTCOME marker.
+  const outcome = bestOutcome(detail.report, transcript) ?? extractEndCallReason(transcript);
 
   // Terminality — AUTHORITATIVE signals only. The platform flips `status` to "failed" on a
   // first-audio SLA timeout while the call is still LIVE, so status must NOT be trusted here

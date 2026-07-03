@@ -84,7 +84,8 @@ export default class MakeCallTool extends MCPTool {
     "Stays open until the call finishes and returns the OUTCOME line plus the transcript. Every call " +
     "opens with the non-removable AI disclosure; the no-sell/no-spam + harassment + impersonation screens, " +
     "per-number rate caps, the local do-not-call list, and an after-hours confirmation gate " +
-    "(08:00-21:00 destination local; late calls need your human's explicit OK) all apply server-side.";
+    "(08:00-21:00 destination local; late calls need your human's explicit OK) all apply server-side. " +
+    'If alternatives are acceptable (a different time/size/substitute), say so in the objective (e.g. "book 8pm, or anything between 7:30 and 9"), otherwise the assistant only reports counter-offers back and never accepts them.';
   schema = schema;
   override annotations = {
     title: "Make Call",

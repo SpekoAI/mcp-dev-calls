@@ -1,7 +1,7 @@
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { makeCall, resetDialReplayGuard, type MakeCallDeps } from "../src/calls/makeCall.js";
 import { mintDialToken } from "../src/safety/dialToken.js";
 import { appendDialLedger, dncAdd, dncReason } from "../src/safety/guard.js";
@@ -458,6 +458,55 @@ describe("make_call — dial-agent wiring (agent-initiated hangup)", () => {
     expect(body.firstMessage).toMatch(/Amir's AI assistant/i);
     expect(body.sttOptions?.keywords).toContain("Amir");
     expect(body.telephony).toEqual({ amd: { mode: "agent" } });
+    expect((body as VoiceDialParams & { turnHandling?: unknown }).turnHandling).toEqual({ greetFirst: true });
+  });
+
+  it("omits turnHandling when SPEKO_DIAL_GREET_FIRST=false is reflected in config", async () => {
+    const captured: VoiceDialParams[] = [];
+    const f = fakePlatform();
+    const client = wiringClient(f, { dial: dialOk(captured) });
+
+    const s = await makeCall(
+      { dialToken: mint(), objective: "do you have a table for 4 at 8pm tonight?", callerName: "Amir" },
+      deps(client, { dialGreetFirst: false }),
+    );
+    expect(s.status).toBe("completed");
+    expect(captured).toHaveLength(1);
+    expect(captured[0]).not.toHaveProperty("turnHandling");
+  });
+
+  it("retries exactly once without turnHandling when an old platform schema rejects it", async () => {
+    const captured: VoiceDialParams[] = [];
+    const warn = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      const f = fakePlatform();
+      const client = wiringClient(f, {
+        dial: async (body: VoiceDialParams) => {
+          captured.push(body);
+          if (captured.length === 1) {
+            // The REAL pre-greetFirst platform shape: the zod handler returns
+            // { error: "Invalid request", code: "VALIDATION_ERROR", issues: [...] } and the
+            // SDK keeps only error+code — the offending key name never reaches the message.
+            throw new SpekoApiError("Invalid request", 400, "VALIDATION_ERROR");
+          }
+          return { sessionId: "dial-1", callControlId: "leg-1", roomName: "r", status: "dialing", to: body.to, from: body.from } as never;
+        },
+      });
+
+      const s = await makeCall(
+        { dialToken: mint(), objective: "do you have a table for 4 at 8pm tonight?", callerName: "Amir" },
+        deps(client),
+      );
+      expect(s.status).toBe("completed");
+      expect(captured).toHaveLength(2);
+      expect((captured[0] as VoiceDialParams & { turnHandling?: unknown }).turnHandling).toEqual({ greetFirst: true });
+      expect(captured[1]).not.toHaveProperty("turnHandling");
+      expect(
+        warn.mock.calls.filter(([line]) => String(line).includes("platform rejected turnHandling.greetFirst")),
+      ).toHaveLength(1);
+    } finally {
+      warn.mockRestore();
+    }
   });
 
   it("re-verifies the dial agent on EVERY call: an endCall toggle between calls is repaired, not trusted from cache", async () => {

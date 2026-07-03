@@ -32,7 +32,7 @@ import {
 } from "../constants.js";
 import { AppError, RejectionError } from "../lib/errors.js";
 import { eventType } from "../lib/events.js";
-import { bestOutcome, calleeTurns, countTranscriptTurns, extractReply } from "../lib/transcript.js";
+import { bestOutcome, calleeTurns, countTranscriptTurns, extractEndCallReason, extractReply } from "../lib/transcript.js";
 import {
   DialTokenError,
   afterHoursGateReason,
@@ -63,6 +63,9 @@ import { attachDashboardUrl, shapeCallSummary } from "./summary.js";
 
 const clamp = (n: number, lo: number, hi: number): number => Math.min(Math.max(n, lo), hi);
 const defaultSleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
+type VoiceDialParamsWithTurnHandling = VoiceDialParams & {
+  turnHandling?: { greetFirst?: boolean };
+};
 
 /**
  * Resolve the outbound caller-ID to dial `from`. An explicit config value wins;
@@ -275,45 +278,51 @@ export async function makeCall(input: MakeCallInput, deps: MakeCallDeps): Promis
   // agentId is rebuilt per attempt (see the retry below), and the prompt's rule set must
   // mirror it: the end_call instructions are emitted ONLY when the endCall-enabled agent
   // rides along, because that's what makes the worker register the hangup tool.
-  const buildBody = (agentId: string | null): VoiceDialParams => ({
-    to: e164,
-    ...(fromNumber ? { from: fromNumber } : {}),
-    // The persisted "speko-mcp-dial" agent exists solely to enable the worker's end_call
-    // hangup tool; every field below overrides the agent's defaults per-call.
-    ...(agentId ? { agentId } : {}),
-    // optimizeFor=latency is best for a LIVE call: it routes to a fast streaming STT + a low
-    // time-to-first-token LLM, avoiding the multi-second dead air the balanced/accuracy modes
-    // introduce. The actual LLM/TTS/STT models are pinned below via constraints
-    // (cfg.llmPin / cfg.ttsPin / cfg.sttPin), not left to the selector.
-    intent: { language: DIAL_INTENT_LANGUAGE, optimizeFor: deps.cfg.optimizeFor },
-    // A specific `voice` (cfg.voice) is safe ONLY because it's an ElevenLabs voice matching the
-    // ElevenLabs TTS pin below — always verify a voice with scripts/verify-tts.mjs first. A voice
-    // id from a different provider (Cartesia/OpenAI) routes wrong and produces SILENT audio.
-    ...(deps.cfg.voice ? { voice: deps.cfg.voice } : {}),
-    constraints: { allowedProviders: allowedProvidersFromPins(deps.cfg) },
-    sttOptions: { keywords: [caller, businessName, ...DIAL_STT_KEYWORDS] },
-    ttsOptions: { speed: deps.cfg.ttsSpeed ?? 1.0 },
-    llm: { temperature: 0.5, maxTokens: 100 },
-    firstMessage: buildFirstMessage(caller, input.objective),
-    systemPrompt: buildSystemPrompt(
-      input.objective,
-      input.context ?? null,
-      businessName,
-      caller,
-      input.behavior ?? null,
-      agentId != null,
-    ),
-    metadata: {
-      source: "speko-mcp-calls-demo",
-      objective: input.objective,
-      business_name: businessName,
-      // Persist to/from so get_call can report dialed_number/caller_id (CallDetail has no top-level
-      // to/from; the poll/recovery path reads them back from metadata).
+  const buildBody = (agentId: string | null): VoiceDialParams => {
+    const body: VoiceDialParamsWithTurnHandling = {
       to: e164,
-      from: fromNumber ?? null,
-    },
-    telephony: { amd: { mode: "agent" } },
-  });
+      ...(fromNumber ? { from: fromNumber } : {}),
+      // The persisted "speko-mcp-dial" agent exists solely to enable the worker's end_call
+      // hangup tool; every field below overrides the agent's defaults per-call.
+      ...(agentId ? { agentId } : {}),
+      // optimizeFor=latency is best for a LIVE call: it routes to a fast streaming STT + a low
+      // time-to-first-token LLM, avoiding the multi-second dead air the balanced/accuracy modes
+      // introduce. The actual LLM/TTS/STT models are pinned below via constraints
+      // (cfg.llmPin / cfg.ttsPin / cfg.sttPin), not left to the selector.
+      intent: { language: DIAL_INTENT_LANGUAGE, optimizeFor: deps.cfg.optimizeFor },
+      // A specific `voice` (cfg.voice) is safe ONLY because it's an ElevenLabs voice matching the
+      // ElevenLabs TTS pin below — always verify a voice with scripts/verify-tts.mjs first. A voice
+      // id from a different provider (Cartesia/OpenAI) routes wrong and produces SILENT audio.
+      ...(deps.cfg.voice ? { voice: deps.cfg.voice } : {}),
+      constraints: { allowedProviders: allowedProvidersFromPins(deps.cfg) },
+      sttOptions: { keywords: [caller, businessName, ...DIAL_STT_KEYWORDS] },
+      ttsOptions: { speed: deps.cfg.ttsSpeed ?? 1.0 },
+      llm: { temperature: 0.5, maxTokens: 100 },
+      firstMessage: buildFirstMessage(caller, input.objective),
+      systemPrompt: buildSystemPrompt(
+        input.objective,
+        input.context ?? null,
+        businessName,
+        caller,
+        input.behavior ?? null,
+        agentId != null,
+      ),
+      metadata: {
+        source: "speko-mcp-calls-demo",
+        objective: input.objective,
+        business_name: businessName,
+        // Persist to/from so get_call can report dialed_number/caller_id (CallDetail has no top-level
+        // to/from; the poll/recovery path reads them back from metadata).
+        to: e164,
+        from: fromNumber ?? null,
+      },
+      // Narrow local extension until the SpekoAI/platform PR adding turnHandling.greetFirst
+      // lands in @spekoai/sdk's VoiceDialParams type.
+      ...(deps.cfg.dialGreetFirst !== false ? { turnHandling: { greetFirst: true } } : {}),
+      telephony: { amd: { mode: "agent" } },
+    };
+    return body;
+  };
 
   const placeCall = async (agentId: string | null): Promise<CallSummary> =>
     attachDashboardUrl(
@@ -444,6 +453,41 @@ type EgressFastPath =
   | { phase: "armed"; atSeconds: number; turns: number }
   | { phase: "done" };
 
+function isTurnHandlingSchema400(e: unknown): boolean {
+  const status =
+    e instanceof SpekoApiError
+      ? e.status
+      : typeof (e as { status?: unknown } | null)?.status === "number"
+        ? ((e as { status: number }).status)
+        : null;
+  if (status !== 400) return false;
+  // The platform's zod handler puts the offending key only in the response `issues` array; the
+  // SDK's SpekoApiError keeps just `error` ("Invalid request") + `code` ("VALIDATION_ERROR"), so
+  // the key name never reaches the message. Any 400 VALIDATION_ERROR on a body that carried
+  // turnHandling is worth ONE keyless retry: if the 400 was about something else, the retry
+  // fails identically and that error surfaces. The message test stays for servers that do name keys.
+  const message = e instanceof Error ? e.message : String((e as { message?: unknown } | null)?.message ?? "");
+  if (/\b(?:turnHandling|greetFirst)\b/i.test(message)) return true;
+  const code = e instanceof SpekoApiError ? e.code : (e as { code?: unknown } | null)?.code;
+  return code === "VALIDATION_ERROR";
+}
+
+function omitTurnHandling(body: VoiceDialParams): VoiceDialParams {
+  const { turnHandling: _turnHandling, ...retryBody } = body as VoiceDialParamsWithTurnHandling;
+  return retryBody;
+}
+
+function dialFailure(e: unknown): AppError {
+  const authFail = isAuthFailure(e);
+  return new AppError((e as Error).message, {
+    statusCode: authFail ? 401 : 502,
+    nextStep: authFail ? AUTH_NEXT_STEP : MAKE_CALL_DIAL_NEXT_STEP,
+    // Preserve the platform's machine code (e.g. AGENT_NOT_FOUND) so makeCall can
+    // recover from a deleted dial agent instead of failing every call until restart.
+    ...(e instanceof SpekoApiError ? { code: e.code } : {}),
+  });
+}
+
 async function runPhoneCallInner(
   body: VoiceDialParams,
   maxSeconds: number,
@@ -463,16 +507,16 @@ async function runPhoneCallInner(
         deps.cfg.guardStateDir,
       );
     }
-    dial = await deps.client.dial(body);
+    try {
+      dial = await deps.client.dial(body);
+    } catch (e) {
+      const sentTurnHandling = (body as VoiceDialParamsWithTurnHandling).turnHandling !== undefined;
+      if (!sentTurnHandling || !isTurnHandlingSchema400(e)) throw e;
+      console.error("[dial] platform rejected turnHandling.greetFirst; retrying without turnHandling");
+      dial = await deps.client.dial(omitTurnHandling(body));
+    }
   } catch (e) {
-    const authFail = isAuthFailure(e);
-    throw new AppError((e as Error).message, {
-      statusCode: authFail ? 401 : 502,
-      nextStep: authFail ? AUTH_NEXT_STEP : MAKE_CALL_DIAL_NEXT_STEP,
-      // Preserve the platform's machine code (e.g. AGENT_NOT_FOUND) so makeCall can
-      // recover from a deleted dial agent instead of failing every call until restart.
-      ...(e instanceof SpekoApiError ? { code: e.code } : {}),
-    });
+    throw dialFailure(e);
   }
 
   const callId = dial.sessionId || null;
@@ -705,6 +749,11 @@ async function finalize(
       await readDetail();
     }
   }
+  // Only after the grace is done waiting: the end_call tool's reason is a decent outcome
+  // ("exact requested time not available, offered 9pm instead") but it exists from the first
+  // read, so folding it into bestOutcome would short-circuit the grace loop above and lock in
+  // a worse label than the substantive report about to land.
+  if (!outcome) outcome = extractEndCallReason(transcript);
 
   try {
     if (to) {
