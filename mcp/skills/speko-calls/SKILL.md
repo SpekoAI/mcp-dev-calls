@@ -58,7 +58,7 @@ donate, fundraise, vote, campaign, debt, warranty, crypto, investment.* Just say
 1. **`check_call_readiness()`** — read-only preflight (auth, credit, outbound caller-ID). Run
    first if unsure the account can dial. Never dials.
 2. **`lookup_business(name, location?, phone_number?, utc_offset_minutes?)`** — resolves the
-   business to candidates, each with a **signed, single-use `dial_token`** (the only thing that
+   business to candidates, each with a **signed, short-lived `dial_token`** (the only thing that
    can authorize `make_call`). Needs the server's directory/carrier keys; without them, use
    `call_number` with a number you found instead.
 3. **`make_call(dial_token, objective, caller_name, context?)`** — places the disclosed call,
