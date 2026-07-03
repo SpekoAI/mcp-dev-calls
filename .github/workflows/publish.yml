@@ -1,6 +1,11 @@
-# Tag-triggered npm publish for @spekoai/mcp-calls via npm Trusted Publishing (OIDC
-# provenance — no long-lived NPM_TOKEN secret). Gated on the version-lockstep check
-# (which also asserts the tag matches the package version), build, typecheck, and tests.
+# Tag-triggered npm publish for @spekoai/mcp-calls via npm Trusted Publishing (OIDC —
+# no long-lived NPM_TOKEN secret). Gated on the version-lockstep check (which also
+# asserts the tag matches the package version), build, typecheck, and tests.
+#
+# NOTE: no `--provenance`. Sigstore provenance requires a PUBLIC source repo; this repo
+# is "internal", so npm rejects the provenance bundle (E422). Trusted Publishing itself
+# is independent of provenance and works fine for an internal repo — the package stays
+# public via `--access public`. Add `--provenance` back only if the repo becomes public.
 #
 # Build runs BEFORE typecheck/test on purpose: the mcp workspace imports the server's
 # `@spekoai/mcp-calls-demo-server/core` subpath, whose types resolve to server/dist
@@ -37,6 +42,6 @@ jobs:
         run: npm run typecheck
       - name: Test
         run: npm test
-      - name: Publish with provenance
+      - name: Publish (Trusted Publishing, no provenance — internal repo)
         working-directory: mcp
-        run: npm publish --provenance --access public
+        run: npm publish --access public
