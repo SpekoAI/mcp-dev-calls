@@ -2,7 +2,7 @@ import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { makeCall, type MakeCallDeps } from "../src/calls/makeCall.js";
+import { makeCall, resetDialReplayGuard, type MakeCallDeps } from "../src/calls/makeCall.js";
 import { mintDialToken } from "../src/safety/dialToken.js";
 import { appendDialLedger, dncAdd, dncReason } from "../src/safety/guard.js";
 import { DIAL_AGENT_NAME, resetDialAgentForTests } from "../src/speko/agent.js";
@@ -479,6 +479,7 @@ describe("make_call — dial-agent wiring (agent-initiated hangup)", () => {
     // the worker never registers the tool — the model may speak tool syntax aloud.
     f.rows[0].endCall = { enabled: false };
 
+    resetDialReplayGuard(); // same number+objective on purpose — replay is not under test here
     const s2 = await makeCall(
       { dialToken: mint(), objective: "do you have a table for 4 at 8pm tonight?", callerName: "Amir" },
       deps(client),
@@ -539,6 +540,7 @@ describe("make_call — dial-agent wiring (agent-initiated hangup)", () => {
     expect(captured[1].systemPrompt).toMatch(/staying silent is exactly how you end the call/i);
     // The dead id was evicted: a later call re-resolves through the agents API (a second
     // find) instead of re-verifying the poisoned cached id (no get).
+    resetDialReplayGuard(); // same number+objective on purpose — replay is not under test here
     await makeCall(
       { dialToken: mint(), objective: "do you have a table for 4 at 8pm tonight?", callerName: "Amir" },
       deps(client),

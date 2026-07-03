@@ -1,0 +1,23 @@
+# Fails any push/PR to main where the five version sources disagree
+# (mcp/package.json, mcp/server.json x2, mcp/src/index.ts VERSION, package-lock.json).
+# Drift was real: server.json sat at 0.4.9 while everything else said 0.5.0 (fixed in f9deb5a).
+name: version-drift
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  lockstep:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: Self-test the checker
+        run: node scripts/check-version-lockstep.mjs --self-test
+      - name: Check version lockstep
+        run: node scripts/check-version-lockstep.mjs

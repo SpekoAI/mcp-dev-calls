@@ -28,7 +28,7 @@ import GetCallTool from "./tools/GetCallTool.js";
 import LookupBusinessTool from "./tools/LookupBusinessTool.js";
 import MakeCallTool from "./tools/MakeCallTool.js";
 
-const VERSION = "0.5.0";
+const VERSION = "0.5.1";
 
 function printHelp(): number {
   process.stderr.write(
@@ -83,6 +83,14 @@ if (mode.kind === "help") {
   // Interactive terminal with no command → show the command list (like most CLI tools).
   printHelp();
   process.exit(0);
+}
+
+if (mode.kind === "usage-error") {
+  // Unknown subcommand: fail fast on stderr with a distinct exit code — never boot the
+  // stdio server (a typo'd `speko frobnicate | ...` used to hang the caller's shell).
+  process.stderr.write(`speko: unknown command '${mode.name}'\n\n`);
+  printHelp();
+  process.exit(2);
 }
 
 // Piped / non-TTY invocation (an MCP host spawning us over stdio) → the stdio MCP server.

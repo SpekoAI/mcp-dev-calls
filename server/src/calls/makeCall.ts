@@ -4,9 +4,11 @@
  * the disclosed first message + hard-ruled system prompt, then dials and polls
  * api.speko.dev via @spekoai/sdk until the call reaches a terminal state.
  */
+import { createHash } from "node:crypto";
 import type { VoiceDialParams } from "@spekoai/sdk";
 import { allowedProvidersFromPins, type AppConfig } from "../config.js";
 import {
+  DIAL_TOKEN_DEFAULT_TTL_SECONDS,
   AUTH_NEXT_STEP,
   DIAL_INTENT_LANGUAGE,
   DIAL_STT_KEYWORDS,
@@ -234,6 +236,29 @@ export async function makeCall(input: MakeCallInput, deps: MakeCallDeps): Promis
     );
   }
 
+  // Every rail has passed — now the replay guard. Placed last so a rejected call never
+  // registers a fingerprint, and a duplicate is only ever compared against a REAL dial.
+  const replayKey = dialFingerprint(e164, input.objective);
+  const now = Date.now();
+  for (const [key, entry] of dialReplayCache) {
+    if (entry.expiresAt <= now) dialReplayCache.delete(key);
+  }
+  const priorDial = dialReplayCache.get(replayKey);
+  if (priorDial) {
+    throw new RejectionError(
+      "This exact call — same number and objective — was already placed moments ago" +
+        (priorDial.callId ? ` as call_id '${priorDial.callId}'` : "") +
+        "; dialing again would ring the same person twice for the same ask.",
+      priorDial.callId
+        ? `Do not re-dial. Check the existing call with get_call('${priorDial.callId}').`
+        : "Do not re-dial. The first attempt is still being placed; wait a moment and check recent calls with get_call.",
+    );
+  }
+  dialReplayCache.set(replayKey, {
+    callId: null,
+    expiresAt: now + DIAL_TOKEN_DEFAULT_TTL_SECONDS * 1000,
+  });
+
   const businessName =
     typeof payload.business_name === "string" && payload.business_name
       ? payload.business_name
@@ -302,17 +327,31 @@ export async function makeCall(input: MakeCallInput, deps: MakeCallDeps): Promis
     );
 
   try {
-    return await placeCall(dialAgentId);
-  } catch (e) {
-    // The dial agent can be deleted out-of-band (dashboard cleanup) in the window
-    // between the pre-dial verify and the dial itself; the platform then 404s
-    // (AGENT_NOT_FOUND). Same fail-open stance as bootstrap: drop the cached id and
-    // place this call agentless (no auto-hangup), with the prompt rebuilt to match.
-    if (dialAgentId != null && e instanceof AppError && e.code === "AGENT_NOT_FOUND") {
-      resetDialAgent();
-      console.error(`[dial-agent] agent ${dialAgentId} gone at dial time; retrying without auto-hangup`);
-      return placeCall(null);
+    let summary: CallSummary;
+    try {
+      summary = await placeCall(dialAgentId);
+    } catch (e) {
+      // The dial agent can be deleted out-of-band (dashboard cleanup) in the window
+      // between the pre-dial verify and the dial itself; the platform then 404s
+      // (AGENT_NOT_FOUND). Same fail-open stance as bootstrap: drop the cached id and
+      // place this call agentless (no auto-hangup), with the prompt rebuilt to match.
+      if (dialAgentId != null && e instanceof AppError && e.code === "AGENT_NOT_FOUND") {
+        resetDialAgent();
+        console.error(`[dial-agent] agent ${dialAgentId} gone at dial time; retrying without auto-hangup`);
+        summary = await placeCall(null);
+      } else {
+        throw e;
+      }
     }
+    // A real dial happened — remember its id so a duplicate attempt can point the agent at it.
+    dialReplayCache.set(replayKey, {
+      callId: summary.call_id,
+      expiresAt: now + DIAL_TOKEN_DEFAULT_TTL_SECONDS * 1000,
+    });
+    return summary;
+  } catch (e) {
+    // The dial itself failed — evict so a genuine retry isn't locked out by the guard.
+    dialReplayCache.delete(replayKey);
     throw e;
   }
 }
@@ -344,6 +383,27 @@ function isSourceClosedEgressEnd(e: Record<string, unknown>): boolean {
   } catch {
     return false;
   }
+}
+
+/**
+ * Dial replay guard (issue #37 M3): an in-process fingerprint cache so a RETRIED dial —
+ * an agent re-invoking make_call/call_number after a timeout — can't ring the same person
+ * twice for the same ask. Fingerprint = number + normalized objective (deliberately NOT the
+ * dial token: call_number mints a fresh token per attempt, which would defeat the guard).
+ * Entries live for the dial-token TTL; a dial that fails outright is evicted so a genuine
+ * retry is never locked out. Best-effort and in-process by design — the platform-side
+ * Idempotency-Key remains the v1.0 fix (docs/ROADMAP.md).
+ */
+const dialReplayCache = new Map<string, { callId: string | null; expiresAt: number }>();
+
+function dialFingerprint(e164: string, objective: string): string {
+  const normalizedObjective = (objective ?? "").toLowerCase().replace(/\s+/g, " ").trim();
+  return createHash("sha256").update(`${e164}|${normalizedObjective}`, "utf-8").digest("hex");
+}
+
+/** Test hook — clears the replay cache (mirrors resetDialAgent). */
+export function resetDialReplayGuard(): void {
+  dialReplayCache.clear();
 }
 
 let callInFlight = false;
