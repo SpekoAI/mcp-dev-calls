@@ -414,17 +414,16 @@ export async function runPhoneCall(
   deps: MakeCallDeps,
   sleep: (ms: number) => Promise<void>,
 ): Promise<CallSummary> {
-  // D-INF1 mitigation: the platform currently routes concurrent legs into one LiveKit room
-  // (>2 participants garble each other), so serialize calls within this process. ON by default;
-  // SPEKO_SERIALIZE_CALLS=0 disables it once the platform ships per-call room isolation (#903).
+  // Serialize guard — OFF by default. Platform per-call room isolation (#903) shipped and was
+  // verified under concurrency (#37 M4: simultaneous dials get distinct rooms + clean audio), so
+  // this is now an opt-in kill switch: SPEKO_SERIALIZE_CALLS=1 re-enables one-call-at-a-time.
   const serialize = deps.cfg.serializeCalls === true;
   if (serialize && callInFlight) {
     throw new RejectionError(
-      "A call is already in progress on this MCP session, so this one wasn't placed. The platform " +
-        "currently routes simultaneous calls into a shared room where their audio garbles each other, " +
-        "so only one call runs at a time here.",
-      "Wait for the current call to finish (check it with get_call), then place the next one. Concurrent " +
-        "calls are disabled until the platform ships per-call room isolation.",
+      "A call is already in progress on this MCP session, so this one wasn't placed — this deployment " +
+        "has serialized calls turned on (SPEKO_SERIALIZE_CALLS=1), so only one call runs at a time here.",
+      "Wait for the current call to finish (check it with get_call), then place the next one. To allow " +
+        "concurrent calls, unset SPEKO_SERIALIZE_CALLS (concurrent dials get isolated per-call rooms).",
     );
   }
   if (serialize) callInFlight = true;
