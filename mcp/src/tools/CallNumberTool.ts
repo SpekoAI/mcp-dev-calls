@@ -90,7 +90,8 @@ export default class CallNumberTool extends MCPTool {
     "(08:00-21:00 destination local; late calls need your human's explicit OK) still apply (mobiles allowed). " +
     "lookup_business + make_call is the OPTIONAL verified-directory path (it needs the server's " +
     "carrier/directory keys); prefer call_number when you already have or found the number. Only dial a number " +
-    "the user asked you to call or explicitly provided — never one you invented.";
+    "the user asked you to call or explicitly provided — never one you invented. " +
+    'If alternatives are acceptable (a different time/size/substitute), say so in the objective (e.g. "book 8pm, or anything between 7:30 and 9"), otherwise the assistant only reports counter-offers back and never accepts them.';
   schema = schema;
   override annotations = {
     title: "Call a Number",
