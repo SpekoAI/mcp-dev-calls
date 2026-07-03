@@ -76,7 +76,15 @@ if (args.includes("--self-test")) {
   selfTest();
 } else {
   const tagIdx = args.indexOf("--tag");
-  const tag = tagIdx >= 0 ? args[tagIdx + 1] : undefined;
+  let tag;
+  if (tagIdx >= 0) {
+    tag = args[tagIdx + 1];
+    if (!tag || tag.startsWith("--")) {
+      // Fail loudly — a missing value must never silently skip tag validation.
+      console.error("--tag requires a value, e.g. --tag v0.5.1");
+      process.exit(1);
+    }
+  }
   const sources = collectVersions(process.cwd());
   const problem = findDrift(sources, tag);
   if (problem) {
