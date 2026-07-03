@@ -110,9 +110,10 @@ export interface AppConfig {
   dashboardBaseUrl: string;
   /**
    * Serialize outbound calls within this process — reject a 2nd concurrent call while one is
-   * in flight. ON by default: the platform currently routes concurrent legs into a shared
-   * LiveKit room (>2 participants garble each other). Set SPEKO_SERIALIZE_CALLS=0 to disable
-   * once the platform ships per-call room isolation (SpekoAI/platform#903).
+   * in flight. OFF by default: platform per-call room isolation (SpekoAI/platform#903) shipped
+   * and was verified under concurrency (issue #37 M4, 2026-07-03 — two simultaneous dials got
+   * DISTINCT rooms + clean two-way audio, no cross-talk). Set SPEKO_SERIALIZE_CALLS=1 to
+   * re-enable it as a kill switch for one release before the guard is removed entirely.
    */
   serializeCalls: boolean;
   dialTokenSecret: string;
@@ -184,7 +185,8 @@ export function loadConfig(): AppConfig {
     rateCapPerNumberDay: positiveIntEnv("SPEKO_MAX_CALLS_PER_NUMBER_DAY", RATE_CAP_PER_NUMBER_DAY),
     dashboardBaseUrl:
       ((process.env.SPEKO_DASHBOARD_URL ?? process.env.SPEKO_PLATFORM_URL ?? "").trim() || "https://platform.speko.dev").replace(/\/+$/, ""),
-    serializeCalls: !["0", "false", "no", "off"].includes((process.env.SPEKO_SERIALIZE_CALLS ?? "").trim().toLowerCase()),
+    // OFF unless explicitly opted in (kill switch); #903 per-call rooms made the guard redundant (#37 M4).
+    serializeCalls: ["1", "true", "yes", "on"].includes((process.env.SPEKO_SERIALIZE_CALLS ?? "").trim().toLowerCase()),
     dialTokenSecret,
     googlePlacesApiKey: (process.env.GOOGLE_PLACES_API_KEY ?? "").trim() || undefined,
     twilio: twilioSid && twilioToken ? { sid: twilioSid, token: twilioToken } : undefined,

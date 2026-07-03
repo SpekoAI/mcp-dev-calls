@@ -3,7 +3,7 @@
     "probeId": "mcp.initialize",
     "justification": "Version bump mcp 0.4.9->0.5.0 shipping PR #30/#31 guardrails (docs/specs/abuse-guardrails-replace-quiet-hours.md). Version now 0.5.1 (issue #37 v0.5.1 hardening).",
     "expectContains": [
-      "\"version\":\"0.5.1\"",
+      "\"version\":\"0.5.2\"",
       "\"name\":\"speko-calls\""
     ]
   },
@@ -128,7 +128,7 @@
     "probeId": "cli.version",
     "justification": "Version bump: --version prints 0.5.1 (v0.5.1 hardening, issue #37; the 0.4.9 tarball's in-source const printed 0.4.8).",
     "expectContains": [
-      "0.5.1"
+      "0.5.2"
     ]
   },
   {
