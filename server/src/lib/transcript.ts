@@ -75,9 +75,14 @@ export function extractEndCallReason(transcript: unknown): string | null {
 
 /**
  * Best available outcome for a call: a SUBSTANTIVE report outcome wins, else the transcript's
- * OUTCOME: marker, else the end_call tool's reason, else null. Bare platform status words
- * ("failed"/"completed"/...) in the report are ignored; on a connected call they read as a
- * misleading headline.
+ * OUTCOME: marker, else null. Bare platform status words ("failed"/"completed"/...) in the
+ * report are ignored; on a connected call they read as a misleading headline.
+ *
+ * The end_call reason (extractEndCallReason) is deliberately NOT folded in here: makeCall's
+ * finalize keys its report-grace loop on this returning null ("no substantive outcome yet —
+ * keep waiting"), and the reason is present from the first read, so folding it in would
+ * short-circuit the grace and lock in a worse outcome than the report about to land. Call
+ * sites compose it as their own LAST fallback once they are done waiting.
  */
 export function bestOutcome(
   report: { outcome?: unknown } | null | undefined,
@@ -85,7 +90,7 @@ export function bestOutcome(
 ): string | null {
   const reportOutcome = typeof report?.outcome === "string" ? report.outcome.trim() : "";
   const substantive = reportOutcome && !BARE_OUTCOME_RE.test(reportOutcome) ? reportOutcome : "";
-  return substantive || extractOutcome(transcript) || extractEndCallReason(transcript);
+  return substantive || extractOutcome(transcript);
 }
 
 function findTurnList(transcript: unknown): unknown[] | null {
