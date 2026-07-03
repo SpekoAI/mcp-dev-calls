@@ -34,10 +34,55 @@ export function extractOutcome(transcript: unknown): string | null {
   return outcome;
 }
 
+function asRecord(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === "object" ? (value as Record<string, unknown>) : null;
+}
+
+function toolCallsForEntry(entry: Record<string, unknown>): unknown[] {
+  if (Array.isArray(entry.toolCalls)) return entry.toolCalls;
+  const metadata = asRecord(entry.metadata);
+  return Array.isArray(metadata?.toolCalls) ? metadata.toolCalls : [];
+}
+
+function parseToolArgs(args: unknown): Record<string, unknown> | null {
+  if (typeof args === "string") {
+    try {
+      return asRecord(JSON.parse(args));
+    } catch {
+      return null;
+    }
+  }
+  return asRecord(args);
+}
+
+/** Reason carried by the worker's end_call tool args, or null when absent/unreadable. */
+export function extractEndCallReason(transcript: unknown): string | null {
+  const turns = findTurnList(transcript);
+  if (!turns) return null;
+  for (const turn of turns) {
+    const entry = asRecord(turn);
+    if (!entry) continue;
+    for (const toolCall of toolCallsForEntry(entry)) {
+      const call = asRecord(toolCall);
+      if (call?.name !== "end_call") continue;
+      const args = parseToolArgs(call.args);
+      const reason = typeof args?.reason === "string" ? args.reason.trim() : "";
+      if (reason) return reason;
+    }
+  }
+  return null;
+}
+
 /**
  * Best available outcome for a call: a SUBSTANTIVE report outcome wins, else the transcript's
  * OUTCOME: marker, else null. Bare platform status words ("failed"/"completed"/...) in the
  * report are ignored; on a connected call they read as a misleading headline.
+ *
+ * The end_call reason (extractEndCallReason) is deliberately NOT folded in here: makeCall's
+ * finalize keys its report-grace loop on this returning null ("no substantive outcome yet —
+ * keep waiting"), and the reason is present from the first read, so folding it in would
+ * short-circuit the grace and lock in a worse outcome than the report about to land. Call
+ * sites compose it as their own LAST fallback once they are done waiting.
  */
 export function bestOutcome(
   report: { outcome?: unknown } | null | undefined,

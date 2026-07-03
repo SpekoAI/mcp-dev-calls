@@ -679,6 +679,73 @@ describe("finalize — report-grace (finalize-vs-report race)", () => {
     expect(getCallCalls).toBe(1); // reply found on the first read + outcome already substantive -> zero grace polls
   });
 
+  it("an end_call reason present from the FIRST read does not short-circuit the grace: the lagging substantive report still wins", async () => {
+    // Regression: the end_call reason exists the moment the room closes, so folding it into
+    // bestOutcome would make finalize stop waiting and lock in the tool's terse reason over
+    // the substantive report that lands one beat later.
+    let getCallCalls = 0;
+    const withReason = {
+      entries: [
+        { source: "agent", text: "hi" },
+        { source: "user", text: "only 9 works" },
+        { source: "agent", text: "bye", metadata: { toolCalls: [{ name: "end_call", args: '{"farewell":"bye!","reason":"offered 9pm"}' }] } },
+      ],
+    };
+    const s = await runPhoneCall(
+      BODY,
+      300,
+      deps({
+        dial: dialOk("rg4"),
+        getEvents: async () => [{ event_type: "room_finished" }] as any,
+        getCall: async () => {
+          getCallCalls += 1;
+          return {
+            status: "ended",
+            transcript: withReason,
+            report: getCallCalls > 1 ? { outcome: "8pm unavailable; they offered 9pm and nothing was booked" } : null,
+          } as any;
+        },
+        getSession: async () =>
+          ({ status: "ended", endedAt: new Date().toISOString(), phoneCall: { callControlId: "phone-rg4" }, usage: [] }) as any,
+      }),
+      noopSleep,
+    );
+    expect(s.status).toBe("completed");
+    expect(s.outcome).toBe("8pm unavailable; they offered 9pm and nothing was booked");
+    expect(getCallCalls).toBe(2); // the grace poll RAN despite the end_call reason being available
+  });
+
+  it("falls back to the end_call reason only after the grace exhausts with no report and no OUTCOME marker", async () => {
+    let getCallCalls = 0;
+    const s = await runPhoneCall(
+      BODY,
+      300,
+      deps({
+        dial: dialOk("rg5"),
+        getEvents: async () => [{ event_type: "room_finished" }] as any,
+        getCall: async () => {
+          getCallCalls += 1;
+          return {
+            status: "ended",
+            transcript: {
+              entries: [
+                { source: "agent", text: "hi" },
+                { source: "user", text: "only 9 works" },
+                { source: "agent", text: "bye", metadata: { toolCalls: [{ name: "end_call", args: '{"farewell":"bye!","reason":"exact requested time not available, offered 9pm instead"}' }] } },
+              ],
+            },
+            report: null, // analysis never lands
+          } as any;
+        },
+        getSession: async () =>
+          ({ status: "ended", endedAt: new Date().toISOString(), phoneCall: { callControlId: "phone-rg5" }, usage: [] }) as any,
+      }),
+      noopSleep,
+    );
+    expect(s.status).toBe("completed");
+    expect(s.outcome).toBe("exact requested time not available, offered 9pm instead");
+  });
+
   it("never blocks termination on a report that never comes (bounded, no outcome from any source)", async () => {
     let getCallCalls = 0;
     const s = await runPhoneCall(
