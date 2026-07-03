@@ -57,7 +57,7 @@ Every call opens with a **non-removable AI disclosure**. `lookup_business` carri
 business lines before minting a `dial_token`; `call_number` is for numbers the human has consent
 to call. Server guardrails include no-sell/no-spam + harassment + impersonation screens,
 per-number rate caps, a local do-not-call list (`speko dnc`), and an after-hours confirmation
-gate for late or unknown-timezone calls. `make_call` is authorized only by a fresh, single-use,
+gate for late or unknown-timezone calls. `make_call` is authorized only by a fresh, short-lived,
 signed `dial_token` from `lookup_business` — a raw phone number can never dial.
 
 ## Links

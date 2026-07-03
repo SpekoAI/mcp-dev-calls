@@ -49,10 +49,10 @@ realtime.
 ## v0.5 — next (this repo only, no platform/SDK changes)
 
 P0 bugs found by the AX audit (blueprint §3):
-1. **stdout protocol pollution**: `makeCall.ts` `console.log` `[dial]`/`[result]` writes onto the
-   stdio JSON-RPC channel on every in-process dial → switch to stderr. (2 lines)
-2. **Typo'd subcommand + piped stdin boots the MCP server and hangs agent shells** → unknown
-   command should print usage to stderr + exit 2; server mode only on empty argv.
+1. ~~**stdout protocol pollution**~~ — **shipped** in #32 (`f9deb5a`): `[dial]`/`[result]` now
+   `console.error`, never the JSON-RPC stdout.
+2. ~~**Typo'd subcommand + piped stdin boots the MCP server**~~ — **shipped** in v0.5.1 (#37 M2):
+   unknown command → usage on stderr + exit 2; server only on empty argv.
 3. **Dial retry = double-dial risk**: in-process replay guard (cache dial fingerprint for TTL,
    reject dupes → `next_step=get_call`); delete the false "single-use" claim in `mcp/README.md`.
 

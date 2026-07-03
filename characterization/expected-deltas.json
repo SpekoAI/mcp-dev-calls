@@ -1,112 +1,183 @@
 [
   {
     "probeId": "mcp.initialize",
-    "justification": "Version bump mcp 0.4.9->0.5.0 shipping PR #30/#31 guardrails (docs/specs/abuse-guardrails-replace-quiet-hours.md).",
-    "expectContains": ["\"version\":\"0.5.0\"", "\"name\":\"speko-calls\""]
+    "justification": "Version bump mcp 0.4.9->0.5.0 shipping PR #30/#31 guardrails (docs/specs/abuse-guardrails-replace-quiet-hours.md). Version now 0.5.1 (issue #37 v0.5.1 hardening).",
+    "expectContains": [
+      "\"version\":\"0.5.1\"",
+      "\"name\":\"speko-calls\""
+    ]
   },
   {
     "probeId": "mcp.tools-list",
     "justification": "PR #30/#31 adds after_hours_confirmation to make_call + call_number schemas (the after-hours confirmation gate); dnc stays CLI-only, not an MCP tool, so the tool set is unchanged otherwise.",
-    "expectContains": ["after_hours_confirmation", "call_number", "make_call", "lookup_business"]
+    "expectContains": [
+      "after_hours_confirmation",
+      "call_number",
+      "make_call",
+      "lookup_business"
+    ]
   },
   {
     "probeId": "rail.behavior-smuggle",
     "justification": "PR #30/#31 broadened the behavior-channel screen next_step to name harassment/impersonation; the block itself is unchanged (still rejects the sell smuggle).",
-    "expectContains": ["blocked by the transactional-only policy", "selling/harassment/impersonation instructions from behavior"]
+    "expectContains": [
+      "blocked by the transactional-only policy",
+      "selling/harassment/impersonation instructions from behavior"
+    ]
   },
   {
     "probeId": "rail.context-smuggle",
     "justification": "PR #30/#31 closes the previously UNSCREENED context channel (0.4.9 passed a promo context through to the dial layer). Now rejected by contextBlockedReason.",
-    "expectContains": ["The context channel is blocked", "selling/harassment/impersonation instructions from context"]
+    "expectContains": [
+      "The context channel is blocked",
+      "selling/harassment/impersonation instructions from context"
+    ]
   },
   {
     "probeId": "rail.harassment",
     "justification": "PR #30/#31 adds HARASSMENT_BLOCK_RE on objective (0.4.9 had no harassment screen; the objective reached the dial layer).",
-    "expectContains": ["may not be used to harass, prank, threaten, or intimidate"]
+    "expectContains": [
+      "may not be used to harass, prank, threaten, or intimidate"
+    ]
   },
   {
     "probeId": "rail.impersonation",
     "justification": "PR #30/#31 adds IMPERSONATION_BLOCK_RE on objective (0.4.9 had none; 'calling from the IRS' reached the dial layer).",
-    "expectContains": ["objectives that instruct it to pretend to be someone else are blocked"]
+    "expectContains": [
+      "objectives that instruct it to pretend to be someone else are blocked"
+    ]
   },
   {
     "probeId": "rail.coldcall",
     "justification": "PR #30/#31 extends OBJECTIVE_BLOCK_RE with cold-outreach terms ('cold call'); 0.4.9 let it through to the dial layer.",
-    "expectContains": ["transactional-objectives-only policy"]
+    "expectContains": [
+      "transactional-objectives-only policy"
+    ]
   },
   {
     "probeId": "gate.night-noconfirm",
     "justification": "PR #30/#31 replaces the quiet-hours hard block with the after-hours confirmation gate; late calls now ask for after_hours_confirmation instead of 'wait until business hours'.",
-    "expectContains": ["Call blocked: destination local time is <TIME>", "retry with after_hours_confirmation", "consented to be called"]
+    "expectContains": [
+      "Call blocked: destination local time is <TIME>",
+      "retry with after_hours_confirmation",
+      "consented to be called"
+    ]
   },
   {
     "probeId": "gate.night-confirm",
     "justification": "PR #30/#31: with after_hours_confirmation supplied, a late call passes the gate and reaches the dial layer (<NETERR> sinkhole). 0.4.9 had no such param and hard-blocked.",
-    "expectContains": ["<NETERR>"]
+    "expectContains": [
+      "<NETERR>"
+    ]
   },
   {
     "probeId": "gate.collection-night-confirm",
     "justification": "PR #30 FDCPA carve-out: collection-flavored objectives are day-hours-only with NO override even with confirmation (15 U.S.C. 1692c(a)(1)). 0.4.9 blocked it as generic quiet hours.",
-    "expectContains": ["collection-flavored calls are day-hours-only with no override", "FDCPA 8am-9pm window (15 U.S.C. 1692c(a)(1))"]
+    "expectContains": [
+      "collection-flavored calls are day-hours-only with no override",
+      "FDCPA 8am-9pm window (15 U.S.C. 1692c(a)(1))"
+    ]
   },
   {
     "probeId": "gate.unknown-offset-noconfirm",
     "justification": "PR #31: unknown timezone no longer fail-closed hard blocks; it asks for after_hours_confirmation (message says 'timezone unverified').",
-    "expectContains": ["Call blocked: timezone unverified", "retry with after_hours_confirmation"]
+    "expectContains": [
+      "Call blocked: timezone unverified",
+      "retry with after_hours_confirmation"
+    ]
   },
   {
     "probeId": "gate.unknown-offset-confirm",
     "justification": "PR #31: unknown-timezone number + confirmation reaches the dial layer instead of the 0.4.9 fail-closed block.",
-    "expectContains": ["<NETERR>"]
+    "expectContains": [
+      "<NETERR>"
+    ]
   },
   {
     "probeId": "token.night-noconfirm",
     "justification": "PR #30/#31: the make_call (dial_token) path uses the same after-hours confirmation gate, replacing the quiet-hours message.",
-    "expectContains": ["Call blocked: destination local time is <TIME>", "Re-run make_call with after_hours_confirmation"]
+    "expectContains": [
+      "Call blocked: destination local time is <TIME>",
+      "Re-run make_call with after_hours_confirmation"
+    ]
   },
   {
     "probeId": "guard.dnc-blocked",
     "justification": "PR #30/#31 adds the local do-not-call ledger, checked before dial. A DNC-seeded number is rejected; 0.4.9 had no DNC and reached the dial layer.",
-    "expectContains": ["is on the local do-not-call list", "speko dnc remove +14155550142"]
+    "expectContains": [
+      "is on the local do-not-call list",
+      "speko dnc remove +14155550142"
+    ]
   },
   {
     "probeId": "guard.ratecap-4th",
     "justification": "PR #30/#31 adds per-number rate caps (3/hour default). A 4th call within the hour (3 seeded ledger entries) is rejected; 0.4.9 had no rate cap.",
-    "expectContains": ["Rate cap reached for +14155550142", "3 calls in the last 60 minutes"]
+    "expectContains": [
+      "Rate cap reached for +14155550142",
+      "3 calls in the last 60 minutes"
+    ]
   },
   {
     "probeId": "guard.trusted-skips-time-and-rate",
     "justification": "PR #30/#31 SPEKO_TRUSTED_NUMBERS skips the rate cap AND after-hours gate; a trusted number at night with a full ledger still reaches the dial layer. 0.4.9 had no trusted concept and hard-blocked on quiet hours.",
-    "expectContains": ["<NETERR>"]
+    "expectContains": [
+      "<NETERR>"
+    ]
   },
   {
     "probeId": "cli.version",
-    "justification": "Version bump: --version prints 0.5.0 (the 0.4.9 tarball's in-source const printed 0.4.8).",
-    "expectContains": ["0.5.0"]
+    "justification": "Version bump: --version prints 0.5.1 (v0.5.1 hardening, issue #37; the 0.4.9 tarball's in-source const printed 0.4.8).",
+    "expectContains": [
+      "0.5.1"
+    ]
   },
   {
     "probeId": "cli.help",
     "justification": "PR #30/#31 adds the 'speko dnc list|add|remove' command to the help/usage text.",
-    "expectContains": ["speko dnc", "do-not-call"]
+    "expectContains": [
+      "speko dnc",
+      "do-not-call"
+    ]
   },
   {
     "probeId": "cli.dnc-usage",
     "justification": "PR #30/#31 adds the dnc subcommand; bare 'dnc' prints usage (exit 1). 0.4.9 had no dnc command and fell through to starting the MCP server.",
-    "expectContains": ["Usage: speko dnc list | add <e164> | remove <e164>", "\"code\":1"]
+    "expectContains": [
+      "Usage: speko dnc list | add <e164> | remove <e164>",
+      "\"code\":1"
+    ]
   },
   {
     "probeId": "cli.dnc-list-empty",
     "justification": "PR #30/#31: 'dnc list' on an empty ledger prints the empty message. 0.4.9 started the server.",
-    "expectContains": ["Do-not-call list is empty.", "\"code\":0"]
+    "expectContains": [
+      "Do-not-call list is empty.",
+      "\"code\":0"
+    ]
   },
   {
     "probeId": "cli.dnc-add",
     "justification": "PR #30/#31: 'dnc add' normalizes the formatted number and confirms. 0.4.9 started the server.",
-    "expectContains": ["Added +14155550142 to the local do-not-call list.", "\"code\":0"]
+    "expectContains": [
+      "Added +14155550142 to the local do-not-call list.",
+      "\"code\":0"
+    ]
   },
   {
     "probeId": "cli.dnc-remove-noop",
     "justification": "PR #30/#31: 'dnc remove' of a never-listed number reports it was not listed (Greptile P2 fix: no tombstone written). 0.4.9 started the server.",
-    "expectContains": ["was not on the local do-not-call list", "\"code\":0"]
+    "expectContains": [
+      "was not on the local do-not-call list",
+      "\"code\":0"
+    ]
+  },
+  {
+    "probeId": "cli.unknown-command",
+    "justification": "v0.5.1 M2 (issue #37): an unknown subcommand now prints usage to stderr and exits 2 instead of booting the stdio server (the 0.4.9 baseline locked the bug: code 13 + full server boot, which hung agent shells on a typo).",
+    "expectContains": [
+      "\"code\":2",
+      "unknown command 'frobnicate'",
+      "Usage:"
+    ]
   }
 ]
