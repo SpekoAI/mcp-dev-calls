@@ -1,7 +1,7 @@
 [
   {
     "probeId": "mcp.initialize",
-    "justification": "Version bump 0.5.2->0.5.3: adds read-only CLI inspection commands usage/credits/call (CLI-only, no new MCP tool). serverInfo.version follows the VERSION const.",
+    "justification": "Version bump 0.5.2->0.5.4: adds read-only CLI inspection commands usage/credits/call (CLI-only, no new MCP tool). serverInfo.version follows the VERSION const.",
     "expectContains": [
       "\"version\":\"0.5.4\"",
       "\"name\":\"speko-calls\""
@@ -126,14 +126,14 @@
   },
   {
     "probeId": "cli.version",
-    "justification": "Version bump 0.5.2->0.5.3 (adds usage/credits/call CLI commands). --version prints the VERSION const to stdout.",
+    "justification": "Version bump 0.5.2->0.5.4 (adds usage/credits/call CLI commands). --version prints the VERSION const to stdout.",
     "expectContains": [
       "0.5.4"
     ]
   },
   {
     "probeId": "cli.help",
-    "justification": "0.5.3 adds read-only CLI commands usage/credits/call to CLI_COMMANDS and to printHelp() usage text; version banner is 0.5.3. The dnc lines remain from 0.5.x.",
+    "justification": "0.5.4 adds read-only CLI commands usage/credits/call to CLI_COMMANDS and to printHelp() usage text; version banner is 0.5.4. The dnc lines remain from 0.5.x.",
     "expectContains": [
       "speko 0.5.4",
       "speko dnc",
@@ -186,7 +186,7 @@
   },
   {
     "probeId": "cli.call-usage",
-    "justification": "0.5.3 adds the `call report|events|transcript` CLI command. Bare `call` (no subcommand) prints usage to stderr and exits 2 with NO network call — deterministic offline. No 0.4.9 baseline exists (the command is new); asserted via delta per the suite's frozen-baseline rule.",
+    "justification": "0.5.4 adds the `call report|events|transcript` CLI command. Bare `call` (no subcommand) prints usage to stderr and exits 2 with NO network call — deterministic offline. No 0.4.9 baseline exists (the command is new); asserted via delta per the suite's frozen-baseline rule.",
     "expectContains": [
       "\"code\":2",
       "usage: speko call"
