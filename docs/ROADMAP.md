@@ -56,11 +56,14 @@ P0 bugs found by the AX audit (blueprint §3):
 3. **Dial retry = double-dial risk**: in-process replay guard (cache dial fingerprint for TTL,
    reject dupes → `next_step=get_call`); delete the false "single-use" claim in `mcp/README.md`.
 
+**Shipped 0.5.3** — read-only inspection CLI: `speko usage` / `speko credits [--ledger]` /
+`speko call report|events|transcript <id>` (real cost via `usage.get()`/`credits`/`calls.report()`;
+events = the "speech diagram" timeline) + **AGENTS.md** (root; README now documents the CLI too).
+Only raw account numbers shown — the marked-up `$` display stays gated (open decision #1).
+
 Then: `--play` force flag (agent hooks) · `transcript: none|compact|full` on call tools (default
 compact — full transcripts flood agent context 3-5x) · `outputSchemaShape` on all 6 MCP tools
-(mcp-framework 0.2.22 supports it) · `speko usage` / `speko credits` / `speko call report <id>`
-(real cost via `calls.report()`) / `speko call transcript <id> --diagram` / `speko call events <id>`
-· cost in MCP `get_call` · AGENTS.md (root + npm files) · `speko hook install` · exit-code contract.
+(mcp-framework 0.2.22 supports it) · cost in MCP `get_call` · `speko hook install` · exit-code contract.
 
 ## v0.6 — SDK bump (platform APIs exist today)
 

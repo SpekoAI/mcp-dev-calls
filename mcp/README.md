@@ -60,6 +60,26 @@ per-number rate caps, a local do-not-call list (`speko dnc`), and an after-hours
 gate for late or unknown-timezone calls. `make_call` is authorized only by a fresh, short-lived,
 signed `dial_token` from `lookup_business` — a raw phone number can never dial.
 
+## CLI
+
+Beyond the MCP server, `speko` is also a terminal CLI — run it with a subcommand:
+
+```bash
+speko audio speak "<text>"        # text-to-speech (stdin/pipe ok; -o file, --format wav|mp3)
+speko audio transcribe <file|->   # speech-to-text
+speko voices [--provider <p>]     # list the voices the router can pick
+speko usage                       # account usage this period: sessions, minutes, spend, balance
+speko credits [--ledger]          # prepaid balance (+ recent credit movements)
+speko call report <id>            # a finished call's outcome, cost + cost breakdown
+speko call events <id>            # timeline / "speech diagram" of the call
+speko call transcript <id>        # the transcript, one line per turn
+speko dnc list | add <e164> | remove <e164>   # local do-not-call ledger
+```
+
+All commands accept `--json`. `speko` in a terminal prints this list; piped (no subcommand) it
+runs as the MCP server. See [AGENTS.md](https://github.com/SpekoAI/mcp-dev-calls/blob/main/AGENTS.md)
+for the full agent-oriented guide.
+
 ## Links
 
 - Dashboard / API keys — [platform.speko.dev](https://platform.speko.dev)
