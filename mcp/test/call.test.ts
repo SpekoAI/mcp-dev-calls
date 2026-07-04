@@ -184,6 +184,40 @@ describe("runCall", () => {
     expect(c.out).toEqual([]);
   });
 
+  it("renders '-' (not the literal 'null') for null fields in a real report/timeline (regression)", async () => {
+    // The live API returns null in fields the SDK types mark required (proven by the usage
+    // smoke). pad()/coercion must render "-", never the string "null".
+    const speko = {
+      calls: {
+        report: async () => ({
+          session_id: "s",
+          summary: null,
+          outcome: null,
+          cost_micro_usd: "1000",
+          cost_breakdown: [{ provider: null, metric: null, quantity: null, costMicroUsd: "1000" }],
+          analysis_status: null,
+          created_at: null,
+          transcript: { entries: [] },
+        }),
+        events: async () => ({
+          events: [{ event_type: null, status: null, provider: null, occurred_at: null, failure_cause: null, sip_status_code: null }],
+        }),
+      },
+    } as unknown as Speko;
+
+    const rc = cap();
+    const codeR = await runCall(["report", "s"], { speko, stdout: rc.stdout, stderr: rc.stderr });
+    expect(codeR).toBe(0);
+    expect(rc.out.join("")).not.toContain("null");
+
+    const ec = cap();
+    const codeE = await runCall(["events", "s"], { speko, stdout: ec.stdout, stderr: ec.stderr });
+    expect(codeE).toBe(0);
+    const et = ec.out.join("");
+    expect(et).not.toContain("null");
+    expect(et).not.toContain("NaN"); // null occurred_at must not become "+NaNs"
+  });
+
   it("API error → 'call failed' on stderr, exit 1", async () => {
     const { speko } = fakeSpeko({ throwOn: "report" });
     const c = cap();

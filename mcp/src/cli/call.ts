@@ -16,7 +16,6 @@ export interface CallDeps {
 
 const OPTIONS = {
   json: { type: "boolean" },
-  quiet: { type: "boolean", short: "q" },
 } as const;
 
 const SUBS = ["report", "events", "transcript"] as const;
@@ -32,12 +31,15 @@ function isSub(v: string | undefined): v is Sub {
   return typeof v === "string" && (SUBS as readonly string[]).includes(v);
 }
 
-function pad(v: string | number, n: number): string {
-  return String(v).padEnd(n);
+// Null-safe: the live API can return null in fields the SDK types mark required, and String(null)
+// would print the literal "null" in a column — render "-" instead (never trust external data).
+function pad(v: string | number | null | undefined, n: number): string {
+  return String(v ?? "-").padEnd(n);
 }
 
-/** HH:MM:SS from an ISO timestamp, falling back to the raw value if unparseable. */
-function clock(iso: string): string {
+/** HH:MM:SS from an ISO timestamp; "-" if missing, the raw value if unparseable. */
+function clock(iso: string | null | undefined): string {
+  if (!iso) return "-";
   const t = Date.parse(iso);
   return Number.isNaN(t) ? iso : new Date(t).toISOString().slice(11, 19);
 }
@@ -86,11 +88,11 @@ export async function runCall(argv: string[], deps: CallDeps = {}): Promise<numb
         stdout.write(JSON.stringify(report) + "\n");
         return 0;
       }
-      lines.push(`outcome:         ${report.outcome}`);
-      lines.push(`summary:         ${report.summary}`);
+      lines.push(`outcome:         ${report.outcome ?? "-"}`);
+      lines.push(`summary:         ${report.summary ?? "-"}`);
       lines.push(`cost:            ${usd(report.cost_micro_usd)}`);
-      lines.push(`analysis_status: ${report.analysis_status}`);
-      lines.push(`created_at:      ${report.created_at}`);
+      lines.push(`analysis_status: ${report.analysis_status ?? "-"}`);
+      lines.push(`created_at:      ${report.created_at ?? "-"}`);
       const breakdown = report.cost_breakdown ?? [];
       if (breakdown.length) {
         lines.push("");
@@ -145,7 +147,7 @@ export async function runCall(argv: string[], deps: CallDeps = {}): Promise<numb
         lines.push("no transcript");
       } else {
         for (const turn of entries) {
-          lines.push(`${turn.source}: ${turn.text}`);
+          lines.push(`${turn.source ?? "-"}: ${turn.text ?? ""}`);
         }
       }
     }

@@ -18,7 +18,6 @@ const OPTIONS = {
   json: { type: "boolean" },
   ledger: { type: "boolean" },
   limit: { type: "string" },
-  quiet: { type: "boolean", short: "q" },
 } as const;
 
 const DEFAULT_LIMIT = 10;
@@ -86,10 +85,14 @@ export async function runCredits(argv: string[], deps: CreditsDeps = {}): Promis
       lines.push(`recent movements (${entries.length}):`);
       lines.push(`  ${"when".padEnd(26)} ${"kind".padEnd(11)} ${"amount".padStart(12)}  provider/metric`);
       for (const e of entries) {
-        // usd() already carries the sign (negative → "$-…"); render a leading "+" for credits.
-        const amount = Number(e.amountMicroUsd) >= 0 ? `+${usd(e.amountMicroUsd)}` : usd(e.amountMicroUsd);
+        // Sign OUTSIDE the "$" so the right-aligned column lines up: "+$5.00" / "-$0.2500"
+        // (usd() formats the absolute value; we prepend the sign).
+        const micro = Number(e.amountMicroUsd);
+        const amount = `${micro >= 0 ? "+" : "-"}${usd(Math.abs(micro))}`;
         const tag = e.provider ?? e.metric ?? "-";
-        lines.push(`  ${e.createdAt.padEnd(26)} ${e.kind.padEnd(11)} ${amount.padStart(12)}  ${tag}`);
+        lines.push(
+          `  ${String(e.createdAt ?? "-").padEnd(26)} ${String(e.kind ?? "-").padEnd(11)} ${amount.padStart(12)}  ${tag}`,
+        );
       }
     } else {
       lines.push("no credit movements yet.");

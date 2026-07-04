@@ -86,7 +86,7 @@ describe("runCredits", () => {
     expect(text).toContain("recent movements (2)");
     expect(text).toContain("topup");
     expect(text).toContain("+$5.00"); // positive topup keeps a leading +
-    expect(text).toContain("$-0.2500"); // signed sub-dollar debit at 4 dp
+    expect(text).toContain("-$0.2500"); // negative debit: sign OUTSIDE the $ for column alignment
     expect(text).toContain("cartesia"); // provider surfaced
   });
 
