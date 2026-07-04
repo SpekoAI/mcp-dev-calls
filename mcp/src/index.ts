@@ -4,6 +4,8 @@
  *  • `speko dnc list|add|remove`     → local do-not-call guardrail ledger.
  *  • `speko audio speak|transcribe`  → terminal TTS/STT (voice on the CLI).
  *  • `speko voices|models`           → list voices the router can pick.
+ *  • `speko usage | credits`         → account usage/spend + prepaid balance.
+ *  • `speko call report|events|transcript <id>` → inspect a finished call.
  *  • `speko --help|--version`        → help/version.
  *  • bare invocation                       → the stdio MCP server (stdout RESERVED for
  *                                            JSON-RPC; logs → stderr).
@@ -19,6 +21,9 @@ import { runInit } from "./cli/init.js";
 import { runAudio } from "./cli/audio/index.js";
 import { runDnc } from "./cli/dnc.js";
 import { runVoices } from "./cli/voices.js";
+import { runUsage } from "./cli/usage.js";
+import { runCredits } from "./cli/credits.js";
+import { runCall } from "./cli/call.js";
 import { resolveMode } from "./cli/router.js";
 import { loadEnv } from "./lib/env.js";
 import CallMeTool from "./tools/CallMeTool.js";
@@ -28,7 +33,7 @@ import GetCallTool from "./tools/GetCallTool.js";
 import LookupBusinessTool from "./tools/LookupBusinessTool.js";
 import MakeCallTool from "./tools/MakeCallTool.js";
 
-const VERSION = "0.5.2";
+const VERSION = "0.5.3";
 
 function printHelp(): number {
   process.stderr.write(
@@ -40,6 +45,11 @@ function printHelp(): number {
       '  speko audio speak "<text>"     text-to-speech (TTS)\n' +
       "  speko audio transcribe <f|->   speech-to-text (STT)\n" +
       "  speko voices [--provider <p>]  list available voices\n" +
+      "  speko usage                    account usage this period (sessions, minutes, spend, balance)\n" +
+      "  speko credits [--ledger]       prepaid balance (+ recent credit movements)\n" +
+      "  speko call report <id>         a finished call's outcome, cost + cost breakdown\n" +
+      "  speko call events <id>         timeline / speech diagram of the call\n" +
+      "  speko call transcript <id>     the call transcript, one line per turn\n" +
       "  speko --help | --version\n",
   );
   return 0;
@@ -60,6 +70,9 @@ const CLI: Record<string, () => Promise<number> | number> = {
   audio: () => runAudio(rest),
   voices: () => runVoices(rest),
   models: () => runVoices(rest),
+  usage: () => runUsage(rest),
+  credits: () => runCredits(rest),
+  call: () => runCall(rest),
   "--help": printHelp,
   "-h": printHelp,
   "--version": printVersion,

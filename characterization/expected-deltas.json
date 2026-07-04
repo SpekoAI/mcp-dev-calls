@@ -1,9 +1,9 @@
 [
   {
     "probeId": "mcp.initialize",
-    "justification": "Version bump mcp 0.4.9->0.5.0 shipping PR #30/#31 guardrails (docs/specs/abuse-guardrails-replace-quiet-hours.md). Version now 0.5.1 (issue #37 v0.5.1 hardening).",
+    "justification": "Version bump 0.5.2->0.5.3: adds read-only CLI inspection commands usage/credits/call (CLI-only, no new MCP tool). serverInfo.version follows the VERSION const.",
     "expectContains": [
-      "\"version\":\"0.5.2\"",
+      "\"version\":\"0.5.3\"",
       "\"name\":\"speko-calls\""
     ]
   },
@@ -126,17 +126,21 @@
   },
   {
     "probeId": "cli.version",
-    "justification": "Version bump: --version prints 0.5.1 (v0.5.1 hardening, issue #37; the 0.4.9 tarball's in-source const printed 0.4.8).",
+    "justification": "Version bump 0.5.2->0.5.3 (adds usage/credits/call CLI commands). --version prints the VERSION const to stdout.",
     "expectContains": [
-      "0.5.2"
+      "0.5.3"
     ]
   },
   {
     "probeId": "cli.help",
-    "justification": "PR #30/#31 adds the 'speko dnc list|add|remove' command to the help/usage text.",
+    "justification": "0.5.3 adds read-only CLI commands usage/credits/call to CLI_COMMANDS and to printHelp() usage text; version banner is 0.5.3. The dnc lines remain from 0.5.x.",
     "expectContains": [
+      "speko 0.5.3",
       "speko dnc",
-      "do-not-call"
+      "do-not-call",
+      "speko usage",
+      "speko credits",
+      "speko call report"
     ]
   },
   {
@@ -178,6 +182,14 @@
       "\"code\":2",
       "unknown command 'frobnicate'",
       "Usage:"
+    ]
+  },
+  {
+    "probeId": "cli.call-usage",
+    "justification": "0.5.3 adds the `call report|events|transcript` CLI command. Bare `call` (no subcommand) prints usage to stderr and exits 2 with NO network call — deterministic offline. No 0.4.9 baseline exists (the command is new); asserted via delta per the suite's frozen-baseline rule.",
+    "expectContains": [
+      "\"code\":2",
+      "usage: speko call"
     ]
   }
 ]
