@@ -15,7 +15,6 @@ export interface UsageDeps {
 
 const OPTIONS = {
   json: { type: "boolean" },
-  quiet: { type: "boolean", short: "q" },
 } as const;
 
 /** Plain-USD number → "$x.xx". UsageSummary reports dollars, not micro-USD, so no /1e6 here. */
