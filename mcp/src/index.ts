@@ -33,7 +33,7 @@ import GetCallTool from "./tools/GetCallTool.js";
 import LookupBusinessTool from "./tools/LookupBusinessTool.js";
 import MakeCallTool from "./tools/MakeCallTool.js";
 
-const VERSION = "0.5.3";
+const VERSION = "0.5.4";
 
 function printHelp(): number {
   process.stderr.write(
