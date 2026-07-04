@@ -3,7 +3,7 @@
     "probeId": "mcp.initialize",
     "justification": "Version bump 0.5.2->0.5.3: adds read-only CLI inspection commands usage/credits/call (CLI-only, no new MCP tool). serverInfo.version follows the VERSION const.",
     "expectContains": [
-      "\"version\":\"0.5.3\"",
+      "\"version\":\"0.5.4\"",
       "\"name\":\"speko-calls\""
     ]
   },
@@ -128,14 +128,14 @@
     "probeId": "cli.version",
     "justification": "Version bump 0.5.2->0.5.3 (adds usage/credits/call CLI commands). --version prints the VERSION const to stdout.",
     "expectContains": [
-      "0.5.3"
+      "0.5.4"
     ]
   },
   {
     "probeId": "cli.help",
     "justification": "0.5.3 adds read-only CLI commands usage/credits/call to CLI_COMMANDS and to printHelp() usage text; version banner is 0.5.3. The dnc lines remain from 0.5.x.",
     "expectContains": [
-      "speko 0.5.3",
+      "speko 0.5.4",
       "speko dnc",
       "do-not-call",
       "speko usage",
