@@ -176,6 +176,7 @@ export function buildMatrix() {
     { id: "cli.dnc-list-empty", argv: ["dnc", "list"] },
     { id: "cli.dnc-add", argv: ["dnc", "add", "+1 (415) 555-0142"] },
     { id: "cli.dnc-remove-noop", argv: ["dnc", "remove", "+16505550100"] },
+    { id: "cli.call-usage", argv: ["call"] },
   ];
 
   return { sessions, cli };
