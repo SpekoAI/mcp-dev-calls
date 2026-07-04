@@ -61,6 +61,28 @@ function cap() {
 }
 
 describe("runCredits", () => {
+  it("survives null balanceUsd/updatedAt and an undefined ledger amount (regression)", async () => {
+    // The live API can return null in fields the SDK marks required. balanceUsd.toFixed() must
+    // not crash, updatedAt must render "-" not "null", and a missing amountMicroUsd must not be "-$NaN".
+    const speko = {
+      credits: {
+        getBalance: async () => ({ balanceUsd: null, currency: "USD", updatedAt: null }),
+        getLedger: async () => ({
+          entries: [{ id: "x", kind: "debit", amountMicroUsd: undefined, metric: null, provider: null, sessionId: null, createdAt: null }],
+          nextCursor: null,
+        }),
+      },
+    } as unknown as Speko;
+    const c = cap();
+    const code = await runCredits(["--ledger"], { speko, stdout: c.stdout, stderr: c.stderr });
+    expect(code).toBe(0);
+    expect(c.err).toEqual([]);
+    const text = c.out.join("");
+    expect(text).toContain("balance: $0.00");
+    expect(text).not.toContain("null");
+    expect(text).not.toContain("NaN");
+  });
+
   it("prints the balance and does not hit the ledger by default", async () => {
     const { speko, calls } = fakeSpeko();
     const c = cap();

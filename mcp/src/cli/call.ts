@@ -110,9 +110,13 @@ export async function runCall(argv: string[], deps: CallDeps = {}): Promise<numb
         stdout.write(JSON.stringify(result) + "\n");
         return 0;
       }
-      const events = [...(result.events ?? [])].sort(
-        (a, b) => Date.parse(a.occurred_at) - Date.parse(b.occurred_at),
-      );
+      // Sort by timestamp; null/unparseable occurred_at sorts to the END deterministically
+      // (a NaN comparator result gives implementation-defined ordering across JS engines).
+      const ts = (e: { occurred_at: string | null }): number => {
+        const t = Date.parse(e.occurred_at ?? "");
+        return Number.isNaN(t) ? Infinity : t;
+      };
+      const events = [...(result.events ?? [])].sort((a, b) => ts(a) - ts(b));
       if (!events.length) {
         lines.push("no events");
       } else {

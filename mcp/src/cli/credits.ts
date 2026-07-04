@@ -22,9 +22,12 @@ const OPTIONS = {
 
 const DEFAULT_LIMIT = 10;
 
-/** micro-USD (string|number) → "$X.XX" (4 dp for sub-dollar, 2 dp otherwise). */
-const usd = (micro: string | number): string =>
-  `$${(Number(micro) / 1e6).toFixed(Math.abs(Number(micro) / 1e6) < 1 ? 4 : 2)}`;
+/** micro-USD → "$X.XX" (4 dp sub-dollar, 2 dp otherwise). Null/NaN-safe → "$0.00" (never "$NaN"). */
+const usd = (micro: string | number | null | undefined): string => {
+  const raw = Number(micro ?? 0) / 1e6;
+  const n = Number.isFinite(raw) ? raw : 0;
+  return `$${n.toFixed(Math.abs(n) < 1 ? 4 : 2)}`;
+};
 
 /** Parse --limit to a positive int; non-numeric or non-positive falls back to the default. */
 function parseLimit(raw: string | undefined): number {
@@ -76,7 +79,8 @@ export async function runCredits(argv: string[], deps: CreditsDeps = {}): Promis
   }
 
   const lines: string[] = [];
-  lines.push(`balance: $${balance.balanceUsd.toFixed(2)}  (updated ${balance.updatedAt})`);
+  // Null-safe: the live API can return null in fields the SDK types mark required.
+  lines.push(`balance: $${(balance.balanceUsd ?? 0).toFixed(2)}  (updated ${balance.updatedAt ?? "-"})`);
 
   if (wantLedger) {
     const entries = ledger?.entries ?? [];
@@ -86,8 +90,10 @@ export async function runCredits(argv: string[], deps: CreditsDeps = {}): Promis
       lines.push(`  ${"when".padEnd(26)} ${"kind".padEnd(11)} ${"amount".padStart(12)}  provider/metric`);
       for (const e of entries) {
         // Sign OUTSIDE the "$" so the right-aligned column lines up: "+$5.00" / "-$0.2500"
-        // (usd() formats the absolute value; we prepend the sign).
-        const micro = Number(e.amountMicroUsd);
+        // (usd() formats the absolute value; we prepend the sign). Number-guard a missing/garbage
+        // amount so it renders "+$0.00" instead of "-$NaN".
+        const raw = Number(e.amountMicroUsd ?? 0);
+        const micro = Number.isFinite(raw) ? raw : 0;
         const amount = `${micro >= 0 ? "+" : "-"}${usd(Math.abs(micro))}`;
         const tag = e.provider ?? e.metric ?? "-";
         lines.push(
