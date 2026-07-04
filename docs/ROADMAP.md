@@ -56,7 +56,8 @@ P0 bugs found by the AX audit (blueprint §3):
 3. **Dial retry = double-dial risk**: in-process replay guard (cache dial fingerprint for TTL,
    reject dupes → `next_step=get_call`); delete the false "single-use" claim in `mcp/README.md`.
 
-**Shipped 0.5.3** — read-only inspection CLI: `speko usage` / `speko credits [--ledger]` /
+**Shipped 0.5.4** — read-only inspection CLI (0.5.3 was Bek's greet-first #36; the version
+collided, reconciled to 0.5.4): `speko usage` / `speko credits [--ledger]` /
 `speko call report|events|transcript <id>` (real cost via `usage.get()`/`credits`/`calls.report()`;
 events = the "speech diagram" timeline) + **AGENTS.md** (root; README now documents the CLI too).
 Only raw account numbers shown — the marked-up `$` display stays gated (open decision #1).
