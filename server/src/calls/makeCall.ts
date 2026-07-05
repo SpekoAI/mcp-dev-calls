@@ -32,7 +32,14 @@ import {
 } from "../constants.js";
 import { AppError, RejectionError } from "../lib/errors.js";
 import { eventType } from "../lib/events.js";
-import { bestOutcome, calleeTurns, countTranscriptTurns, extractEndCallReason, extractReply } from "../lib/transcript.js";
+import {
+  bestOutcome,
+  calleeTurns,
+  countTranscriptTurns,
+  extractEndCallReason,
+  extractReply,
+  lastAgentTurnText,
+} from "../lib/transcript.js";
 import {
   DialTokenError,
   afterHoursGateReason,
@@ -59,6 +66,7 @@ import { MAX_CALLER_NAME_CHARS } from "../constants.js";
 import { ensureDialAgent, resetDialAgent } from "../speko/agent.js";
 import { isAuthFailure, SpekoApiError, type SpekoClient } from "../speko/client.js";
 import type { CallSummary, MakeCallInput, SessionDetail } from "../types.js";
+import { assessConnection } from "./assess.js";
 import { attachDashboardUrl, shapeCallSummary } from "./summary.js";
 
 const clamp = (n: number, lo: number, hi: number): number => Math.min(Math.max(n, lo), hi);
@@ -105,6 +113,12 @@ export interface MakeCallDeps {
   allowAnyLineType?: boolean;
   /** Internal: set only by makeCall so runPhoneCall unit tests do not write guard state. */
   afterHoursConfirmationForLedger?: string | null;
+}
+
+function turnHandlingForCall(input: MakeCallInput, cfg: AppConfig): VoiceDialParamsWithTurnHandling["turnHandling"] | undefined {
+  if (input.greetFirst === false) return { greetFirst: false };
+  if (input.greetFirst === true) return { greetFirst: true };
+  return cfg.dialGreetFirst !== false ? { greetFirst: true } : undefined;
 }
 
 function afterHoursNextStep(opts: {
@@ -279,6 +293,7 @@ export async function makeCall(input: MakeCallInput, deps: MakeCallDeps): Promis
   // mirror it: the end_call instructions are emitted ONLY when the endCall-enabled agent
   // rides along, because that's what makes the worker register the hangup tool.
   const buildBody = (agentId: string | null): VoiceDialParams => {
+    const turnHandling = turnHandlingForCall(input, deps.cfg);
     const body: VoiceDialParamsWithTurnHandling = {
       to: e164,
       ...(fromNumber ? { from: fromNumber } : {}),
@@ -318,7 +333,7 @@ export async function makeCall(input: MakeCallInput, deps: MakeCallDeps): Promis
       },
       // Narrow local extension until the SpekoAI/platform PR adding turnHandling.greetFirst
       // lands in @spekoai/sdk's VoiceDialParams type.
-      ...(deps.cfg.dialGreetFirst !== false ? { turnHandling: { greetFirst: true } } : {}),
+      ...(turnHandling ? { turnHandling } : {}),
       telephony: { amd: { mode: "agent" } },
     };
     return body;
@@ -755,6 +770,22 @@ async function finalize(
   // a worse label than the substantive report about to land.
   if (!outcome) outcome = extractEndCallReason(transcript);
 
+  let session: SessionDetail | null = null;
+  try {
+    session = await deps.client.getSession(callId);
+  } catch {
+    // Best effort — without it we can't disprove a connection, so we don't claim one failed.
+  }
+
+  if (!outcome && assessConnection(session, transcript).connected === true) {
+    const text = lastAgentTurnText(transcript);
+    if (text) {
+      // Last-resort label for the immediate make_call response. get_call re-derives a clean
+      // report outcome on later reads once the platform analysis row lands.
+      outcome = `unconfirmed (no report): last agent line: "${text.slice(0, 140)}"`;
+    }
+  }
+
   try {
     if (to) {
       const turns = calleeTurns(transcript);
@@ -771,13 +802,6 @@ async function finalize(
     }
   } catch {
     // Opt-out detection is best-effort and must never break finalization.
-  }
-
-  let session: SessionDetail | null = null;
-  try {
-    session = await deps.client.getSession(callId);
-  } catch {
-    // Best effort — without it we can't disprove a connection, so we don't claim one failed.
   }
 
   const summary = shapeCallSummary({

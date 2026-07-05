@@ -40,10 +40,11 @@ const now = new Date();
 const NOON_OFFSET = 12 * 60 - (now.getUTCHours() * 60 + now.getUTCMinutes());
 const AFTER_HOURS_OFFSET = 3 * 60 - (now.getUTCHours() * 60 + now.getUTCMinutes());
 
-function connectedClient(captured: { to?: string }): Partial<SpekoClient> {
+function connectedClient(captured: { to?: string; turnHandling?: unknown }): Partial<SpekoClient> {
   return {
     dial: async (body) => {
       captured.to = body.to;
+      captured.turnHandling = (body as { turnHandling?: unknown }).turnHandling;
       return { sessionId: "t1", callControlId: "phone-t1", roomName: "r", status: "dialing", to: body.to!, from: body.from! } as any;
     },
     getEvents: async () => [{ event_type: "room_finished" }] as any,
@@ -109,5 +110,34 @@ describe("callNumber (the npx hero path)", () => {
       deps(connectedClient(cap)),
     );
     expect(cap.to).toBe("+14152857117");
+  });
+
+  it("threads greetFirst into the dial body and preserves the env default when omitted", async () => {
+    const cases: Array<{
+      label: string;
+      greetFirst?: boolean;
+      cfg?: Partial<AppConfig>;
+      expected: unknown;
+    }> = [
+      { label: "false", greetFirst: false, expected: { greetFirst: false } },
+      { label: "true", greetFirst: true, expected: { greetFirst: true } },
+      { label: "omitted env on", expected: { greetFirst: true } },
+      { label: "omitted env off", cfg: { dialGreetFirst: false } as Partial<AppConfig>, expected: undefined },
+    ];
+
+    for (const tc of cases) {
+      const cap: { turnHandling?: unknown } = {};
+      await callNumber(
+        {
+          phoneNumber: "+14152857117",
+          objective: `ask if open ${tc.label}`,
+          callerName: "Amir",
+          utcOffsetMinutes: NOON_OFFSET,
+          ...(tc.greetFirst === undefined ? {} : { greetFirst: tc.greetFirst }),
+        },
+        deps(connectedClient(cap), cfg({ rateCapPerNumberHour: 10, ...(tc.cfg ?? {}) })),
+      );
+      expect(cap.turnHandling).toEqual(tc.expected);
+    }
   });
 });
