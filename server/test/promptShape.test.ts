@@ -231,6 +231,18 @@ describe("E2 — caller/callee role anchor", () => {
     expect(sys).toMatch(/you are the CALLER/i);
     expect(sys).toMatch(/never voice their line/i);
   });
+
+  it("keeps off-task deflection and business-side checking rails in both call-ending modes", () => {
+    const offTaskDeflectSentence = `If they ask an off-task question outside the objective (like "why are you asking?" or a question for Bruce), give exactly one polite deflect ("I don't have that, but I'll pass your question along"), include it in your report back to Bruce, and never answer with made-up facts, silence, or an abrupt hang-up because of it.`;
+    const businessSideSentence =
+      "Never offer to check, look up, confirm in a system, or otherwise perform the BUSINESS's side of the task; checking is THEIR job, asking is yours.";
+
+    for (const endCallTool of [false, true]) {
+      const sys = buildSystemPrompt("ask about a table for 4 at 8pm", null, "The French Laundry", "Bruce", null, endCallTool);
+      expect(sys, `endCallTool=${endCallTool}`).toContain(offTaskDeflectSentence);
+      expect(sys, `endCallTool=${endCallTool}`).toContain(businessSideSentence);
+    }
+  });
 });
 
 describe("A4 — single opening (don't re-greet after the spoken firstMessage)", () => {
