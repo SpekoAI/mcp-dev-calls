@@ -63,12 +63,12 @@ export const EGRESS_SOURCE_CLOSED_RE = /source[\s_-]*closed/i;
 export const EGRESS_CONFIRM_WINDOW_SECONDS = 10;
 export const EGRESS_CONFIRM_POLL_SECONDS = 5;
 
-// The platform writes the call report (summary/outcome) moments AFTER room teardown, so a fast
-// finalize can race it and degrade the outcome label to a transcript scrape. Wait at most this many
-// short polls for a SUBSTANTIVE report outcome — the row can land with a bare status word (the
-// platform's heuristic pass) before analysis rewrites it, so row presence alone doesn't stop the
-// wait. Bounded, so a report/outcome that never comes can't block termination.
-export const REPORT_GRACE_POLLS = 2;
+// The platform writes the call report (summary/outcome) moments AFTER room teardown; observed
+// production call 212be4fb had the analysis pass land more than ~6s after teardown. Wait at most
+// this many short polls for a SUBSTANTIVE report outcome — the row can land with a bare status word
+// (the platform's heuristic pass) before analysis rewrites it, so row presence alone doesn't stop
+// the wait. Bounded, so a report/outcome that never comes can't block termination.
+export const REPORT_GRACE_POLLS = 4;
 // The other half of the finalize grace budget: the sleep between finalize-time re-reads, shared by
 // the transcript-lag retries and the report-grace polls (same retry cadence for both).
 export const FINALIZE_RETRY_MS = 3000;

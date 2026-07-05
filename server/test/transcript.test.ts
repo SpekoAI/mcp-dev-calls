@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { bestOutcome, extractEndCallReason, extractOutcome, extractReply } from "../src/lib/transcript.js";
+import {
+  bestOutcome,
+  extractEndCallReason,
+  extractOutcome,
+  extractReply,
+  lastAgentTurnText,
+} from "../src/lib/transcript.js";
 
 describe("extractOutcome", () => {
   it("returns the text after the LAST OUTCOME: marker", () => {
@@ -83,5 +89,30 @@ describe("bestOutcome precedence", () => {
 
   it("keeps an OUTCOME marker ahead of end_call reason", () => {
     expect(bestOutcome({ outcome: "" }, transcript)).toBe("marker outcome");
+  });
+
+  it("trusts a bare-word outcome only after report analysis completed", () => {
+    expect(bestOutcome({ outcome: "completed", analysis_status: "completed" }, { entries: [] })).toBe("completed");
+    expect(bestOutcome({ outcome: "completed", analysis_status: "heuristic" }, { entries: [] })).toBeNull();
+    expect(bestOutcome({ outcome: "completed", analysis_status: "failed" }, { entries: [] })).toBeNull();
+  });
+});
+
+describe("lastAgentTurnText", () => {
+  it("returns the last agent-role turn text using source first", () => {
+    expect(
+      lastAgentTurnText({
+        entries: [
+          { source: "agent", text: "first" },
+          { source: "user", text: "not this" },
+          { source: "assistant", text: " second " },
+        ],
+      }),
+    ).toBe("second");
+  });
+
+  it("returns null without a recognizable agent turn", () => {
+    expect(lastAgentTurnText({ entries: [{ source: "user", text: "hello" }] })).toBeNull();
+    expect(lastAgentTurnText({ nested: [{ source: "agent", text: "hidden" }] })).toBeNull();
   });
 });

@@ -386,25 +386,43 @@ describe("make_call safety rails — enforced before any dial (T1)", () => {
   });
 });
 
-describe("route schemas — after-hours confirmation wire format", () => {
-  it("keeps after_hours_confirmation on both call schemas", () => {
+describe("route schemas — call wire format", () => {
+  it("keeps after_hours_confirmation and greet_first on both call schemas", () => {
     expect(
       callSchema.parse({
         dial_token: "token",
         objective: "ask if open",
         caller_name: "Amir",
+        greet_first: false,
         after_hours_confirmation: "Bek confirmed it",
       }).after_hours_confirmation,
     ).toBe("Bek confirmed it");
+    expect(
+      callSchema.parse({
+        dial_token: "token",
+        objective: "ask if open",
+        caller_name: "Amir",
+        greet_first: false,
+      }).greet_first,
+    ).toBe(false);
 
     expect(
       callNumberSchema.parse({
         phone_number: "+14152857117",
         objective: "ask if open",
         caller_name: "Amir",
+        greet_first: false,
         after_hours_confirmation: "Bek confirmed it",
       }).after_hours_confirmation,
     ).toBe("Bek confirmed it");
+    expect(
+      callNumberSchema.parse({
+        phone_number: "+14152857117",
+        objective: "ask if open",
+        caller_name: "Amir",
+        greet_first: false,
+      }).greet_first,
+    ).toBe(false);
   });
 });
 
@@ -473,6 +491,34 @@ describe("make_call — dial-agent wiring (agent-initiated hangup)", () => {
     expect(s.status).toBe("completed");
     expect(captured).toHaveLength(1);
     expect(captured[0]).not.toHaveProperty("turnHandling");
+  });
+
+  it("sends greetFirst:false when requested per call, even with the env default on", async () => {
+    const captured: VoiceDialParams[] = [];
+    const f = fakePlatform();
+    const client = wiringClient(f, { dial: dialOk(captured) });
+
+    const s = await makeCall(
+      { dialToken: mint(), objective: "do you have a table for 4 at 8pm tonight?", callerName: "Amir", greetFirst: false },
+      deps(client),
+    );
+    expect(s.status).toBe("completed");
+    expect(captured).toHaveLength(1);
+    expect((captured[0] as VoiceDialParams & { turnHandling?: unknown }).turnHandling).toEqual({ greetFirst: false });
+  });
+
+  it("sends greetFirst:true when requested per call, even when the env default is off", async () => {
+    const captured: VoiceDialParams[] = [];
+    const f = fakePlatform();
+    const client = wiringClient(f, { dial: dialOk(captured) });
+
+    const s = await makeCall(
+      { dialToken: mint(), objective: "do you have a table for 4 at 8pm tonight?", callerName: "Amir", greetFirst: true },
+      deps(client, { dialGreetFirst: false }),
+    );
+    expect(s.status).toBe("completed");
+    expect(captured).toHaveLength(1);
+    expect((captured[0] as VoiceDialParams & { turnHandling?: unknown }).turnHandling).toEqual({ greetFirst: true });
   });
 
   it("retries exactly once without turnHandling when an old platform schema rejects it", async () => {
