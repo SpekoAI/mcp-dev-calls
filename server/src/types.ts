@@ -98,6 +98,7 @@ export interface MakeCallInput {
   context?: string | null;
   /** Private steering for HOW the assistant behaves (pacing, when to speak). NEVER spoken. */
   behavior?: string | null;
+  greetFirst?: boolean | null;
   afterHoursConfirmation?: string | null;
   maxDurationSeconds?: number;
 }

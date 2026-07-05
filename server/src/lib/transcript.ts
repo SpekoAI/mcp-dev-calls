@@ -76,7 +76,8 @@ export function extractEndCallReason(transcript: unknown): string | null {
 /**
  * Best available outcome for a call: a SUBSTANTIVE report outcome wins, else the transcript's
  * OUTCOME: marker, else null. Bare platform status words ("failed"/"completed"/...) in the
- * report are ignored; on a connected call they read as a misleading headline.
+ * report are ignored unless the report says analysis completed; heuristic bare rows on a
+ * connected call read as a misleading headline.
  *
  * The end_call reason (extractEndCallReason) is deliberately NOT folded in here: makeCall's
  * finalize keys its report-grace loop on this returning null ("no substantive outcome yet —
@@ -85,11 +86,12 @@ export function extractEndCallReason(transcript: unknown): string | null {
  * sites compose it as their own LAST fallback once they are done waiting.
  */
 export function bestOutcome(
-  report: { outcome?: unknown } | null | undefined,
+  report: { outcome?: unknown; analysis_status?: unknown } | null | undefined,
   transcript: unknown,
 ): string | null {
   const reportOutcome = typeof report?.outcome === "string" ? report.outcome.trim() : "";
-  const substantive = reportOutcome && !BARE_OUTCOME_RE.test(reportOutcome) ? reportOutcome : "";
+  const analysisCompleted = report?.analysis_status === "completed";
+  const substantive = reportOutcome && (!BARE_OUTCOME_RE.test(reportOutcome) || analysisCompleted) ? reportOutcome : "";
   return substantive || extractOutcome(transcript);
 }
 
@@ -148,6 +150,22 @@ export function calleeTurns(transcript: unknown): Array<{ text: string }> | null
     if (text) out.push({ text });
   }
   return out;
+}
+
+/** Last agent-role turn text from a recognizable transcript list, or null. */
+export function lastAgentTurnText(transcript: unknown): string | null {
+  const turns = findTurnList(transcript);
+  if (!turns) return null;
+  let last: string | null = null;
+  for (const turn of turns) {
+    if (!turn || typeof turn !== "object") continue;
+    const t = turn as Record<string, unknown>;
+    const role = turnRole(t);
+    if (!AGENT_ROLES.has(role)) continue;
+    const text = turnText(t);
+    if (text) last = text;
+  }
+  return last;
 }
 
 // The B2 symptom: a receptionist speaks its end-call STRUCTURED output aloud — the tool verb

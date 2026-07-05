@@ -28,7 +28,15 @@ const schema = z.object({
     .optional()
     .describe(
       "PRIVATE instructions for HOW the assistant should behave — NEVER spoken aloud (e.g. 'wait for " +
-        "them to say hello before you speak', 'keep it brief'). Steering/meta here; the ask itself in `objective`.",
+        "them to say hello before you speak', 'keep it brief'). Steering/meta here; the ask itself in `objective`. " +
+        "Opener timing is NOT controlled here — use greet_first:false to wait for the callee to speak first.",
+    ),
+  greet_first: z
+    .boolean()
+    .optional()
+    .describe(
+      "Speak the opener immediately when the call is answered (default true). Set false to hold the opener until " +
+        "the callee speaks first (e.g. 'wait for them to say hello') — behavior text alone CANNOT change opener timing.",
     ),
   utc_offset_minutes: z
     .number()
@@ -123,6 +131,7 @@ export default class CallNumberTool extends MCPTool {
           recipient_name: input.recipient_name,
           context: input.context,
           behavior: input.behavior,
+          greet_first: input.greet_first,
           utc_offset_minutes: input.utc_offset_minutes,
           after_hours_confirmation: input.after_hours_confirmation,
           max_duration_seconds: input.max_duration_seconds,
