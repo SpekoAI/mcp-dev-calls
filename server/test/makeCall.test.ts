@@ -836,6 +836,36 @@ describe("finalize — report-grace (finalize-vs-report race)", () => {
     expect(s.outcome).toBe(`unconfirmed (no report): last agent line: "${lastAgentLine.slice(0, 140)}"`);
   });
 
+  it("fallback keeps balanced quotes and survives a getSession failure (transcript proves the connection)", async () => {
+    const s = await runPhoneCall(
+      BODY,
+      300,
+      deps({
+        dial: dialOk("rg-agent-fallback-quotes"),
+        getEvents: async () => [{ event_type: "room_finished" }] as any,
+        getCall: async () =>
+          ({
+            status: "ended",
+            transcript: {
+              entries: [
+                { source: "agent", text: "hi" },
+                { source: "user", text: "yes, tell me" },
+                { source: "agent", text: 'She said "yes" to 8pm' },
+              ],
+            },
+            report: null,
+          }) as any,
+        // getSession down: the callee turn in the transcript is the connection
+        // evidence, so the fallback label must still be produced.
+        getSession: async () => {
+          throw new Error("session endpoint down");
+        },
+      }),
+      noopSleep,
+    );
+    expect(s.outcome).toBe(`unconfirmed (no report): last agent line: "She said 'yes' to 8pm"`);
+  });
+
   it("grace waits past a BARE report outcome for the substantive one (row presence is not the gate)", async () => {
     // The platform's heuristic pass writes the report row FIRST with a bare status word
     // ("completed") and analysis rewrites the real outcome moments later (upsert). Exiting the
