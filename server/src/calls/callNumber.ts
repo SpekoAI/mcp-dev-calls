@@ -25,6 +25,7 @@ export interface CallNumberInput {
   context?: string | null;
   /** Private steering for HOW the assistant behaves. NEVER spoken. */
   behavior?: string | null;
+  greetFirst?: boolean | null;
   afterHoursConfirmation?: string | null;
   recipientName?: string | null;
   utcOffsetMinutes?: number | null;
@@ -77,6 +78,7 @@ export async function callNumber(input: CallNumberInput, deps: CallNumberDeps): 
       callerName: input.callerName,
       context: input.context ?? null,
       behavior: input.behavior ?? null,
+      greetFirst: input.greetFirst ?? null,
       afterHoursConfirmation: input.afterHoursConfirmation ?? null,
       maxDurationSeconds: input.maxDurationSeconds,
     },

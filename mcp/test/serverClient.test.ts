@@ -23,29 +23,33 @@ beforeEach(() => {
 });
 
 describe("InProcessBackend input mapping", () => {
-  it("threads after_hours_confirmation through /call to makeCall", async () => {
+  it("threads after_hours_confirmation and greet_first through /call to makeCall", async () => {
     const backend = new InProcessBackend();
     await backend.post("/call", {
       dial_token: "tok",
       objective: "Do you have a table for four?",
       caller_name: "Bek",
+      greet_first: false,
       after_hours_confirmation: "yes, it's my own number, call now",
     });
     expect(makeCall).toHaveBeenCalledTimes(1);
     expect(makeCall.mock.calls[0][0]).toMatchObject({
+      greetFirst: false,
       afterHoursConfirmation: "yes, it's my own number, call now",
     });
   });
 
-  it("threads after_hours_confirmation through /call-number to callNumber, null when absent", async () => {
+  it("threads after_hours_confirmation and greet_first through /call-number to callNumber, null when absent", async () => {
     const backend = new InProcessBackend();
     await backend.post("/call-number", {
       phone_number: "+14155550142",
       objective: "Do you have a table for four?",
       caller_name: "Bek",
+      greet_first: false,
       after_hours_confirmation: "go ahead, they are expecting the call",
     });
     expect(callNumber.mock.calls[0][0]).toMatchObject({
+      greetFirst: false,
       afterHoursConfirmation: "go ahead, they are expecting the call",
     });
 
@@ -54,6 +58,6 @@ describe("InProcessBackend input mapping", () => {
       objective: "Do you have a table for four?",
       caller_name: "Bek",
     });
-    expect(callNumber.mock.calls[1][0]).toMatchObject({ afterHoursConfirmation: null });
+    expect(callNumber.mock.calls[1][0]).toMatchObject({ afterHoursConfirmation: null, greetFirst: null });
   });
 });
