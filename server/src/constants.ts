@@ -79,6 +79,10 @@ export const HARD_FAILURE_EVENTS: ReadonlySet<string> = new Set(["agent.dispatch
 
 export const OUTCOME_MARKER = "OUTCOME:";
 
+// Cap on the last-agent-line snippet embedded in the "unconfirmed (no report)" fallback
+// outcome label - long enough to carry the resolution, short enough to stay a headline.
+export const FALLBACK_OUTCOME_SNIPPET_CHARS = 140;
+
 // The platform call-report `outcome` sometimes carries a bare status word (e.g. "failed",
 // "completed") rather than a real transactional answer. On a connected call that reads as a
 // misleading headline ("outcome: failed" on a call that worked), so these are filtered out and

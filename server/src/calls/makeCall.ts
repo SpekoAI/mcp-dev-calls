@@ -15,6 +15,7 @@ import {
   EGRESS_CONFIRM_POLL_SECONDS,
   EGRESS_CONFIRM_WINDOW_SECONDS,
   EGRESS_SOURCE_CLOSED_RE,
+  FALLBACK_OUTCOME_SNIPPET_CHARS,
   FAST_POLLS,
   FAST_POLL_SECONDS,
   FINALIZE_RETRY_MS,
@@ -116,8 +117,9 @@ export interface MakeCallDeps {
 }
 
 function turnHandlingForCall(input: MakeCallInput, cfg: AppConfig): VoiceDialParamsWithTurnHandling["turnHandling"] | undefined {
-  if (input.greetFirst === false) return { greetFirst: false };
-  if (input.greetFirst === true) return { greetFirst: true };
+  // Explicit per-call value wins (false MUST be sent — the worker default is ON);
+  // omitted falls back to the env-gated fleet default.
+  if (typeof input.greetFirst === "boolean") return { greetFirst: input.greetFirst };
   return cfg.dialGreetFirst !== false ? { greetFirst: true } : undefined;
 }
 
@@ -777,18 +779,20 @@ async function finalize(
     // Best effort — without it we can't disprove a connection, so we don't claim one failed.
   }
 
-  // Connection evidence for the last-resort label: the session assessment when readable,
-  // else callee turns in the transcript (a getSession failure must not silently bypass the
-  // fallback on a call the transcript itself proves was two-way — Greptile #48 P2).
-  const evidentlyConnected =
-    assessConnection(session, transcript).connected === true || extractReply(transcript) !== null;
-  if (!outcome && evidentlyConnected) {
-    const text = lastAgentTurnText(transcript);
-    if (text) {
-      // Last-resort label for the immediate make_call response. get_call re-derives a clean
-      // report outcome on later reads once the platform analysis row lands. Inner double
-      // quotes become single quotes so the label's delimiters stay balanced.
-      outcome = `unconfirmed (no report): last agent line: "${text.slice(0, 140).replaceAll('"', "'")}"`;
+  if (!outcome) {
+    // Connection evidence for the last-resort label: the assessment's `connected` when the
+    // session was readable, else its `answered` (callee turns), which assessConnection
+    // computes from the transcript even when getSession failed - so a session-read outage
+    // never silently bypasses the fallback on a call the transcript proves was two-way.
+    const assessment = assessConnection(session, transcript);
+    if (assessment.connected === true || assessment.answered) {
+      const text = lastAgentTurnText(transcript);
+      if (text) {
+        // Last-resort label for the immediate make_call response. get_call re-derives a clean
+        // report outcome on later reads once the platform analysis row lands. Inner double
+        // quotes become single quotes so the label's delimiters stay balanced.
+        outcome = `unconfirmed (no report): last agent line: "${text.slice(0, FALLBACK_OUTCOME_SNIPPET_CHARS).replaceAll('"', "'")}"`;
+      }
     }
   }
 
