@@ -777,12 +777,18 @@ async function finalize(
     // Best effort — without it we can't disprove a connection, so we don't claim one failed.
   }
 
-  if (!outcome && assessConnection(session, transcript).connected === true) {
+  // Connection evidence for the last-resort label: the session assessment when readable,
+  // else callee turns in the transcript (a getSession failure must not silently bypass the
+  // fallback on a call the transcript itself proves was two-way — Greptile #48 P2).
+  const evidentlyConnected =
+    assessConnection(session, transcript).connected === true || extractReply(transcript) !== null;
+  if (!outcome && evidentlyConnected) {
     const text = lastAgentTurnText(transcript);
     if (text) {
       // Last-resort label for the immediate make_call response. get_call re-derives a clean
-      // report outcome on later reads once the platform analysis row lands.
-      outcome = `unconfirmed (no report): last agent line: "${text.slice(0, 140)}"`;
+      // report outcome on later reads once the platform analysis row lands. Inner double
+      // quotes become single quotes so the label's delimiters stay balanced.
+      outcome = `unconfirmed (no report): last agent line: "${text.slice(0, 140).replaceAll('"', "'")}"`;
     }
   }
 
