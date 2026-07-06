@@ -19,7 +19,7 @@ import { fakePlatform, type FakeRow } from "./helpers/fakePlatform.js";
 const PINS = {
   ttsPin: "elevenlabs:eleven_flash_v2_5",
   sttPin: "deepgram:nova-3",
-  llmPin: "groq:llama-3.3-70b-versatile,openai:gpt-4.1-mini",
+  llmPin: "cerebras:gemma-4-31b,openai:gpt-4.1-mini",
 };
 
 beforeEach(resetDialAgentForTests);
@@ -42,7 +42,7 @@ describe("ensureDialAgent — create path leaves a CLEAN row (voice null, no KB 
       allowedProviders: {
         tts: ["elevenlabs:eleven_flash_v2_5"],
         stt: ["deepgram:nova-3"],
-        llm: ["groq:llama-3.3-70b-versatile", "openai:gpt-4.1-mini"],
+        llm: ["cerebras:gemma-4-31b", "openai:gpt-4.1-mini"],
       },
     });
     // Create CANNOT express voice:null (the platform auto-picks), so the synthesized
