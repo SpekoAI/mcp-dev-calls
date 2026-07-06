@@ -85,10 +85,13 @@ export interface AppConfig {
   sttPin: string;
   /**
    * Comma-separated provider:model LLM FAILOVER CHAIN. Default =
-   * groq:llama-3.3-70b-versatile (primary — healthy + fast) → openai:gpt-4.1-mini
-   * (tool-heavy fallback). gpt-5 (the old selector default) was 502-ing platform-wide and
-   * isn't even in our TTFT race; with a chain, one provider outage no longer breaks every
-   * call. Override with SPEKO_LLM_PIN (comma-separated for cross-provider failover).
+   * cerebras:gemma-4-31b (primary — non-reasoning, tool-capable, fastest open-cloud host)
+   * → openai:gpt-4.1-mini (tool-heavy fallback). Groq was dropped 2026-07-06: no capacity
+   * on their side, all Speko usage paused (Cerebras is the open-cloud lane); the platform
+   * also filters disabled providers, so a stale groq entry silently fell through anyway.
+   * gpt-5 (the old selector default) was 502-ing platform-wide and isn't even in our TTFT
+   * race; with a chain, one provider outage no longer breaks every call. Override with
+   * SPEKO_LLM_PIN (comma-separated for cross-provider failover).
    */
   llmPin: string;
   /** Routing goal. Default = latency (best for a live call: fast STT + low TTFT LLM). */
@@ -172,7 +175,7 @@ export function loadConfig(): AppConfig {
     })(),
     ttsPin: (process.env.SPEKO_TTS_PIN ?? "").trim() || "elevenlabs:eleven_flash_v2_5",
     sttPin: (process.env.SPEKO_STT_PIN ?? "").trim() || "deepgram:nova-3",
-    llmPin: (process.env.SPEKO_LLM_PIN ?? "").trim() || "groq:llama-3.3-70b-versatile,openai:gpt-4.1-mini",
+    llmPin: (process.env.SPEKO_LLM_PIN ?? "").trim() || "cerebras:gemma-4-31b,openai:gpt-4.1-mini",
     optimizeFor: (() => {
       const v = (process.env.SPEKO_OPTIMIZE_FOR ?? "").trim();
       return (["balanced", "accuracy", "latency", "cost"].includes(v) ? v : "latency") as
