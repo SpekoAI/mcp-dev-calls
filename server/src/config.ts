@@ -80,8 +80,10 @@ export interface AppConfig {
    * on the same date (the live TTS path differs from /synthesize) — do NOT default to it until
    * re-verified on a real call. Override with SPEKO_TTS_PIN. */
   ttsPin: string;
-  /** provider pin for STT. Default = deepgram:nova-3 — clean win across every source.
-   * (Streaming first-partial ≈ 1.3s; the ~366ms figure is the serial p50, not first-partial.) */
+  /** provider pin for STT. Default = smallest-stt:pulse — Smallest AI Pulse, hosted
+   * low-latency multilingual streaming STT (~64ms TTFT near-server, server-side
+   * endpointing). Only the streaming `pulse` model drives live agents; `pulse-pro`
+   * (leaderboard English) is pre-recorded/HTTP-only. Override with SPEKO_STT_PIN. */
   sttPin: string;
   /**
    * Comma-separated provider:model LLM FAILOVER CHAIN. Default =
@@ -174,7 +176,7 @@ export function loadConfig(): AppConfig {
       return Number.isFinite(n) && n > 0 ? n : undefined;
     })(),
     ttsPin: (process.env.SPEKO_TTS_PIN ?? "").trim() || "elevenlabs:eleven_flash_v2_5",
-    sttPin: (process.env.SPEKO_STT_PIN ?? "").trim() || "deepgram:nova-3",
+    sttPin: (process.env.SPEKO_STT_PIN ?? "").trim() || "smallest-stt:pulse",
     llmPin: (process.env.SPEKO_LLM_PIN ?? "").trim() || "cerebras:gemma-4-31b,openai:gpt-4.1-mini",
     optimizeFor: (() => {
       const v = (process.env.SPEKO_OPTIMIZE_FOR ?? "").trim();

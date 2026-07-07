@@ -18,7 +18,7 @@ import { fakePlatform, type FakeRow } from "./helpers/fakePlatform.js";
 
 const PINS = {
   ttsPin: "elevenlabs:eleven_flash_v2_5",
-  sttPin: "deepgram:nova-3",
+  sttPin: "smallest-stt:pulse",
   llmPin: "cerebras:gemma-4-31b,openai:gpt-4.1-mini",
 };
 
@@ -41,7 +41,7 @@ describe("ensureDialAgent — create path leaves a CLEAN row (voice null, no KB 
     expect(params.stackPreferences).toEqual({
       allowedProviders: {
         tts: ["elevenlabs:eleven_flash_v2_5"],
-        stt: ["deepgram:nova-3"],
+        stt: ["smallest-stt:pulse"],
         llm: ["cerebras:gemma-4-31b", "openai:gpt-4.1-mini"],
       },
     });

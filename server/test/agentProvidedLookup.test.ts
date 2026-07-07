@@ -148,7 +148,7 @@ describe("agent-provided lookup", () => {
       const config = cfg({
         twilio: { sid: "s", token: "t" },
         ttsPin: "elevenlabs:eleven_flash_v2_5",
-        sttPin: "deepgram:nova-3",
+        sttPin: "smallest-stt:pulse",
         llmPin: "",
         optimizeFor: "latency",
         ttsSpeed: 1.0,
