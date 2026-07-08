@@ -57,14 +57,16 @@ describe("fetchOrgKeyWaiting", () => {
     expect(logs.join("\n")).toMatch(/ready/i);
   });
 
-  it("gives up with NoOrgError after the timeout (no infinite loop)", async () => {
-    vi.stubGlobal("fetch", vi.fn(async () => res(403, {})));
-    // now() advances past the timeout on the second check
+  it("gives up with NoOrgError after the timeout, across multiple poll cycles", async () => {
+    const fetchMock = vi.fn(async () => res(403, {}));
+    vi.stubGlobal("fetch", fetchMock);
+    // clock advances 2s per read; with a 5s budget that's ~3 cycles before it gives up
     let t = 0;
-    const now = () => (t += 10_000);
+    const now = () => (t += 2_000);
     await expect(
       fetchOrgKeyWaiting("bearer", () => {}, { intervalMs: 1, timeoutMs: 5_000, now }),
     ).rejects.toBeInstanceOf(NoOrgError);
+    expect(fetchMock.mock.calls.length).toBeGreaterThanOrEqual(3);
   });
 
   it("does not swallow real auth errors — a 500 propagates immediately", async () => {
