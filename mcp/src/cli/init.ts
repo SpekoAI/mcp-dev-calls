@@ -17,7 +17,7 @@ import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from
 import { homedir, platform } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { browserLogin, NoOrgError } from "./login.js";
+import { browserLogin, OrgKeyUnavailableError } from "./login.js";
 import { ALL_TARGETS, TARGET_LABELS, realCtx, resolveSelection } from "./targets/index.js";
 import { PKG, SERVER_NAME, serverEntry } from "./targets/invocation.js";
 import { codexTomlBlock } from "./targets/codex.js";
@@ -283,20 +283,20 @@ export async function runInit(argv: string[], mode: "init" | "setup" | "login" =
       key = await browserLogin((m) => console.log(c.dim("  " + m)));
       console.log(c.green("  ✓ Signed in — fetched your API key automatically."));
     } catch (e) {
-      if (e instanceof NoOrgError) {
-        // Signed in fine, but the workspace still wasn't ready after the wait. Pasting
-        // a key can't help (there isn't one yet) — so guide, don't dead-end.
-        console.log(c.yellow(`\n  • Your Speko workspace isn't set up yet.`));
-        console.log(`  Finish creating it at ${c.cyan(DASHBOARD)}, then re-run ${c.cyan("npx @spekoai/mcp-calls init")}.\n`);
-        return;
+      if (e instanceof OrgKeyUnavailableError) {
+        // Signed in fine; the platform just won't auto-mint the key for a CLI token.
+        // Not an error to the user — one quick paste finishes it (they're already
+        // signed in, so the key is one click away on the dashboard).
+        console.log(c.green("  ✓ Signed in.") + c.dim(" One quick step: paste your API key to finish (below)."));
+      } else {
+        console.log(c.yellow(`  • Browser sign-in didn't complete (${(e as Error).message}).`));
+        console.log("  Falling back to manual key entry. " + c.dim("(Use --paste to skip the browser next time.)"));
       }
-      console.log(c.yellow(`  • Browser sign-in didn't complete (${(e as Error).message}).`));
-      console.log("  Falling back to manual key entry. " + c.dim("(Use --paste to skip the browser next time.)"));
     }
   }
   if (!key) {
-    console.log(`\n  Opening ${c.cyan(DASHBOARD)} — sign in and create an API key (starts with "sk_").`);
-    console.log(c.dim(`  (If it doesn't open: visit ${DASHBOARD} and copy your key.)\n`));
+    console.log(`\n  Opening ${c.cyan(DASHBOARD)} — copy your API key (starts with "sk_"; create one if you just signed up).`);
+    console.log(c.dim(`  (If it doesn't open: visit ${DASHBOARD} → API keys.)\n`));
     if (!f.yes) await ask("  Press Enter to open your browser… ");
     openBrowser(DASHBOARD);
     key = await askSecret("  Paste your Speko API key: ");
