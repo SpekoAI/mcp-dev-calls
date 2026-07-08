@@ -8,6 +8,7 @@
  */
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
+import { appendGuidance } from "./guidance.js";
 import { PKG, SERVER_NAME, serverEntry } from "./invocation.js";
 import type { AgentTarget, TargetCtx } from "./types.js";
 
@@ -50,6 +51,8 @@ export const codexTarget: AgentTarget = {
   id: "codex",
   label: "Codex CLI",
   detect: (ctx) => existsSync(join(ctx.home, ".codex")) || ctx.hasCli("codex"),
+  // Codex reads ~/.codex/AGENTS.md globally — marker-append the calling card there.
+  installGuidance: (ctx) => appendGuidance(join(ctx.home, ".codex", "AGENTS.md")),
   write(key, ctx) {
     if (ctx.hasCli("codex")) {
       ctx.runCli("codex", ["mcp", "remove", SERVER_NAME]); // idempotent: ok to fail

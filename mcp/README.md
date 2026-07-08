@@ -15,10 +15,11 @@ Desktop, and any MCP client. Powered by [Speko](https://speko.ai).
 npx @spekoai/mcp-calls@latest init
 ```
 
-The wizard signs you in **with your browser** (OAuth — no key to copy or paste), fetches your
-key automatically, and writes the MCP into **every coding agent it finds on your machine** —
-Claude Code, Claude Desktop, Cursor, Windsurf, VS Code, Gemini CLI, Codex CLI, Cline (Zed gets
-a paste-ready snippet) — plus a companion skill for Claude. Then just ask your agent to call a
+The wizard finds **every coding agent on your machine**, signs you in **with your browser**
+(OAuth — no key to copy or paste), and configures each one — Claude Code, Claude Desktop,
+Cursor, Windsurf, VS Code, Gemini CLI, Codex CLI, Cline (Zed gets a paste-ready snippet).
+Each agent also gets the calling guide in its own rules convention (Claude skill, Codex/Gemini/
+Windsurf rules files, Cline rules, VS Code instructions). Then just ask your agent to call a
 business. Same tools, same server-enforced safety rails, whichever agent you use.
 
 Already have a key, or on a headless box? `--token sk_...` or `--paste` skips the browser.

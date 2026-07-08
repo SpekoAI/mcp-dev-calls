@@ -7,18 +7,33 @@
  */
 import { existsSync } from "node:fs";
 import { join } from "node:path";
+import { writeGuidanceFile } from "./guidance.js";
 import { SERVER_NAME, serverEntry } from "./invocation.js";
 import { mergeJsonFile } from "./jsonFile.js";
 import { vscodeUserDir } from "./paths.js";
 import type { AgentTarget } from "./types.js";
 
+/** Copilot user-level instructions file: applies the calling card to every request. */
+const INSTRUCTIONS_FRONTMATTER = `---
+applyTo: '**'
+description: 'Speko Calls MCP — how to place real, disclosed phone calls from this agent'
+---`;
+
 export const vscodeTarget: AgentTarget = {
   id: "vscode",
   label: "VS Code",
   detect: (ctx) => ctx.hasCli("code") || existsSync(vscodeUserDir(ctx)),
+  // User-profile instructions file (VS Code "instructions files"); ours to own/overwrite.
+  installGuidance: (ctx) =>
+    writeGuidanceFile(join(vscodeUserDir(ctx), "prompts", "speko-calls.instructions.md"), INSTRUCTIONS_FRONTMATTER),
   write(key, ctx) {
     if (ctx.hasCli("code")) {
-      const status = ctx.runCli("code", ["--add-mcp", JSON.stringify({ name: SERVER_NAME, ...serverEntry(key) })]);
+      // Explicit type:"stdio" — same shape as the file schema, so the CLI and
+      // fallback paths can never diverge on how the server is declared.
+      const status = ctx.runCli("code", [
+        "--add-mcp",
+        JSON.stringify({ name: SERVER_NAME, type: "stdio", ...serverEntry(key) }),
+      ]);
       if (status === 0) {
         return { ok: true, detail: "added via `code --add-mcp`", restartHint: "Reload the VS Code window to load it." };
       }

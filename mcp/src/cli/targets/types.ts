@@ -33,4 +33,10 @@ export interface AgentTarget {
   label: string;
   detect(ctx: TargetCtx): boolean;
   write(key: string, ctx: TargetCtx): WriteResult;
+  /**
+   * Install the calling-card guidance in THIS agent's rules convention (Codex
+   * AGENTS.md, Gemini GEMINI.md, …). Absent when the agent has no safe global
+   * rules file (Cursor keeps user rules in internal storage; Zed is manual).
+   */
+  installGuidance?(ctx: TargetCtx): WriteResult;
 }

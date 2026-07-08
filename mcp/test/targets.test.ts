@@ -116,7 +116,8 @@ describe("VS Code adapter", () => {
     expect(calls).toHaveLength(1);
     expect(calls[0].cmd).toBe("code");
     expect(calls[0].args[0]).toBe("--add-mcp");
-    expect(JSON.parse(calls[0].args[1])).toEqual({ name: SERVER_NAME, ...serverEntry(KEY) });
+    // Explicit type:"stdio" so the CLI payload matches the file-fallback schema (Greptile #53).
+    expect(JSON.parse(calls[0].args[1])).toEqual({ name: SERVER_NAME, type: "stdio", ...serverEntry(KEY) });
   });
 
   it("falls back to the user-profile mcp.json with the `servers` root key + type:stdio", () => {

@@ -252,7 +252,30 @@ export async function runInit(argv: string[], mode: "init" | "setup" | "login" =
     );
   }
 
-  // 1) Get a key: flag > env > browser login (default) > manual paste (fallback).
+  // 1) Detect coding agents FIRST, so the user sees what will be configured
+  //    before their browser opens. --client all|both|<comma list> narrows or
+  //    forces (forced = write even if undetected).
+  const ctx = realCtx();
+  const detectedIds = [
+    ...(claudeCliPresent() ? ["code"] : []),
+    ...(existsSync(desktopConfigPath()) || existsSync(dirname(desktopConfigPath())) ? ["desktop"] : []),
+    ...ALL_TARGETS.filter((t) => t.detect(ctx)).map((t) => t.id),
+  ];
+  const sel = resolveSelection(f.client, detectedIds);
+  for (const bad of sel.invalid) {
+    console.log(c.yellow(`  • Unknown --client '${bad}'. Valid: ${Object.keys(TARGET_LABELS).join(", ")}.`));
+  }
+  if (sel.invalid.length > 0 && sel.ids.length === 0) {
+    console.log(c.red("\n  Nothing to configure — no valid --client values.\n"));
+    return;
+  }
+  if (sel.ids.length > 0) {
+    console.log("  Found: " + c.bold(sel.ids.map((id) => TARGET_LABELS[id]).join(", ")));
+  } else if (!f.printConfig) {
+    console.log(c.yellow("  • No coding agents detected — after sign-in you'll get manual config for every agent."));
+  }
+
+  // 2) Get a key: flag > env > browser login (default) > manual paste (fallback).
   let key = (f.token ?? process.env.SPEKO_API_KEY ?? "").trim();
   if (!key && !f.paste) {
     console.log("\n  Sign in to connect — this opens your browser. " + c.dim("No key to copy or paste."));
@@ -280,7 +303,7 @@ export async function runInit(argv: string[], mode: "init" | "setup" | "login" =
   }
   key = key.replace(/^Bearer\s+/, "");
 
-  // 2) Verify.
+  // 3) Verify.
   process.stdout.write("\n  Verifying key… ");
   const v = await verifyKey(key);
   if (!v.ok) {
@@ -295,20 +318,7 @@ export async function runInit(argv: string[], mode: "init" | "setup" | "login" =
     return;
   }
 
-  // 3) Which agents? Default: every coding agent detected on this machine.
-  //    --client all|both|<comma list> narrows or forces (forced = write even if undetected).
-  const ctx = realCtx();
-  const detectedIds = [
-    ...(claudeCliPresent() ? ["code"] : []),
-    ...(existsSync(desktopConfigPath()) || existsSync(dirname(desktopConfigPath())) ? ["desktop"] : []),
-    ...ALL_TARGETS.filter((t) => t.detect(ctx)).map((t) => t.id),
-  ];
-  const sel = resolveSelection(f.client, detectedIds);
-  for (const bad of sel.invalid) {
-    console.log(c.yellow(`  • Unknown --client '${bad}'. Valid: ${Object.keys(TARGET_LABELS).join(", ")}.`));
-  }
-
-  // 4) Write config into each — one agent failing never stops the rest.
+  // 4) Write config + guidance into each — one agent failing never stops the rest.
   console.log("");
   if (sel.ids.length === 0) {
     console.log(c.yellow("  • No coding agents detected — manual setup below (or force one with --client <name>):"));
@@ -330,6 +340,10 @@ export async function runInit(argv: string[], mode: "init" | "setup" | "login" =
       const r = t.write(key, ctx);
       if (r.ok) {
         console.log(c.green(`  ✓ ${t.label}`) + c.dim(` — ${r.detail}`));
+        if (t.installGuidance) {
+          const g = t.installGuidance(ctx);
+          console.log(g.ok ? c.dim(`    ✓ calling guide → ${g.detail}`) : c.yellow(`    • guide skipped: ${g.detail}`));
+        }
         if (r.restartHint) console.log(c.dim(`    ${r.restartHint}`));
       } else {
         console.log(c.yellow(`  • ${t.label}: ${r.detail}`));
@@ -344,7 +358,7 @@ export async function runInit(argv: string[], mode: "init" | "setup" | "login" =
     console.log(c.dim(`  Not found (skipped): ${notSelected.map((id) => TARGET_LABELS[id]).join(", ")} — force with --client <name>.`));
   }
 
-  // 5) Skill (a Claude-only surface; other agents rely on the tools' inline guidance).
+  // 5) The full Claude skill (other agents got the calling card in their own rules convention above).
   if (sel.ids.includes("code") || sel.ids.includes("desktop")) installSkill();
 
   // 6) Next steps.
