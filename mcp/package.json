@@ -1,20 +1,45 @@
 {
   "name": "@spekoai/mcp-calls",
-  "version": "0.5.5",
+  "version": "0.6.0",
   "description": "Place real, disclosed phone calls to businesses straight from your coding agent — the Speko \"AI calls for devs\" MCP. Single self-contained package: `npx @spekoai/mcp-calls init` to set up.",
   "mcpName": "ai.speko/mcp-calls",
   "type": "module",
   "license": "MIT",
   "author": "SpekoAI",
   "homepage": "https://github.com/SpekoAI/mcp-dev-calls",
-  "repository": { "type": "git", "url": "git+https://github.com/SpekoAI/mcp-dev-calls.git" },
-  "bugs": { "url": "https://github.com/SpekoAI/mcp-dev-calls/issues" },
-  "keywords": ["speko", "voice-ai", "mcp", "model-context-protocol", "phone", "calls", "claude-code", "mcp-framework"],
-  "engines": { "node": ">=20" },
-  "bin": { "speko": "dist/index.js" },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/SpekoAI/mcp-dev-calls.git"
+  },
+  "bugs": {
+    "url": "https://github.com/SpekoAI/mcp-dev-calls/issues"
+  },
+  "keywords": [
+    "speko",
+    "voice-ai",
+    "mcp",
+    "model-context-protocol",
+    "phone",
+    "calls",
+    "claude-code",
+    "mcp-framework"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "bin": {
+    "speko": "dist/index.js"
+  },
   "main": "dist/index.js",
-  "files": ["dist", "server.json", "README.md", "skills"],
-  "publishConfig": { "access": "public" },
+  "files": [
+    "dist",
+    "server.json",
+    "README.md",
+    "skills"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
   "scripts": {
     "build": "npm --prefix ../server run build && tsup && node scripts/postbuild.mjs",
     "typecheck": "tsc -p tsconfig.json --noEmit",
