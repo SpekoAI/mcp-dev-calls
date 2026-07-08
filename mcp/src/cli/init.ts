@@ -1,10 +1,12 @@
 /**
  * `npx @spekoai/mcp-calls init` — the one-command onboarding wizard.
  *
- * Flow: consent → get a Speko API key (flag / env / open the dashboard + masked paste)
- * → verify it against api.speko.dev → write the MCP into the user's client config
- * (Claude Code via `claude mcp add`, and/or Claude Desktop via a safe JSON merge)
- * → install the companion Agent Skill into ~/.claude/skills → print next steps.
+ * Flow: consent → get a Speko API key (flag / env / browser OAuth / masked paste)
+ * → verify it against api.speko.dev → write the MCP into EVERY detected coding
+ * agent's config (Claude Code/Desktop via the proven writers below; Cursor,
+ * Windsurf, VS Code, Gemini CLI, Codex CLI, Cline via cli/targets adapters; Zed
+ * gets a printed snippet) → install the companion Agent Skill for Claude →
+ * print next steps. `--client all|both|<a,b,…>` narrows or forces the set.
  *
  * Zero extra deps (Node readline / child_process / fs). Runs only when the bin is
  * invoked with `init|setup|login`; the default no-arg invocation stays the stdio server.
@@ -16,11 +18,12 @@ import { homedir, platform } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { browserLogin } from "./login.js";
+import { ALL_TARGETS, TARGET_LABELS, realCtx, resolveSelection } from "./targets/index.js";
+import { PKG, SERVER_NAME, serverEntry } from "./targets/invocation.js";
+import { codexTomlBlock } from "./targets/codex.js";
 
 const API_BASE = (process.env.SPEKOAI_API_URL || "https://api.speko.dev").replace(/\/+$/, "");
 const DASHBOARD = "https://platform.speko.dev";
-const PKG = "@spekoai/mcp-calls";
-const SERVER_NAME = "speko-calls";
 
 const c = {
   bold: (s: string) => `\x1b[1m${s}\x1b[0m`,
@@ -33,7 +36,7 @@ const c = {
 
 interface Flags {
   token?: string;
-  client?: string; // code | desktop | both
+  client?: string; // all (default) | both | comma list of: code,desktop,cursor,windsurf,vscode,gemini,codex,cline,zed
   scope: string; // user | project | local
   yes: boolean;
   printConfig: boolean;
@@ -175,7 +178,7 @@ function configureClaudeDesktop(key: string): boolean {
       mkdirSync(dirname(path), { recursive: true });
     }
     const servers = (cfg.mcpServers && typeof cfg.mcpServers === "object" ? cfg.mcpServers : {}) as Record<string, unknown>;
-    servers[SERVER_NAME] = { command: "npx", args: ["-y", PKG], env: { SPEKO_API_KEY: key } };
+    servers[SERVER_NAME] = serverEntry(key);
     cfg.mcpServers = servers;
     writeFileSync(path, `${JSON.stringify(cfg, null, 2)}\n`);
     console.log(c.green(`  ✓ Updated Claude Desktop config (${path}).`));
@@ -214,6 +217,26 @@ function installSkill(): boolean {
     console.log(c.yellow(`  • Couldn't install the skill: ${(e as Error).message}`));
     return false;
   }
+}
+
+/** Manual config for every supported agent — used by --print-config and the zero-detected fallback. */
+function printManualConfigs(key: string, scope: string): void {
+  console.log("\n  Claude Code:");
+  console.log("    " + c.cyan(`claude mcp add ${SERVER_NAME} --scope ${scope} --env SPEKO_API_KEY=${key} -- npx -y ${PKG}`));
+  console.log("\n  Claude Desktop / Cursor / Windsurf / Gemini CLI / Cline (mcpServers entry):");
+  console.log("    " + c.cyan(JSON.stringify({ [SERVER_NAME]: serverEntry(key) })));
+  console.log("\n  VS Code (user mcp.json or .vscode/mcp.json — note the `servers` root key):");
+  console.log("    " + c.cyan(JSON.stringify({ servers: { [SERVER_NAME]: { type: "stdio", ...serverEntry(key) } } })));
+  console.log("\n  Codex CLI (~/.codex/config.toml):");
+  console.log(c.cyan(codexTomlBlock(key).replace(/^/gm, "    ")));
+  console.log("\n  Zed (settings.json → context_servers):");
+  console.log(
+    "    " +
+      c.cyan(
+        JSON.stringify({ context_servers: { [SERVER_NAME]: { command: { path: "npx", args: ["-y", PKG], env: { SPEKO_API_KEY: key } } } } }),
+      ),
+  );
+  console.log("");
 }
 
 export async function runInit(argv: string[], mode: "init" | "setup" | "login" = "init"): Promise<void> {
@@ -268,23 +291,61 @@ export async function runInit(argv: string[], mode: "init" | "setup" | "login" =
   console.log(c.green("ok ✓"));
 
   if (f.printConfig) {
-    console.log("\n  Claude Code:");
-    console.log("    " + c.cyan(`claude mcp add ${SERVER_NAME} --scope ${f.scope} --env SPEKO_API_KEY=${key} -- npx -y ${PKG}`));
-    console.log("\n  Claude Desktop (mcpServers entry):");
-    console.log("    " + c.cyan(JSON.stringify({ [SERVER_NAME]: { command: "npx", args: ["-y", PKG], env: { SPEKO_API_KEY: key } } })));
+    printManualConfigs(key, f.scope);
     return;
   }
 
-  // 3) Configure BOTH clients by default (Claude Code + Desktop). --client code|desktop narrows it.
-  const target = (f.client || "both").toLowerCase();
+  // 3) Which agents? Default: every coding agent detected on this machine.
+  //    --client all|both|<comma list> narrows or forces (forced = write even if undetected).
+  const ctx = realCtx();
+  const detectedIds = [
+    ...(claudeCliPresent() ? ["code"] : []),
+    ...(existsSync(desktopConfigPath()) || existsSync(dirname(desktopConfigPath())) ? ["desktop"] : []),
+    ...ALL_TARGETS.filter((t) => t.detect(ctx)).map((t) => t.id),
+  ];
+  const sel = resolveSelection(f.client, detectedIds);
+  for (const bad of sel.invalid) {
+    console.log(c.yellow(`  • Unknown --client '${bad}'. Valid: ${Object.keys(TARGET_LABELS).join(", ")}.`));
+  }
 
-  // 4) Write config.
+  // 4) Write config into each — one agent failing never stops the rest.
   console.log("");
-  if (target === "code" || target === "both") configureClaudeCode(key, f.scope);
-  if (target === "desktop" || target === "both") configureClaudeDesktop(key);
+  if (sel.ids.length === 0) {
+    console.log(c.yellow("  • No coding agents detected — manual setup below (or force one with --client <name>):"));
+    printManualConfigs(key, f.scope);
+    return;
+  }
+  for (const id of sel.ids) {
+    if (id === "code") {
+      configureClaudeCode(key, f.scope);
+      continue;
+    }
+    if (id === "desktop") {
+      configureClaudeDesktop(key);
+      continue;
+    }
+    const t = ALL_TARGETS.find((x) => x.id === id);
+    if (!t) continue;
+    try {
+      const r = t.write(key, ctx);
+      if (r.ok) {
+        console.log(c.green(`  ✓ ${t.label}`) + c.dim(` — ${r.detail}`));
+        if (r.restartHint) console.log(c.dim(`    ${r.restartHint}`));
+      } else {
+        console.log(c.yellow(`  • ${t.label}: ${r.detail}`));
+      }
+      if (r.manual) console.log(c.cyan(r.manual.replace(/^/gm, "    ")));
+    } catch (e) {
+      console.log(c.yellow(`  • ${t.label}: ${(e as Error).message}`));
+    }
+  }
+  const notSelected = Object.keys(TARGET_LABELS).filter((id) => !sel.ids.includes(id));
+  if (!sel.forced && notSelected.length > 0) {
+    console.log(c.dim(`  Not found (skipped): ${notSelected.map((id) => TARGET_LABELS[id]).join(", ")} — force with --client <name>.`));
+  }
 
-  // 5) Skill.
-  installSkill();
+  // 5) Skill (a Claude-only surface; other agents rely on the tools' inline guidance).
+  if (sel.ids.includes("code") || sel.ids.includes("desktop")) installSkill();
 
   // 6) Next steps.
   console.log(c.bold("\n  ✅ Done.\n"));
