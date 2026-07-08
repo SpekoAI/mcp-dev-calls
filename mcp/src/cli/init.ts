@@ -17,7 +17,7 @@ import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from
 import { homedir, platform } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { browserLogin } from "./login.js";
+import { browserLogin, NoOrgError } from "./login.js";
 import { ALL_TARGETS, TARGET_LABELS, realCtx, resolveSelection } from "./targets/index.js";
 import { PKG, SERVER_NAME, serverEntry } from "./targets/invocation.js";
 import { codexTomlBlock } from "./targets/codex.js";
@@ -283,6 +283,13 @@ export async function runInit(argv: string[], mode: "init" | "setup" | "login" =
       key = await browserLogin((m) => console.log(c.dim("  " + m)));
       console.log(c.green("  ✓ Signed in — fetched your API key automatically."));
     } catch (e) {
+      if (e instanceof NoOrgError) {
+        // Signed in fine, but the workspace still wasn't ready after the wait. Pasting
+        // a key can't help (there isn't one yet) — so guide, don't dead-end.
+        console.log(c.yellow(`\n  • Your Speko workspace isn't set up yet.`));
+        console.log(`  Finish creating it at ${c.cyan(DASHBOARD)}, then re-run ${c.cyan("npx @spekoai/mcp-calls init")}.\n`);
+        return;
+      }
       console.log(c.yellow(`  • Browser sign-in didn't complete (${(e as Error).message}).`));
       console.log("  Falling back to manual key entry. " + c.dim("(Use --paste to skip the browser next time.)"));
     }
