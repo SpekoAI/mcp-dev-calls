@@ -1,19 +1,19 @@
 {
   "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
   "name": "ai.speko/mcp-calls",
-  "title": "Speko — AI Calls for Devs",
+  "title": "agentvoice - AI calls for coding agents (by Speko)",
   "description": "Place real, disclosed outbound phone calls to businesses straight from your coding agent.",
   "repository": {
     "url": "https://github.com/SpekoAI/mcp-dev-calls",
     "source": "github"
   },
-  "version": "0.6.3",
-  "websiteUrl": "https://speko.ai",
+  "version": "0.6.4",
+  "websiteUrl": "https://agentvoice.to",
   "packages": [
     {
       "registryType": "npm",
       "identifier": "@spekoai/mcp-calls",
-      "version": "0.6.3",
+      "version": "0.6.4",
       "transport": {
         "type": "stdio"
       },
