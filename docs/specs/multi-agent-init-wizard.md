@@ -1,6 +1,7 @@
 # Multi-agent `init` wizard — design + parity guarantee
 
-**Status:** design / investigation (not built)  ·  **Date:** 2026-07-08  ·  **Owner:** Amir (DX)
+**Status:** implemented (adapters, selection, tests, docs — feat/multi-agent-init; `speko doctor`
++ dry-run E2E harness from §6 remain follow-ups)  ·  **Date:** 2026-07-08  ·  **Owner:** Amir (DX)
 **Scope:** extend `npx @spekoai/mcp-calls init` to detect every MCP-capable coding agent on the
 machine and register the server into each one's config — *without* changing the current Claude
 Code / Claude Desktop behavior, and with a strategy to guarantee it behaves the same everywhere.
