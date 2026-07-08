@@ -55,7 +55,7 @@ Why split it? Two reasons: secrets and rails **must** live somewhere trusted (yo
 npx @spekoai/mcp-calls@latest init
 ```
 
-`init` signs you in via your browser and fetches your key automatically — nothing to paste.
+`init` signs you in via your browser, then writes your key into every coding agent it finds.
 Already have a key, or on a headless box? `--token sk_...` or `--paste` skips the browser, and
 `npx @spekoai/mcp-calls login` re-authenticates later. The package runs **single-process** —
 your key calls `api.speko.dev` directly (no separate server to boot).
