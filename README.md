@@ -49,8 +49,9 @@ Why split it? Two reasons: secrets and rails **must** live somewhere trusted (yo
 ## Quickstart
 
 ```bash
-# one command: sign in with your browser (no key to copy/paste), then it writes the MCP
-# into your Claude Code / Claude Desktop config and installs the companion skill.
+# one command: sign in with your browser, then it writes the MCP into every coding
+# agent it detects (Claude Code/Desktop, Cursor, Windsurf, VS Code, Gemini, Codex, Cline)
+# and installs the calling guide in each.
 npx @spekoai/mcp-calls@latest init
 ```
 

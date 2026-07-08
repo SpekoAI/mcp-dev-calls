@@ -278,7 +278,7 @@ export async function runInit(argv: string[], mode: "init" | "setup" | "login" =
   // 2) Get a key: flag > env > browser login (default) > manual paste (fallback).
   let key = (f.token ?? process.env.SPEKO_API_KEY ?? "").trim();
   if (!key && !f.paste) {
-    console.log("\n  Sign in to connect — this opens your browser. " + c.dim("No key to copy or paste."));
+    console.log("\n  Sign in to connect — this opens your browser.");
     try {
       key = await browserLogin((m) => console.log(c.dim("  " + m)));
       console.log(c.green("  ✓ Signed in — fetched your API key automatically."));
