@@ -20,12 +20,30 @@ import { platform } from "node:os";
 import type { AddressInfo } from "node:net";
 
 const API_BASE = (process.env.SPEKOAI_API_URL || "https://api.speko.dev").replace(/\/+$/, "");
+const DASHBOARD = (process.env.SPEKO_DASHBOARD_URL || "https://platform.speko.dev").replace(/\/+$/, "");
 /** OAuth discovery doc for the platform better-auth provider (the JWT issuer). */
 const AUTH_DISCOVERY =
   process.env.SPEKO_OAUTH_DISCOVERY ||
   "https://platform.speko.dev/.well-known/oauth-authorization-server/api/auth";
 
 const LOGIN_TIMEOUT_MS = 5 * 60_000;
+/** How long to wait for a brand-new account to finish creating its workspace. */
+const ORG_POLL_TIMEOUT_MS = 5 * 60_000;
+const ORG_POLL_INTERVAL_MS = 3_000;
+
+/**
+ * The account authenticated fine but has no organization yet (a brand-new signup).
+ * Distinct from a real auth failure so the wizard can wait for the org instead of
+ * dead-ending into "paste a key" (there is no key to paste until the org exists).
+ */
+export class NoOrgError extends Error {
+  constructor() {
+    super("your Speko workspace isn't set up yet");
+    this.name = "NoOrgError";
+  }
+}
+
+const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 
 interface Discovery {
   issuer: string;
@@ -97,13 +115,14 @@ async function registerClient(registrationEndpoint: string, redirectUri: string)
 }
 
 /** Fetch the org's idempotent MCP key from api.speko.dev using a bearer JWT. */
-async function fetchOrgKey(bearer: string): Promise<string> {
+export async function fetchOrgKey(bearer: string): Promise<string> {
   const r = await fetch(`${API_BASE}/v1/api-keys/organization-credentials`, {
     headers: { authorization: `Bearer ${bearer}` },
     signal: AbortSignal.timeout(15_000),
   });
-  if (r.status === 403) {
-    throw new Error("your account has no organization yet — finish signup at platform.speko.dev, then retry");
+  if (r.status === 403 || r.status === 404) {
+    // Authenticated OK, but the user belongs to no org yet — a brand-new signup.
+    throw new NoOrgError();
   }
   if (!r.ok) {
     const body = await r.text().catch(() => "");
@@ -113,6 +132,41 @@ async function fetchOrgKey(bearer: string): Promise<string> {
   const key = j.mcpApiKey?.key;
   if (!key) throw new Error("API-key response was missing mcpApiKey.key");
   return key;
+}
+
+/**
+ * Fetch the org key, waiting out a brand-new signup: if the account has no org
+ * yet, keep re-checking (the same authenticated bearer starts working the moment
+ * the user finishes creating their workspace in the browser) until it succeeds or
+ * we hit the timeout. Any non-NoOrg error propagates immediately.
+ */
+export async function fetchOrgKeyWaiting(
+  bearer: string,
+  log: (msg: string) => void = () => {},
+  opts: { intervalMs?: number; timeoutMs?: number; now?: () => number } = {},
+): Promise<string> {
+  const intervalMs = opts.intervalMs ?? ORG_POLL_INTERVAL_MS;
+  const timeoutMs = opts.timeoutMs ?? ORG_POLL_TIMEOUT_MS;
+  const now = opts.now ?? Date.now;
+  const start = now();
+  let waited = false;
+  for (;;) {
+    try {
+      const key = await fetchOrgKey(bearer);
+      if (waited) log("Workspace ready — connected ✓");
+      return key;
+    } catch (e) {
+      if (!(e instanceof NoOrgError)) throw e;
+      if (now() - start >= timeoutMs) throw e; // still no org after the wait
+      if (!waited) {
+        openBrowser(DASHBOARD);
+        log(`Finish creating your Speko workspace in the browser (${DASHBOARD}).`);
+        log("Waiting for it — this continues automatically the moment it's ready…");
+        waited = true;
+      }
+      await sleep(intervalMs);
+    }
+  }
 }
 
 interface Loopback {
@@ -232,7 +286,9 @@ export async function browserLogin(log: (msg: string) => void = () => {}): Promi
     const tj = (await tok.json()) as { access_token?: string; id_token?: string };
     const bearer = tj.id_token ?? tj.access_token;
     if (!bearer) throw new Error("token endpoint returned neither an id_token nor an access_token");
-    return await fetchOrgKey(bearer);
+    // Signed in. If the account is brand-new (no org yet), wait for the workspace
+    // to be created rather than dead-ending — the same bearer starts working then.
+    return await fetchOrgKeyWaiting(bearer, log);
   } finally {
     server.close();
   }
