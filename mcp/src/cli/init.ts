@@ -23,7 +23,7 @@ import { PKG, SERVER_NAME, serverEntry } from "./targets/invocation.js";
 import { codexTomlBlock } from "./targets/codex.js";
 
 const API_BASE = (process.env.SPEKOAI_API_URL || "https://api.speko.dev").replace(/\/+$/, "");
-const DASHBOARD = "https://platform.speko.dev";
+const DASHBOARD = (process.env.SPEKO_DASHBOARD_URL || "https://platform.speko.dev").replace(/\/+$/, "");
 
 const c = {
   bold: (s: string) => `\x1b[1m${s}\x1b[0m`,
