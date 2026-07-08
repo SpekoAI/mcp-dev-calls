@@ -167,4 +167,5 @@ export const CHECK_READINESS_NEXT_STEP =
   "Run check_call_readiness for a read-only report of auth, credit balance, and outbound caller-ID before placing a call.";
 
 export const AUTH_NEXT_STEP =
-  "Check the demo server's SPEKO_API_KEY (set it in the repo-root .env) and retry.";
+  "Speko rejected the API key. Re-run `npx @spekoai/mcp-calls login` to refresh it, " +
+  "or check SPEKO_API_KEY in your MCP client config, then retry.";
