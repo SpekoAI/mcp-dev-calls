@@ -3,7 +3,7 @@
 **Find a business and place a real, _disclosed_ phone call to it — straight from your coding agent.**
 
 > _"call Sakura Sushi and ask if they have a table for 4 at 8pm"_
-> → `"Hi, this is an AI assistant calling on behalf of John…"`
+> → `"Hi, I'm John's AI assistant…"`
 > → `OUTCOME: table for 4 at 8pm, booked under John` — back in your terminal.
 
 This repo is a **demo**. It shows how a developer can wire a Claude Code MCP to Speko's
