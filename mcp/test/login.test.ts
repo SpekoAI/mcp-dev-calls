@@ -1,10 +1,12 @@
 /**
- * Brand-new-signup handling: the org key is fetched with a wait, so a user who
- * signs in before their workspace exists is picked up automatically instead of
- * being dead-ended into "paste a key" (there is none yet).
+ * Org-key fetch: on success returns the key; on any non-2xx it raises
+ * OrgKeyUnavailableError (NOT a hang, NOT a "no org" claim) so the wizard falls
+ * back to a clean one-time paste. Guards the 2026-07 platform change where
+ * /v1/api-keys/organization-credentials began requiring a first-party dashboard
+ * session and returns 403 to the CLI's OAuth token even for accounts WITH an org.
  */
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { NoOrgError, fetchOrgKey, fetchOrgKeyWaiting } from "../src/cli/login.js";
+import { OrgKeyUnavailableError, fetchOrgKey } from "../src/cli/login.js";
 
 afterEach(() => vi.unstubAllGlobals());
 
@@ -13,7 +15,7 @@ function res(status: number, body: unknown): Response {
     ok: status >= 200 && status < 300,
     status,
     json: async () => body,
-    text: async () => JSON.stringify(body),
+    text: async () => (typeof body === "string" ? body : JSON.stringify(body)),
   } as Response;
 }
 
@@ -23,56 +25,23 @@ describe("fetchOrgKey", () => {
     expect(await fetchOrgKey("bearer")).toBe("sk_live_abc");
   });
 
-  it("throws NoOrgError on 403 / 404 (authenticated but no org)", async () => {
-    vi.stubGlobal("fetch", vi.fn(async () => res(403, { error: "no org" })));
-    await expect(fetchOrgKey("bearer")).rejects.toBeInstanceOf(NoOrgError);
-    vi.stubGlobal("fetch", vi.fn(async () => res(404, {})));
-    await expect(fetchOrgKey("bearer")).rejects.toBeInstanceOf(NoOrgError);
-  });
-
-  it("throws a generic error on other failures (e.g. 500)", async () => {
-    vi.stubGlobal("fetch", vi.fn(async () => res(500, { error: "boom" })));
+  it("raises OrgKeyUnavailableError on the 403 'first-party dashboard session' response", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => res(403, { error: "This action requires a first-party dashboard session" })));
     const err = await fetchOrgKey("bearer").catch((e) => e);
-    expect(err).toBeInstanceOf(Error);
-    expect(err).not.toBeInstanceOf(NoOrgError);
-  });
-});
-
-describe("fetchOrgKeyWaiting", () => {
-  it("polls through no-org responses and resolves once the workspace exists", async () => {
-    let calls = 0;
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(async () => {
-        calls += 1;
-        return calls < 3 ? res(403, {}) : res(200, { mcpApiKey: { key: "sk_ready" } });
-      }),
-    );
-    const logs: string[] = [];
-    const key = await fetchOrgKeyWaiting("bearer", (m) => logs.push(m), { intervalMs: 1, timeoutMs: 5_000 });
-    expect(key).toBe("sk_ready");
-    expect(calls).toBe(3);
-    // told the user we're waiting, and that it resolved
-    expect(logs.join("\n")).toMatch(/Waiting for it/);
-    expect(logs.join("\n")).toMatch(/ready/i);
+    expect(err).toBeInstanceOf(OrgKeyUnavailableError);
+    expect((err as OrgKeyUnavailableError).status).toBe(403);
+    expect((err as Error).message).toMatch(/first-party dashboard session/);
   });
 
-  it("gives up with NoOrgError after the timeout, across multiple poll cycles", async () => {
-    const fetchMock = vi.fn(async () => res(403, {}));
+  it("raises OrgKeyUnavailableError on other non-2xx (500) — no retry loop, no hang", async () => {
+    const fetchMock = vi.fn(async () => res(500, "boom"));
     vi.stubGlobal("fetch", fetchMock);
-    // clock advances 2s per read; with a 5s budget that's ~3 cycles before it gives up
-    let t = 0;
-    const now = () => (t += 2_000);
-    await expect(
-      fetchOrgKeyWaiting("bearer", () => {}, { intervalMs: 1, timeoutMs: 5_000, now }),
-    ).rejects.toBeInstanceOf(NoOrgError);
-    expect(fetchMock.mock.calls.length).toBeGreaterThanOrEqual(3);
+    await expect(fetchOrgKey("bearer")).rejects.toBeInstanceOf(OrgKeyUnavailableError);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
-  it("does not swallow real auth errors — a 500 propagates immediately", async () => {
-    const fetchMock = vi.fn(async () => res(500, {}));
-    vi.stubGlobal("fetch", fetchMock);
-    await expect(fetchOrgKeyWaiting("bearer", () => {}, { intervalMs: 1 })).rejects.toThrow();
-    expect(fetchMock).toHaveBeenCalledTimes(1); // no retry on non-NoOrg
+  it("raises OrgKeyUnavailableError when the 200 body has no key", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => res(200, {})));
+    await expect(fetchOrgKey("bearer")).rejects.toBeInstanceOf(OrgKeyUnavailableError);
   });
 });
