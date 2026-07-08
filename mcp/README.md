@@ -15,8 +15,8 @@ Desktop, and any MCP client. Powered by [Speko](https://speko.ai).
 npx @spekoai/mcp-calls@latest init
 ```
 
-The wizard finds **every coding agent on your machine**, signs you in **with your browser**
-(OAuth — no key to copy or paste), and configures each one — Claude Code, Claude Desktop,
+The wizard finds **every coding agent on your machine**, signs you in **with your browser**,
+and configures each one — Claude Code, Claude Desktop,
 Cursor, Windsurf, VS Code, Gemini CLI, Codex CLI, Cline (Zed gets a paste-ready snippet).
 Each agent also gets the calling guide in its own rules convention (Claude skill, Codex/Gemini/
 Windsurf rules files, Cline rules, VS Code instructions). Then just ask your agent to call a
