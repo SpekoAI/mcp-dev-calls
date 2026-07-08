@@ -9,12 +9,19 @@
   },
   {
     "probeId": "mcp.tools-list",
-    "justification": "PR #30/#31 adds after_hours_confirmation to make_call + call_number schemas (the after-hours confirmation gate); dnc stays CLI-only, not an MCP tool, so the tool set is unchanged otherwise.",
+    "justification": "PR #30/#31 adds after_hours_confirmation to make_call + call_number schemas (the after-hours confirmation gate); dnc stays CLI-only, not an MCP tool. 0.5.6 (multi-agent launch) additionally UNREGISTERS the inert call_me stub (product doctrine: no always-throwing trap tools in the agent's context) — tools/list now returns 5 tools; call_me returns in v2 when the platform exposes a verified personal phone.",
     "expectContains": [
       "after_hours_confirmation",
       "call_number",
       "make_call",
       "lookup_business"
+    ]
+  },
+  {
+    "probeId": "tool.call-me",
+    "justification": "0.5.6 (multi-agent launch) unregisters the always-throwing call_me stub — the probe now fails at dispatch (unknown tool) instead of the tool's own v1 not-available error. Readiness still reports call_me availability; the implementation stays in tools/CallMeTool.ts for v2.",
+    "expectContains": [
+      "call_me"
     ]
   },
   {

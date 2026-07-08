@@ -19,6 +19,7 @@
 - lookup.demo-unknown-offset + lookup.agent-provided-no-carrier: 0.4.9 blocks at lookup for unknown offset -> 0.5.0 mints token (different result). [#31]
 - cli.dnc-*: 0.4.9 server-startup -> 0.5.0 real dnc output. [#30/#31]
 - cli.version: 0.4.8 -> 0.5.0. [version bump]
+- mcp.tools-list + tool.call-me: 0.5.6 unregisters the inert call_me stub -> 5 tools; the probe errors at dispatch (unknown tool) instead of the tool's v1 not-available error. Implementation kept in tools/CallMeTool.ts for v2. [multi-agent launch]
 
 ## Watch
 - benign.* probes MUST stay parity (<NETERR> on both). If a benign probe flips to rejected on 0.5.0, that's a false-positive REGRESSION — fix the regex, do NOT add a delta.

@@ -108,10 +108,10 @@ export async function lookupBusiness(
 
   if (!cfg.googlePlacesApiKey) {
     throw new RejectionError(
-      "Business lookup has no directory configured. Either pass phone_number (the business's official " +
-        "number — e.g. found via web search) to lookup_business, or set GOOGLE_PLACES_API_KEY on the demo " +
-        "server, or set SPEKO_DEMO=1 with a SPEKO_DEMO_E164.",
-      "Pass phone_number=<E.164> to lookup_business, or add GOOGLE_PLACES_API_KEY to the repo-root .env, or enable SPEKO_DEMO.",
+      "Business lookup has no directory configured. Pass phone_number (the business's official " +
+        "number — e.g. found via web search) to lookup_business; it is still carrier-verified. " +
+        "Directory search by name needs a GOOGLE_PLACES_API_KEY in this server's environment.",
+      "Find the business's official number (e.g. via web search) and pass phone_number=<E.164> to lookup_business.",
     );
   }
 

@@ -15,28 +15,47 @@ Desktop, and any MCP client. Powered by [Speko](https://speko.ai).
 npx @spekoai/mcp-calls@latest init
 ```
 
-The wizard signs you in **with your browser** (OAuth — no key to copy or paste), fetches your
-key automatically, writes the MCP into your client config (Claude Code or Claude Desktop), and
-installs a companion skill. Then just ask your agent to call a business.
+The wizard finds **every coding agent on your machine**, signs you in **with your browser**
+(OAuth — no key to copy or paste), and configures each one — Claude Code, Claude Desktop,
+Cursor, Windsurf, VS Code, Gemini CLI, Codex CLI, Cline (Zed gets a paste-ready snippet).
+Each agent also gets the calling guide in its own rules convention (Claude skill, Codex/Gemini/
+Windsurf rules files, Cline rules, VS Code instructions). Then just ask your agent to call a
+business. Same tools, same server-enforced safety rails, whichever agent you use.
 
 Already have a key, or on a headless box? `--token sk_...` or `--paste` skips the browser.
+`--client cursor,codex` (or `all`, the default) picks which agents to configure.
 Re-authenticate anytime with `npx @spekoai/mcp-calls login`.
 
 It runs **single-process**: give it your `SPEKO_API_KEY` and it calls `api.speko.dev`
 directly — no separate server to run.
 
-<details><summary>Manual / CI setup</summary>
+<details><summary>Manual / CI setup (any MCP client)</summary>
 
 ```bash
 # Claude Code
 claude mcp add speko-calls --scope user --env SPEKO_API_KEY=sk_... -- npx -y @spekoai/mcp-calls
 ```
 ```jsonc
-// Claude Desktop — claude_desktop_config.json
+// Claude Desktop / Cursor / Windsurf / Gemini CLI / Cline — the standard mcpServers shape
 { "mcpServers": { "speko-calls": {
   "command": "npx", "args": ["-y", "@spekoai/mcp-calls"], "env": { "SPEKO_API_KEY": "sk_..." }
 } } }
 ```
+```jsonc
+// VS Code — .vscode/mcp.json or user mcp.json (note the `servers` root key)
+{ "servers": { "speko-calls": {
+  "type": "stdio", "command": "npx", "args": ["-y", "@spekoai/mcp-calls"], "env": { "SPEKO_API_KEY": "sk_..." }
+} } }
+```
+```toml
+# Codex CLI — ~/.codex/config.toml (or: codex mcp add speko-calls --env SPEKO_API_KEY=sk_... -- npx -y @spekoai/mcp-calls)
+[mcp_servers.speko-calls]
+command = "npx"
+args = ["-y", "@spekoai/mcp-calls"]
+[mcp_servers.speko-calls.env]
+SPEKO_API_KEY = "sk_..."
+```
+`npx @spekoai/mcp-calls init --print-config` prints all of these with your key filled in.
 Get a key at [platform.speko.dev](https://platform.speko.dev). To route through a hosted
 backing server instead of running in-process, set `SPEKO_MCP_SERVER_URL`.
 </details>

@@ -54,7 +54,10 @@ export async function checkReadiness(client: SpekoClient): Promise<ReadinessRepo
 
   const nextSteps: string[] = [];
   if (!authOk) {
-    nextSteps.push("Authentication failed: check the demo server's SPEKO_API_KEY (repo-root .env) and restart it.");
+    nextSteps.push(
+      "Authentication failed: re-run `npx @spekoai/mcp-calls login` to refresh your key " +
+        "(or check SPEKO_API_KEY in your MCP client config).",
+    );
   }
   if (!creditsSufficient) {
     const shown = balanceUsd != null ? `$${balanceUsd.toFixed(2)}` : "unknown";
