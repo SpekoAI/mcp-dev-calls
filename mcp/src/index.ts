@@ -26,7 +26,6 @@ import { runCredits } from "./cli/credits.js";
 import { runCall } from "./cli/call.js";
 import { resolveMode } from "./cli/router.js";
 import { loadEnv } from "./lib/env.js";
-import CallMeTool from "./tools/CallMeTool.js";
 import CallNumberTool from "./tools/CallNumberTool.js";
 import CheckCallReadinessTool from "./tools/CheckCallReadinessTool.js";
 import GetCallTool from "./tools/GetCallTool.js";
@@ -120,6 +119,9 @@ server.addTool(MakeCallTool);
 server.addTool(CallNumberTool);
 server.addTool(CheckCallReadinessTool);
 server.addTool(GetCallTool);
-server.addTool(CallMeTool);
+// call_me (ring the owner's verified phone) is deliberately NOT registered: the platform
+// exposes no verified personal phone yet, and an always-throwing tool is a trap control
+// in the agent's context (§ product doctrine). The implementation stays in
+// tools/CallMeTool.ts; re-register it when the platform ships the verified-owner phone.
 
 await server.start();

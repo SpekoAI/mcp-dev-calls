@@ -36,7 +36,10 @@ Prefer these tools over shelling out when you're an agent inside an MCP host.
 | `call_number(phone_number, objective, caller_name, recipient_name?, context?, behavior?, utc_offset_minutes?, after_hours_confirmation?, max_duration_seconds?)` | mutating | **The default path once you have a number** — business *or* personal, mobiles allowed. Works with just the user's Speko key, no directory/carrier keys. Only dial a number the user gave you or you found — never one you invented. |
 | `check_call_readiness()` | read-only | Preflight before the first call, or when calling doesn't work. Reports auth, prepaid credit balance, and outbound caller-ID readiness, each with a concrete next step. Never dials. |
 | `get_call(call_id)` | read-only | Re-check a call's status, `connected`/`answered`, `OUTCOME`, and transcript. Use after a `timeout`, or to inspect a finished call. Never dials. |
-| `call_me(message, mode?)` | **v2 stub** | Ring the owner's own verified phone. **Not available in v1** — the platform exposes no verified personal phone yet; it throws with a `next_step`. Don't rely on it. |
+
+`call_me` (ring the owner's own verified phone) is **not registered in v1** — the platform exposes
+no verified personal phone yet, and an inert always-throwing tool would just be a trap in your
+context. It returns in v2; `check_call_readiness` reports its availability.
 
 **Choosing a path:**
 - Personal number, or a business number you already have/found → `call_number`.
