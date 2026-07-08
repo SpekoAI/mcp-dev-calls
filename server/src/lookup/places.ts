@@ -51,7 +51,9 @@ export async function searchPlaces(query: string, apiKey: string): Promise<Place
   } catch (e) {
     throw new AppError(`Could not reach Google Places: ${(e as Error).message}`, {
       statusCode: 502,
-      nextStep: "Check the demo server's network access and GOOGLE_PLACES_API_KEY, then retry lookup_business.",
+      nextStep:
+        "Business-directory lookup is unreachable (network or GOOGLE_PLACES_API_KEY). If you already " +
+        "have the number, pass phone_number to lookup_business to skip the directory.",
     });
   }
   if (!resp.ok) {

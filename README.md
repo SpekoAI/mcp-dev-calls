@@ -102,7 +102,10 @@ while it rings → the `OUTCOME:` line lands back in your terminal.
 | `call_number(phone_number, objective, caller_name)` | Disclosed PERSONAL call to a specific number (e.g. a friend) — mobiles allowed. On by default (set `SPEKO_ALLOW_DIRECT_DIAL=0` to restrict to business lines). |
 | `get_call(call_id)` | Read-only: re-check an existing call's status, `OUTCOME`, and transcript. Never dials. |
 | `check_call_readiness()` | Read-only preflight — auth, credit balance, outbound caller-ID. Never dials. |
-| `call_me(message, mode)` | _v2 — deferred until the platform exposes a verified personal phone._ |
+
+`call_me` (ring the account owner's own verified phone) ships in v2, once the platform exposes a
+verified personal phone — it is intentionally not registered in v1 (no inert tools in the agent's
+context); `check_call_readiness` reports its availability.
 
 ## Safety rails (enforced in `server/`)
 

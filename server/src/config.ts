@@ -140,7 +140,8 @@ export function loadConfig(): AppConfig {
   const apiKeyRaw = (process.env.SPEKO_API_KEY ?? process.env.SPEKOAI_API_KEY ?? "").trim();
   if (!apiKeyRaw) {
     throw new ConfigError(
-      "SPEKO_API_KEY is required. Get one from https://platform.speko.dev and set it in the repo-root .env.",
+      "SPEKO_API_KEY is required. Run `npx @spekoai/mcp-calls init` to set up, or set SPEKO_API_KEY " +
+        "in your MCP client config (get a key at https://platform.speko.dev).",
     );
   }
   const dialTokenSecret = (process.env.SPEKO_DIAL_TOKEN_SECRET ?? "").trim();
