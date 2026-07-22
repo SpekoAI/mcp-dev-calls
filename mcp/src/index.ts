@@ -1,7 +1,8 @@
 /**
  * Speko Calls entry. One bin, cli + mcp:
  *  • `speko init|setup|login`        → onboarding wizard (may log to stdout).
- *  • `speko dnc list|add|remove`     → local do-not-call guardrail ledger.
+ *  • `speko status|whoami`           → doctor: key, backend mode, credits, call readiness.
+ *  • `speko dnc list|add|remove|check` → local do-not-call guardrail ledger.
  *  • `speko audio speak|transcribe`  → terminal TTS/STT (voice on the CLI).
  *  • `speko voices|models`           → list voices the router can pick.
  *  • `speko usage | credits`         → account usage/spend + prepaid balance.
@@ -20,6 +21,7 @@ import { MCPServer } from "mcp-framework";
 import { runInit } from "./cli/init.js";
 import { runAudio } from "./cli/audio/index.js";
 import { runDnc } from "./cli/dnc.js";
+import { runStatus } from "./cli/status.js";
 import { runVoices } from "./cli/voices.js";
 import { runUsage } from "./cli/usage.js";
 import { runCredits } from "./cli/credits.js";
@@ -40,16 +42,19 @@ function printHelp(): number {
       "Usage:\n" +
       "  speko                          (when launched by an MCP host) the stdio MCP server\n" +
       "  speko init | setup | login     onboarding & auth\n" +
-      "  speko dnc list|add|remove      manage the local do-not-call list\n" +
+      "  speko status                   health check: key, backend, credits, call readiness (alias: whoami)\n" +
+      "  speko dnc list|add|remove|check  manage the local do-not-call list\n" +
       '  speko audio speak "<text>"     text-to-speech (TTS)\n' +
       "  speko audio transcribe <f|->   speech-to-text (STT)\n" +
-      "  speko voices [--provider <p>]  list available voices\n" +
+      "  speko voices [--provider <p>]  list available voices (alias: models)\n" +
       "  speko usage                    account usage this period (sessions, minutes, spend, balance)\n" +
       "  speko credits [--ledger]       prepaid balance (+ recent credit movements)\n" +
       "  speko call report <id>         a finished call's outcome, cost + cost breakdown\n" +
       "  speko call events <id>         timeline / speech diagram of the call\n" +
       "  speko call transcript <id>     the call transcript, one line per turn\n" +
-      "  speko --help | --version\n",
+      "  speko call recording <id>      the call's audio recording URL\n" +
+      "  speko --help | --version\n\n" +
+      "`status`, `call *` and `audio *` accept --json for machine-readable output.\n",
   );
   return 0;
 }
@@ -65,6 +70,8 @@ const CLI: Record<string, () => Promise<number> | number> = {
   init: async () => (await runInit(rest, "init"), 0),
   setup: async () => (await runInit(rest, "setup"), 0),
   login: async () => (await runInit(rest, "login"), 0),
+  status: () => runStatus(rest),
+  whoami: () => runStatus(rest),
   dnc: () => runDnc(rest),
   audio: () => runAudio(rest),
   voices: () => runVoices(rest),

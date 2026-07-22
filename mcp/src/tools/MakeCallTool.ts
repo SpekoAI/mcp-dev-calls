@@ -1,6 +1,7 @@
 import { MCPTool } from "mcp-framework";
 import { z } from "zod";
 import { getServerClient } from "../http/serverClient.js";
+import { summarizeCallResult } from "./_shared/callSummary.js";
 
 const schema = z.object({
   dial_token: z
@@ -55,36 +56,6 @@ const MAX_WAIT = 300;
 const HEARTBEAT_MS = 5000;
 const clamp = (n: number, lo: number, hi: number): number => Math.min(Math.max(n, lo), hi);
 
-function summarize(s: Record<string, unknown>): string {
-  const status = typeof s.status === "string" ? s.status : "unknown";
-  const callId = typeof s.call_id === "string" ? s.call_id : null;
-  const outcome = typeof s.outcome === "string" ? s.outcome : null;
-  const reason = typeof s.reason === "string" ? s.reason : null;
-  const connected = s.connected === true;
-  const answered = s.answered === true;
-
-  if (status === "not_placed") {
-    return (
-      reason ??
-      "The call was NOT placed: this Speko deployment has no outbound caller-ID/SIP configured. " +
-        "Run check_call_readiness, configure a caller ID, then retry make_call."
-    );
-  }
-  if (status === "not_connected") {
-    // The server reason now differentiates a trunk/caller-ID dial failure from a destination-side
-    // no-answer (E1) — render it as-is instead of unconditionally blaming the outbound trunk.
-    return reason ?? "The call did not connect — the other party was never heard.";
-  }
-  if (status === "timeout") {
-    return `Reached the wait limit; the call may still be in progress${callId ? ` (call_id '${callId}')` : ""}. Check again with get_call.`;
-  }
-  if (connected && !answered) {
-    return reason ?? `The call connected but no one responded${callId ? ` (call_id '${callId}')` : ""}.`;
-  }
-  if (outcome) return outcome;
-  return `Call ${callId ?? ""} finished with status '${status}' and no OUTCOME line.`.trim();
-}
-
 export default class MakeCallTool extends MCPTool {
   name = "make_call";
   description =
@@ -137,7 +108,7 @@ export default class MakeCallTool extends MCPTool {
         { timeoutMs: (maxWait + 30) * 1000, signal: this.abortSignal },
       )) as Record<string, unknown>;
 
-      return { summary: summarize(summary), ...summary };
+      return { summary: summarizeCallResult(summary, { retryTool: "make_call" }), ...summary };
     } finally {
       clearInterval(timer);
     }

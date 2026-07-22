@@ -70,7 +70,36 @@ describe("runDnc", () => {
     const code = await runDnc(["add"], { ...c, env: { SPEKO_GUARD_STATE_DIR: tempStateDir() } });
 
     expect(code).toBe(1);
-    expect(c.err).toEqual(["Usage: speko dnc list | add <e164> | remove <e164>"]);
+    expect(c.err).toEqual(["Usage: speko dnc list | add <e164> | remove <e164> | check <e164>"]);
     expect(c.out).toEqual([]);
+  });
+
+  it("rejects input that is not a phone number instead of adding junk (regression)", async () => {
+    // The old check accepted any string containing a digit — "abc1" normalized to "1"
+    // and landed on the ledger as a useless entry.
+    const dir = tempStateDir();
+    const c = cap();
+    const code = await runDnc(["add", "abc1"], { ...c, env: { SPEKO_GUARD_STATE_DIR: dir } });
+
+    expect(code).toBe(1);
+    expect(c.err.join("")).toContain("does not look like a phone number");
+    expect(c.out).toEqual([]);
+
+    const listed = cap();
+    await runDnc(["list"], { ...listed, env: { SPEKO_GUARD_STATE_DIR: dir } });
+    expect(listed.out.join("")).toBe("Do-not-call list is empty.\n");
+  });
+
+  it("check: exit 0 when the number is listed, exit 1 when it is not (grep-style)", async () => {
+    const dir = tempStateDir();
+    await runDnc(["add", "+1 (415) 555-0142"], { ...cap(), env: { SPEKO_GUARD_STATE_DIR: dir } });
+
+    const hit = cap();
+    expect(await runDnc(["check", "+14155550142"], { ...hit, env: { SPEKO_GUARD_STATE_DIR: dir } })).toBe(0);
+    expect(hit.out.join("")).toContain("+14155550142 IS on the local do-not-call list");
+
+    const miss = cap();
+    expect(await runDnc(["check", "+14155550199"], { ...miss, env: { SPEKO_GUARD_STATE_DIR: dir } })).toBe(1);
+    expect(miss.out.join("")).toContain("+14155550199 is not on the local do-not-call list");
   });
 });

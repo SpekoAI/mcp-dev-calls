@@ -1,5 +1,5 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
-import { InProcessBackend } from "../src/http/serverClient.js";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { InProcessBackend, ServerClient } from "../src/http/serverClient.js";
 
 // The in-process path maps snake_case tool input to the core's camelCase inputs by hand,
 // so a new field silently vanishes if the mapping is missed (the after_hours_confirmation
@@ -59,5 +59,43 @@ describe("InProcessBackend input mapping", () => {
       caller_name: "Bek",
     });
     expect(callNumber.mock.calls[1][0]).toMatchObject({ afterHoursConfirmation: null, greetFirst: null });
+  });
+});
+
+describe("ServerClient HTTP error relay", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  const stubFetch = (status: number, body: unknown) => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response(JSON.stringify(body), { status })),
+    );
+  };
+
+  it("relays the server's own next_step field (the { error, next_step } body used to be dropped)", async () => {
+    stubFetch(422, { error: "After-hours call blocked.", next_step: "Ask your human to confirm, then retry." });
+    const client = new ServerClient({ baseUrl: "http://server.test" });
+    await expect(client.post("/call", {})).rejects.toThrow(
+      "After-hours call blocked.; next_step=Ask your human to confirm, then retry.",
+    );
+  });
+
+  it("derives an actionable next_step from the HTTP status when the body has none", async () => {
+    stubFetch(401, { error: "unauthorized" });
+    const client = new ServerClient({ baseUrl: "http://server.test" });
+    await expect(client.get("/readiness")).rejects.toThrow(/next_step=.*login/);
+
+    stubFetch(503, {});
+    await expect(client.get("/readiness")).rejects.toThrow(/returned 503.*next_step=.*retry/);
+  });
+
+  it("never double-appends when the error text already embeds next_step=", async () => {
+    stubFetch(400, { error: "Bad request; next_step=Fix the fields and retry." });
+    const client = new ServerClient({ baseUrl: "http://server.test" });
+    const err = await client.post("/call", {}).catch((e: Error) => e);
+    expect(err).toBeInstanceOf(Error);
+    expect((err as Error).message.match(/next_step=/g)).toHaveLength(1);
   });
 });

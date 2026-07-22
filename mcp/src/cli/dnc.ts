@@ -1,5 +1,5 @@
 /**
- * `speko dnc list|add|remove` — local do-not-call ledger management for the call guardrails.
+ * `speko dnc list|add|remove|check` — local do-not-call ledger management for the call guardrails.
  */
 export interface DncDeps {
   stdout?: { write: (s: string) => void };
@@ -35,12 +35,24 @@ async function loadGuard(): Promise<GuardModule> {
 }
 
 function usage(stderr: (line: string) => void): number {
-  stderr("Usage: speko dnc list | add <e164> | remove <e164>");
+  stderr("Usage: speko dnc list | add <e164> | remove <e164> | check <e164>");
   return 1;
 }
 
-function looksLikePhoneNumber(raw: string | undefined): raw is string {
-  return typeof raw === "string" && /\d/.test(raw);
+/**
+ * A dialable number once normalized: optional leading +, 7-15 digits (the E.164 envelope).
+ * The old check accepted any string containing a digit, so "abc1" normalized to "1" and
+ * landed on the ledger as junk. Returns the normalized form, or null when it isn't a number.
+ */
+function normalizedNumber(guard: GuardModule, raw: string | undefined): string | null {
+  if (typeof raw !== "string" || !raw.trim()) return null;
+  const normalized = guard.normalizeE164(raw);
+  return /^\+?\d{7,15}$/.test(normalized) ? normalized : null;
+}
+
+function badNumber(stderr: (line: string) => void, raw: string): number {
+  stderr(`dnc: '${raw}' does not look like a phone number — expected E.164, e.g. +14155550142.`);
+  return 1;
 }
 
 export async function runDnc(argv: string[], deps: DncDeps = {}): Promise<number> {
@@ -63,18 +75,21 @@ export async function runDnc(argv: string[], deps: DncDeps = {}): Promise<number
     return 0;
   }
 
-  if (command === "add" && extra.length === 0 && looksLikePhoneNumber(rawNumber)) {
+  if (command === "add" && extra.length === 0 && typeof rawNumber === "string") {
     const guard = await loadGuard();
+    const normalized = normalizedNumber(guard, rawNumber);
+    if (!normalized) return badNumber(stderr, rawNumber);
     const dir = guard.resolveGuardStateDir(deps.env ?? process.env);
     guard.dncAdd(rawNumber, { source: "manual" }, dir);
-    stdout.write(`Added ${guard.normalizeE164(rawNumber)} to the local do-not-call list.\n`);
+    stdout.write(`Added ${normalized} to the local do-not-call list.\n`);
     return 0;
   }
 
-  if (command === "remove" && extra.length === 0 && looksLikePhoneNumber(rawNumber)) {
+  if (command === "remove" && extra.length === 0 && typeof rawNumber === "string") {
     const guard = await loadGuard();
+    const normalized = normalizedNumber(guard, rawNumber);
+    if (!normalized) return badNumber(stderr, rawNumber);
     const dir = guard.resolveGuardStateDir(deps.env ?? process.env);
-    const normalized = guard.normalizeE164(rawNumber);
     const removed = guard.dncRemove(rawNumber, dir);
     stdout.write(
       removed
@@ -82,6 +97,21 @@ export async function runDnc(argv: string[], deps: DncDeps = {}): Promise<number
         : `${normalized} was not on the local do-not-call list.\n`,
     );
     return 0;
+  }
+
+  // grep-style exit codes: 0 = on the list, 1 = not on it — scriptable without parsing output.
+  if (command === "check" && extra.length === 0 && typeof rawNumber === "string") {
+    const guard = await loadGuard();
+    const normalized = normalizedNumber(guard, rawNumber);
+    if (!normalized) return badNumber(stderr, rawNumber);
+    const dir = guard.resolveGuardStateDir(deps.env ?? process.env);
+    const entry = guard.dncList(dir).find((e) => guard.normalizeE164(e.e164) === normalized);
+    if (entry) {
+      stdout.write(`${normalized} IS on the local do-not-call list (source=${entry.source}, ts=${entry.ts}).\n`);
+      return 0;
+    }
+    stdout.write(`${normalized} is not on the local do-not-call list.\n`);
+    return 1;
   }
 
   return usage(stderr);

@@ -91,6 +91,21 @@ function withOpts<T>(opts: RequestOptions, work: () => Promise<T>): Promise<T> {
   });
 }
 
+/**
+ * Actionable guidance for an HTTP failure whose body carried no next_step of its own —
+ * without this the agent gets a bare "returned 503" and nothing to self-correct with.
+ */
+function nextStepForHttpStatus(status: number): string {
+  if (status === 401 || status === 403) {
+    return "The server rejected the key — run 'npx @spekoai/mcp-calls login' to refresh it " +
+      "(or check SPEKO_API_KEY in your MCP client config).";
+  }
+  if (status === 402) return "Add credits at https://platform.speko.dev — calls are billed per minute.";
+  if (status === 429) return "Rate limited — wait a minute, then retry.";
+  if (status >= 500) return "The backing server hit a transient error — wait a moment and retry.";
+  return "Check the request and retry; run check_call_readiness if calls keep failing.";
+}
+
 /** Turn a thrown core error into the `; next_step=` shape the HTTP path also produces. */
 function normalizeError(e: unknown): Error {
   const err = e as { message?: string; nextStep?: string };
@@ -268,7 +283,13 @@ export class ServerClient implements Backend {
     if (!resp.ok) {
       const rec = data as Record<string, unknown>;
       const msg = typeof rec.error === "string" ? rec.error : `The Speko backing server returned ${resp.status}.`;
-      throw new DemoServerError(msg);
+      if (msg.includes("next_step=")) throw new DemoServerError(msg);
+      // The server serializes errors as { error, next_step } — relay ITS guidance when present
+      // (this used to be dropped on the floor), else derive one from the HTTP status so the
+      // agent always has something actionable.
+      const nextStep =
+        typeof rec.next_step === "string" && rec.next_step ? rec.next_step : nextStepForHttpStatus(resp.status);
+      throw new DemoServerError(`${msg}; next_step=${nextStep}`);
     }
     return data;
   }

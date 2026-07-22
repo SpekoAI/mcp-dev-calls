@@ -10,6 +10,8 @@ export const CLI_COMMANDS = [
   "init",
   "setup",
   "login",
+  "status",
+  "whoami",
   "audio",
   "dnc",
   "voices",
