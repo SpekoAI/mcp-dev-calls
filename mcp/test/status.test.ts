@@ -12,6 +12,7 @@ const READY_REPORT = {
   next_steps: ["Place one test call to confirm the outbound trunk connects."],
   auth: { ok: true },
   credits: { balance_usd: 12.34, minimum_usd: 0.5, sufficient: true },
+  outbound: { any_outbound_ready: true, server_default_possible: true },
 };
 
 const backendWith = (report: unknown) => ({ get: async () => report });
@@ -51,6 +52,33 @@ describe("runStatus", () => {
     const text = c.out.join("");
     expect(text).toContain("Almost ready");
     expect(text).toContain("Add credits at platform.speko.dev.");
+  });
+
+  it("auth + credits ok but no way to dial out → exit 1 (Greptile #64)", async () => {
+    const c = cap();
+    const code = await runStatus(["--json"], {
+      ...c,
+      env: { SPEKO_API_KEY: "sk_live_1234567890abcd" } as NodeJS.ProcessEnv,
+      backend: backendWith({
+        headline: "Not ready — no outbound caller-ID and no server default.",
+        auth: { ok: true },
+        credits: { balance_usd: 12.34, minimum_usd: 0.5, sufficient: true },
+        outbound: { any_outbound_ready: false, server_default_possible: false },
+      }),
+    });
+    expect(code).toBe(1);
+    expect(JSON.parse(c.out.join("").trim()).ready).toBe(false);
+  });
+
+  it("a report without an outbound section (older server) does not block readiness", async () => {
+    const c = cap();
+    const { outbound: _outbound, ...withoutOutbound } = READY_REPORT;
+    const code = await runStatus([], {
+      ...c,
+      env: { SPEKO_API_KEY: "sk_live_1234567890abcd" } as NodeJS.ProcessEnv,
+      backend: backendWith(withoutOutbound),
+    });
+    expect(code).toBe(0);
   });
 
   it("no key and no server URL → actionable setup hint on stderr, exit 1", async () => {

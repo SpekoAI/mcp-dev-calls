@@ -22,6 +22,7 @@ interface ReadinessLike {
   next_steps?: string[];
   auth?: { ok?: boolean };
   credits?: { balance_usd?: number | null; minimum_usd?: number; sufficient?: boolean };
+  outbound?: { any_outbound_ready?: boolean; server_default_possible?: boolean };
 }
 
 const OPTIONS = {
@@ -76,7 +77,13 @@ export async function runStatus(argv: string[], deps: StatusDeps = {}): Promise<
     return 1;
   }
 
-  const ready = report.auth?.ok === true && report.credits?.sufficient === true;
+  // "Ready" mirrors the report's own signals: auth + credits, AND some way to dial out —
+  // an owned outbound-ready number or the server's shared default. A missing outbound
+  // section (older server) doesn't block; an explicit "no way to dial" does.
+  const outbound = report.outbound;
+  const outboundPossible =
+    outbound == null || outbound.any_outbound_ready === true || outbound.server_default_possible === true;
+  const ready = report.auth?.ok === true && report.credits?.sufficient === true && outboundPossible;
 
   if (json) {
     stdout.write(
