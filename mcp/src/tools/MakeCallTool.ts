@@ -116,7 +116,8 @@ export default class MakeCallTool extends MCPTool {
     void this.reportProgress(0, maxWait, "Placing the call…").catch(() => {});
     const timer = setInterval(() => {
       const elapsed = Math.round((Date.now() - startedAtMs) / 1000);
-      void this.reportProgress(Math.min(elapsed, maxWait), maxWait, `Call in progress — ${elapsed}s elapsed`).catch(
+      const progressSec = Math.min(elapsed, maxWait);
+      void this.reportProgress(progressSec, maxWait, `Call in progress — ${progressSec}s elapsed`).catch(
         () => {},
       );
     }, HEARTBEAT_MS);
