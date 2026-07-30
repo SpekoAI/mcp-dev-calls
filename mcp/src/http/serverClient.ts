@@ -267,7 +267,29 @@ export class ServerClient implements Backend {
 
     if (!resp.ok) {
       const rec = data as Record<string, unknown>;
-      const msg = typeof rec.error === "string" ? rec.error : `The Speko backing server returned ${resp.status}.`;
+      let msg = typeof rec.error === "string" ? rec.error : `The Speko backing server returned ${resp.status}.`;
+
+      const nextStep =
+        typeof rec.next_step === "string"
+          ? rec.next_step
+          : typeof rec.nextStep === "string"
+            ? rec.nextStep
+            : null;
+
+      if (nextStep && !msg.includes("next_step=")) {
+        msg = `${msg}; next_step=${nextStep}`;
+      } else if (!msg.includes("next_step=")) {
+        if (resp.status === 401 || resp.status === 403) {
+          msg = `${msg}; next_step=Re-run 'npx @spekoai/mcp-calls login' or check SPEKO_API_KEY in your MCP config.`;
+        } else if (resp.status === 402) {
+          msg = `${msg}; next_step=Your Speko prepaid credit balance is depleted. Top up at https://platform.speko.dev.`;
+        } else if (resp.status === 429) {
+          msg = `${msg}; next_step=Rate cap reached. Wait a short moment before retrying.`;
+        } else if (resp.status >= 500) {
+          msg = `${msg}; next_step=The backing server encountered an internal error. Retry in a few seconds.`;
+        }
+      }
+
       throw new DemoServerError(msg);
     }
     return data;

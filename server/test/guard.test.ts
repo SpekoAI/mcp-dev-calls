@@ -36,7 +36,7 @@ describe("guard normalization", () => {
 
   it("resolves the guard state directory from env or the default home path", () => {
     expect(resolveGuardStateDir({ SPEKO_GUARD_STATE_DIR: dir })).toBe(dir);
-    expect(resolveGuardStateDir({})).toMatch(/\.speko\/calls$/);
+    expect(resolveGuardStateDir({})).toMatch(/[\\/]\.speko[\\/]calls$/);
   });
 });
 

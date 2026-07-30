@@ -61,3 +61,53 @@ describe("InProcessBackend input mapping", () => {
     expect(callNumber.mock.calls[1][0]).toMatchObject({ afterHoursConfirmation: null, greetFirst: null });
   });
 });
+
+describe("ServerClient error next_step relay", () => {
+  it("relays next_step from server JSON error responses", async () => {
+    const { ServerClient } = await import("../src/http/serverClient.js");
+    const client = new ServerClient({ baseUrl: "http://127.0.0.1:9" });
+
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => ({
+        ok: false,
+        status: 400,
+        text: async () =>
+          JSON.stringify({
+            error: "Dial token expired",
+            next_step: "Run lookup_business again to mint a fresh dial token.",
+          }),
+      })),
+    );
+
+    try {
+      await expect(client.post("/call", {})).rejects.toThrow(
+        "Dial token expired; next_step=Run lookup_business again to mint a fresh dial token.",
+      );
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("derives status-aware next_step for HTTP status errors without body next_step", async () => {
+    const { ServerClient } = await import("../src/http/serverClient.js");
+    const client = new ServerClient({ baseUrl: "http://127.0.0.1:9" });
+
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => ({
+        ok: false,
+        status: 401,
+        text: async () => "",
+      })),
+    );
+
+    try {
+      await expect(client.post("/call", {})).rejects.toThrow(
+        "The Speko backing server returned 401.; next_step=Re-run 'npx @spekoai/mcp-calls login' or check SPEKO_API_KEY in your MCP config.",
+      );
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+});

@@ -113,12 +113,14 @@ export default class CallNumberTool extends MCPTool {
     const maxWait = clamp(input.max_duration_seconds ?? MAX_WAIT, MIN_WAIT, MAX_WAIT);
     const client = getServerClient();
 
-    let elapsed = 0;
+    const startedAtMs = Date.now();
     // Immediate progress so the terminal isn't silent for the first ~5s while the call places + rings.
     void this.reportProgress(0, maxWait, "Placing the call…").catch(() => {});
     const timer = setInterval(() => {
-      elapsed += HEARTBEAT_MS / 1000;
-      void this.reportProgress(elapsed, maxWait, `Call in progress — ${elapsed}s elapsed`).catch(() => {});
+      const elapsed = Math.round((Date.now() - startedAtMs) / 1000);
+      void this.reportProgress(Math.min(elapsed, maxWait), maxWait, `Call in progress — ${elapsed}s elapsed`).catch(
+        () => {},
+      );
     }, HEARTBEAT_MS);
 
     try {

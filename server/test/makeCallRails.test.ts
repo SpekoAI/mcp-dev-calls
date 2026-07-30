@@ -34,6 +34,8 @@ let guardDir = "";
 
 beforeEach(() => {
   guardDir = mkdtempSync(join(tmpdir(), "speko-rails-"));
+  resetDialReplayGuard();
+  resetDialAgentForTests();
 });
 
 afterEach(() => {

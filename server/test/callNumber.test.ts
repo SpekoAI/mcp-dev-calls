@@ -6,11 +6,14 @@ import { callNumber } from "../src/calls/callNumber.js";
 import type { AppConfig } from "../src/config.js";
 import type { SpekoClient } from "../src/speko/client.js";
 
+import { resetDialReplayGuard } from "../src/calls/makeCall.js";
+
 const noop = async (): Promise<void> => {};
 let guardDir = "";
 
 beforeEach(() => {
   guardDir = mkdtempSync(join(tmpdir(), "speko-call-number-"));
+  resetDialReplayGuard();
 });
 
 afterEach(() => {
