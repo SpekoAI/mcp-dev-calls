@@ -11,6 +11,9 @@ import type { OwnedNumber, ReadinessReport } from "../types.js";
 const CALL_ME_NOTE =
   "call_me is a v2 feature (the Speko platform exposes no verified personal phone yet); " +
   "make_call to a business does not need it.";
+const NOT_CONNECTED_GUIDANCE =
+  "If it returns not_connected, follow the returned reason; it distinguishes a dial/setup failure, " +
+  "destination no-answer, or an unconfirmed connection.";
 
 export async function checkReadiness(client: SpekoClient): Promise<ReadinessReport> {
   let authFailed = false;
@@ -71,8 +74,9 @@ export async function checkReadiness(client: SpekoClient): Promise<ReadinessRepo
     // (Full technical detail stays in the structured `outbound` field for anyone who needs it.)
     nextSteps.push(
       anyOutboundReady
-        ? "Your first call also confirms your number is live — if it comes back not_connected, the number is still being set up."
-        : "You'll call from Speko's shared number. Your first call confirms it's working — if it comes back not_connected, it's still being set up.",
+        ? `Your first call confirms the line end to end. ${NOT_CONNECTED_GUIDANCE}`
+        : "No outbound-ready number is listed. This deployment may have a shared number, but readiness " +
+            `cannot confirm it. Place one call to check. ${NOT_CONNECTED_GUIDANCE}`,
     );
   }
   for (const row of owned) {
@@ -94,11 +98,11 @@ export async function checkReadiness(client: SpekoClient): Promise<ReadinessRepo
   }
 
   // Plain-language, scannable status. Honest: "ready" means auth + credits are good and a call
-  // will be attempted — the first call is what confirms the outbound line (see next_steps).
+  // will be attempted; the first call is what confirms the outbound line (see next_steps).
   let headline: string;
-  if (!authOk) headline = "❌ Not connected — your Speko key was rejected. Sign in again to continue.";
-  else if (!creditsSufficient) headline = "⏳ Almost ready — add credits and you can start placing calls.";
-  else headline = "✅ You're ready to place calls.";
+  if (!authOk) headline = "Not connected: your Speko key was rejected. Sign in again to continue.";
+  else if (!creditsSufficient) headline = "Almost ready: add credits and you can start placing calls.";
+  else headline = "Ready to place calls.";
 
   return {
     auth: { ok: authOk, error: creditsError ?? numbersError },

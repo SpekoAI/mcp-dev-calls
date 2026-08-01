@@ -201,7 +201,7 @@
   },
   {
     "probeId": "tool.readiness",
-    "justification": "0.6.x DX: check_call_readiness now speaks plain language — a scannable ✅/⏳/❌ headline (was 'Ready to call: with caveats - see next_steps') and human next-steps. Dropped the 'outbound SIP trunk'/'dialing-stub'/LiveKit/Telnyx jargon wall; the honesty is preserved (first call confirms the line) and the full technical state stays in the structured `outbound` field. Inbound-answerability warning unchanged.",
+    "justification": "0.6.x DX: check_call_readiness now speaks plain language with a scannable ASCII status headline (was 'Ready to call: with caveats - see next_steps') and human next-steps. Dropped the 'outbound SIP trunk'/'dialing-stub'/LiveKit/Telnyx jargon wall; honesty is preserved because the first call confirms the line, an absent outbound-ready number does not promise a shared number, and not_connected guidance follows the returned reason. Full technical state stays in the structured `outbound` field. Inbound-answerability warning unchanged.",
     "expectContains": [
       "Almost ready"
     ]

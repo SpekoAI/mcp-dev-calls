@@ -1,7 +1,7 @@
 /**
- * check_call_readiness speaks plain language: a scannable ✅/⏳/❌ headline and
+ * check_call_readiness speaks plain language: a scannable status headline and
  * human next-steps, without the old jargon wall (no "outbound SIP trunk" /
- * "dialing-stub" / "Ready to call:" prose). Honesty preserved — "ready" only when
+ * "dialing-stub" / "Ready to call:" prose). Honesty preserved: "ready" only when
  * auth + credits are good, and the first-call caveat still surfaces as plain text.
  */
 import { describe, expect, it } from "vitest";
@@ -28,26 +28,39 @@ const fakeClient = (over: {
 
 const NO_JARGON = /outbound SIP trunk|dialing-stub|Ready to call:|LiveKit outbound|Telnyx/;
 
-describe("check_call_readiness — plain-language headline", () => {
-  it("ready: ✅ headline, no jargon wall", async () => {
+describe("check_call_readiness plain-language headline", () => {
+  it("ready: ASCII headline, no jargon wall", async () => {
     const r = await checkReadiness(fakeClient({ balanceUsd: 100 }));
-    expect(r.headline).toMatch(/^✅/);
+    expect(r.headline).toBe("Ready to place calls.");
     expect(r.headline).not.toMatch(NO_JARGON);
     expect(r.next_steps.join(" ")).not.toMatch(NO_JARGON);
+    expect(r.headline).not.toMatch(/[^\x00-\x7F]/);
   });
 
-  it("no credits: ⏳ headline pointing at credits, not a caveat dump", async () => {
+  it("no credits: ASCII headline pointing at credits, not a caveat dump", async () => {
     const r = await checkReadiness(fakeClient({ balanceUsd: 0 }));
-    expect(r.headline).toMatch(/^⏳/);
+    expect(r.headline).toMatch(/^Almost ready:/);
     expect(r.credits.sufficient).toBe(false);
     expect(r.next_steps.some((s) => /add credits/i.test(s))).toBe(true);
+    expect(r.headline).not.toMatch(/[^\x00-\x7F]/);
   });
 
-  it("auth failure: ❌ headline that says sign in again", async () => {
+  it("auth failure: ASCII headline that says sign in again", async () => {
     const r = await checkReadiness(fakeClient({ authFail: true }));
-    expect(r.headline).toMatch(/^❌/);
+    expect(r.headline).toMatch(/^Not connected:/);
     expect(r.auth.ok).toBe(false);
     expect(r.next_steps.some((s) => /sign in|login/i.test(s))).toBe(true);
+    expect(r.headline).not.toMatch(/[^\x00-\x7F]/);
+  });
+
+  it("does not promise a shared number when no outbound-ready number is listed", async () => {
+    const r = await checkReadiness(fakeClient({ balanceUsd: 100, numbers: [] }));
+    const guidance = r.next_steps.join(" ");
+    expect(guidance).toMatch(/may have a shared number/i);
+    expect(guidance).toMatch(/cannot confirm/i);
+    expect(guidance).not.toMatch(/you'll call from/i);
+    expect(guidance).not.toMatch(/still being set up/i);
+    expect(guidance).not.toMatch(/[^\x00-\x7F]/);
   });
 
   it("ready with an outbound number: first-call confirm is plain, not scary", async () => {
@@ -65,8 +78,14 @@ describe("check_call_readiness — plain-language headline", () => {
         ],
       }),
     );
-    expect(r.headline).toMatch(/^✅/);
+    expect(r.headline).toBe("Ready to place calls.");
     expect(r.next_steps.some((s) => /first call/i.test(s))).toBe(true);
-    expect(r.next_steps.join(" ")).not.toMatch(NO_JARGON);
+    const guidance = r.next_steps.join(" ");
+    expect(guidance).not.toMatch(NO_JARGON);
+    expect(guidance).toMatch(/dial\/setup failure/i);
+    expect(guidance).toMatch(/destination no-answer/i);
+    expect(guidance).toMatch(/unconfirmed connection/i);
+    expect(guidance).not.toMatch(/still being set up/i);
+    expect(guidance).not.toMatch(/[^\x00-\x7F]/);
   });
 });
