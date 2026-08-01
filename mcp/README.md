@@ -66,7 +66,9 @@ SPEKO_API_KEY = "sk_..."
 SPEKO_CLIENT_PROFILE = "codex"
 ```
 
-`npx @spekoai/mcp-calls init --print-config` prints all of these with your key filled in.
+`npx @spekoai/mcp-calls init --print-config` prints all of these with a
+`YOUR_SPEKO_API_KEY` placeholder. Replace it only inside your private client config; the wizard
+never writes the real key to terminal output.
 Get a key at [platform.speko.dev](https://platform.speko.dev). `SPEKO_MCP_SERVER_URL` always
 selects remote mode. Put `SPEKO_API_KEY`, lookup credentials, `SPEKO_DIAL_TOKEN_SECRET`, safety
 settings, and state directories on that server. The MCP sends its allowlisted client profile and,

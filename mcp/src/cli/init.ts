@@ -20,7 +20,7 @@ import { fileURLToPath } from "node:url";
 import { browserLogin, OrgKeyUnavailableError } from "./login.js";
 import { runMe } from "./me.js";
 import { ALL_TARGETS, TARGET_LABELS, realCtx, resolveSelection } from "./targets/index.js";
-import { PKG, SERVER_NAME, serverEntry } from "./targets/invocation.js";
+import { MANUAL_API_KEY_PLACEHOLDER, PKG, SERVER_NAME, serverEntry } from "./targets/invocation.js";
 import { codexTomlBlock } from "./targets/codex.js";
 
 const API_BASE = (process.env.SPEKOAI_API_URL || "https://api.speko.dev").replace(/\/+$/, "");
@@ -222,8 +222,17 @@ function installSkill(): boolean {
   }
 }
 
-/** Manual config for every supported agent — used by --print-config and the zero-detected fallback. */
-function printManualConfigs(key: string, scope: string): void {
+/**
+ * Manual config for every supported agent. Never print the authenticated key: terminal output is
+ * commonly captured in shell logs, CI transcripts, and agent context.
+ */
+export function printManualConfigs(scope: string): void {
+  const key = MANUAL_API_KEY_PLACEHOLDER;
+  console.log(
+    c.yellow(
+      "\n  Manual snippets use YOUR_SPEKO_API_KEY. Replace it only inside your private client config; the real key is never printed.",
+    ),
+  );
   console.log("\n  Claude Code:");
   console.log(
     "    " +
@@ -368,7 +377,7 @@ export async function runInit(argv: string[], mode: "init" | "setup" | "login" =
   console.log(c.green("ok ✓"));
 
   if (f.printConfig) {
-    printManualConfigs(key, f.scope);
+    printManualConfigs(f.scope);
     return;
   }
 
@@ -376,7 +385,7 @@ export async function runInit(argv: string[], mode: "init" | "setup" | "login" =
   console.log("");
   if (sel.ids.length === 0) {
     console.log(c.yellow("  • No coding agents detected — manual setup below (or force one with --client <name>):"));
-    printManualConfigs(key, f.scope);
+    printManualConfigs(f.scope);
     await offerOwnerVerification(key, quick, f.yes);
     return;
   }

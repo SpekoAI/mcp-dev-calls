@@ -25,6 +25,22 @@ describe("G1 — objective-to-opener composition (no mangled grafts)", () => {
     expect(fm).toMatch(/asked me to book a table for two at 8pm tonight/i);
   });
 
+  it.each([
+    ["Good morning!!!   Can you please book a table for two.", /asked me to book a table for two/i],
+    ["Hey there, please book a table for two.", /asked me to book a table for two/i],
+    ["I am calling you regarding my order.", /asked me to call about Bek's order/i],
+    ["Could you please tell me the parking options?", /asked me to find out the parking options/i],
+  ])("peels normalized literal lead-ins without changing the action: %s", (objective, expected) => {
+    expect(buildFirstMessage("Bek", objective)).toMatch(expected);
+  });
+
+  it("keeps stacked lead-in peeling bounded without exposing raw meta text", () => {
+    const objective = `${"please ".repeat(20)}book a table for two`;
+    const fm = buildFirstMessage("Bek", objective);
+    expect(fm).toMatch(/asked me to book a table for two/i);
+    expect(fm).not.toMatch(/please please/i);
+  });
+
   it("question-form objective is relayed after the disclosure, never grafted into 'asked me to'", () => {
     const fm = buildFirstMessage("Bek", "Are you open tomorrow at noon?");
     expect(fm).toMatch(/Bek's AI assistant/);
@@ -68,6 +84,7 @@ describe("G1 — objective-to-opener composition (no mangled grafts)", () => {
     expect(buildFirstMessage("Bek", "Order a large pepperoni pizza and hang up")).toMatch(/asked me to order a large pepperoni pizza\.$/i);
     expect(buildFirstMessage("Bek", "Ask for their hours before we hang up")).toMatch(/asked me to ask for their hours\.$/i);
     expect(buildFirstMessage("Bek", "Confirm the booking before the call ends")).toMatch(/asked me to confirm the booking\.$/i);
+    expect(buildFirstMessage("Bek", "Confirm the booking then end call!!!")).toMatch(/asked me to confirm the booking\.$/i);
   });
 
   it("does NOT scrub an 'after ... the call' tail that is real ask content", () => {

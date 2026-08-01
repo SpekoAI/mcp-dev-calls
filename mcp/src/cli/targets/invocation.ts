@@ -7,6 +7,7 @@
 
 export const PKG = "@spekoai/mcp-calls";
 export const SERVER_NAME = "speko-calls";
+export const MANUAL_API_KEY_PLACEHOLDER = "YOUR_SPEKO_API_KEY";
 
 export type ClientProfile =
   | "claude-code"

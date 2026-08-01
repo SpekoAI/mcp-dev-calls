@@ -116,7 +116,7 @@ describe("describeCall — terminality gate (A2: no stale 'completed' on a LIVE 
         getEvents: async () => [{ event_type: "room_finished" }] as any,
         getSession: async () => ({ phoneCall: { callControlId: null }, usage: [] }) as any,
       });
-    const withUrl = await describeCall("call-xyz", mk(), "https://platform.speko.dev");
+    const withUrl = await describeCall("call-xyz", mk(), "https://platform.speko.dev///");
     expect(withUrl.dashboard_url).toBe("https://platform.speko.dev/sessions/call-xyz");
     const noUrl = await describeCall("call-xyz", mk());
     expect(noUrl.dashboard_url).toBeUndefined();

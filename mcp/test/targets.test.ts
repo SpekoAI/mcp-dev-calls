@@ -234,6 +234,8 @@ describe("Zed adapter", () => {
     const r = zedTarget.write(KEY, ctx);
     expect(r.ok).toBe(false);
     expect(r.manual).toContain("context_servers");
+    expect(r.manual).toContain("YOUR_SPEKO_API_KEY");
+    expect(r.manual).not.toContain(KEY);
     expect(existsSync(join(home, ".config", "zed", "settings.json"))).toBe(false);
   });
 });
