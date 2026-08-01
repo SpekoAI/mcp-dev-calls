@@ -41,6 +41,16 @@ export interface CallSummary {
    * platform-side. Lets this report flag a leak instead of presenting the call as clean.
    */
   receptionist_control_token_leak?: boolean;
+  /** Full message supplied to call_me; retained even when spoken output is duration-limited. */
+  message?: string;
+  /** Explicitly data-labeled owner speech for call_me converse results. */
+  owner_reply?: string | null;
+  /** Present only on answered call_me converse calls. */
+  confirmation?: "confirmed" | "corrected" | "unconfirmed";
+  /** Best deterministic extraction from the final read-back frame, if one was observed. */
+  final_instruction?: string | null;
+  /** Actionable continuation for nonblocking/incomplete owner calls. */
+  next_step?: string;
 }
 
 /**
@@ -86,7 +96,7 @@ export interface ReadinessReport {
     server_default_possible: boolean;
     error: string | null;
   };
-  call_me: { available: boolean; note: string };
+  call_me: { available: boolean; note: string; owner_phone_last4?: string; client_profile?: string };
   next_steps: string[];
   headline: string;
 }
@@ -101,4 +111,13 @@ export interface MakeCallInput {
   greetFirst?: boolean | null;
   afterHoursConfirmation?: string | null;
   maxDurationSeconds?: number;
+}
+
+export interface CallMeInput {
+  message: string;
+  mode: "notify" | "converse";
+  context?: string | null;
+  afterHoursConfirmation?: string | null;
+  maxDurationSeconds?: number;
+  wait?: boolean;
 }

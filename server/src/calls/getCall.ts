@@ -10,6 +10,12 @@ import { eventType } from "../lib/events.js";
 import { bestOutcome, extractEndCallReason } from "../lib/transcript.js";
 import { isAuthFailure, type SpekoClient } from "../speko/client.js";
 import type { CallSummary, SessionDetail } from "../types.js";
+import {
+  callMeMetadata,
+  decorateCallMeSummary,
+  isCallMeTerminal,
+  releaseOwnerBusyByCallId,
+} from "./callMeResult.js";
 import { attachDashboardUrl, shapeCallSummary } from "./summary.js";
 
 function strField(md: Record<string, unknown> | undefined, key: string): string | null {
@@ -81,7 +87,7 @@ export async function describeCall(
     // Best effort.
   }
 
-  return attachDashboardUrl(
+  const summary = attachDashboardUrl(
     shapeCallSummary({
       callId,
       to,
@@ -96,4 +102,9 @@ export async function describeCall(
     }),
     dashboardBaseUrl,
   );
+  const ownerMetadata = callMeMetadata(detail.metadata as Record<string, unknown> | undefined);
+  if (!ownerMetadata) return summary;
+  const decorated = decorateCallMeSummary(summary, ownerMetadata);
+  if (isCallMeTerminal(decorated.status)) releaseOwnerBusyByCallId(callId);
+  return decorated;
 }

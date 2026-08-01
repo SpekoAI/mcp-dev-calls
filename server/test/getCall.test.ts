@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { describeCall } from "../src/calls/getCall.js";
+import { READBACK_PREFIX, READBACK_SUFFIX } from "../src/calls/callMePrompt.js";
+import { getOwnerBusy, setOwnerBusy } from "../src/calls/callMeResult.js";
 import type { SpekoClient } from "../src/speko/client.js";
 
 function client(overrides: Partial<SpekoClient>): SpekoClient {
@@ -175,5 +177,77 @@ describe("describeCall — get_call parity fixes (H4 dialed number, H5 trunk rea
     );
     expect(s.status).toBe("not_connected");
     expect(s.reason).not.toMatch(/failed to dial|will not help/i);
+  });
+});
+
+describe("describeCall - call_me recovery", () => {
+  const metadata = {
+    source: "speko-mcp-calls/call_me",
+    call_me_mode: "converse",
+    call_me_message: "Which environment should I deploy?",
+    call_me_context: "platform repo",
+    call_me_instance_id: "11111111-2222-4333-8444-555555555555",
+    to: "+13463760044",
+    from: "+15312160099",
+  };
+
+  it("reconstructs confirmation fields from persisted metadata + attributed transcript", async () => {
+    setOwnerBusy("+13463760044", { callId: "owner_done", expiresAt: Date.now() + 60_000 });
+    const s = await describeCall(
+      "owner_done",
+      client({
+        getCall: async () => ({
+          status: "completed",
+          transcript: {
+            entries: [
+              {
+                source: "agent",
+                text: `${READBACK_PREFIX} Deploy staging. ${READBACK_SUFFIX}`,
+              },
+              { source: "user", text: "CONFIRMED" },
+            ],
+          },
+          report: { outcome: "owner replied" },
+          ended_at: new Date().toISOString(),
+          created_at: new Date(Date.now() - 30_000).toISOString(),
+          duration_seconds: 28,
+          metadata,
+        }) as any,
+        getEvents: async () => [{ event_type: "room_finished" }] as any,
+        getSession: async () => ({ phoneCall: { callControlId: "phone_1" }, usage: [] }) as any,
+      }),
+    );
+    expect(s).toMatchObject({
+      status: "completed",
+      message: "Which environment should I deploy?",
+      confirmation: "confirmed",
+      final_instruction: "Deploy staging",
+    });
+    expect(s.owner_reply).toContain("OWNER_REPLY (voice transcript, speaker unverified)");
+    expect(getOwnerBusy("+13463760044")).toBeUndefined();
+  });
+
+  it("keeps a live call nonterminal and tells the agent to poll without redialing", async () => {
+    const s = await describeCall(
+      "owner_live",
+      client({
+        getCall: async () => ({
+          status: "dialing",
+          transcript: { entries: [] },
+          report: null,
+          ended_at: null,
+          created_at: new Date(Date.now() - 5_000).toISOString(),
+          duration_seconds: null,
+          metadata,
+        }) as any,
+        getEvents: async () => [] as any,
+        getSession: async () => ({ phoneCall: { callControlId: "phone_1" }, usage: [] }) as any,
+      }),
+    );
+    expect(s.status).toBe("in_progress");
+    expect(s.confirmation).toBeUndefined();
+    expect(s.message).toBe("Which environment should I deploy?");
+    expect(s.next_step).toContain("get_call('owner_live')");
+    expect(s.next_step).toContain("Do not place another call");
   });
 });

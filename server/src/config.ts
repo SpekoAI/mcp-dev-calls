@@ -57,6 +57,15 @@ export interface DemoConfig {
   address: string;
 }
 
+export type ClientProfile =
+  | "claude-code"
+  | "codex"
+  | "cline"
+  | "gemini"
+  | "cursor"
+  | "windsurf"
+  | "safe-default";
+
 export interface AppConfig {
   port: number;
   host: string;
@@ -107,8 +116,15 @@ export interface AppConfig {
   allowDirectDial: boolean;
   trustedNumbers: string[];
   guardStateDir: string | undefined;
+  /** Local owner profile directory. Defaults to the guard-state directory. */
+  ownerStateDir: string | undefined;
   rateCapPerNumberHour: number;
   rateCapPerNumberDay: number;
+  /** Per-client timeout behavior written by the init wizard; unknown values fail poll-safe. */
+  clientProfile: ClientProfile;
+  clientProfileConfigured: boolean;
+  /** Emergency local kill switch. It prevents call_me before any dial attempt. */
+  callMeDisabled: boolean;
   /** Base URL of the Speko dashboard; call summaries expose `${base}/sessions/{call_id}`. */
   dashboardBaseUrl: string;
   /**
@@ -154,6 +170,20 @@ export function loadConfig(): AppConfig {
   const twilioSid = (process.env.TWILIO_LOOKUP_SID ?? "").trim();
   const twilioToken = (process.env.TWILIO_LOOKUP_TOKEN ?? "").trim();
 
+  const rawClientProfile = (process.env.SPEKO_CLIENT_PROFILE ?? "").trim();
+  const knownClientProfiles = new Set<ClientProfile>([
+    "claude-code",
+    "codex",
+    "cline",
+    "gemini",
+    "cursor",
+    "windsurf",
+    "safe-default",
+  ]);
+  const clientProfile = knownClientProfiles.has(rawClientProfile as ClientProfile)
+    ? (rawClientProfile as ClientProfile)
+    : "safe-default";
+
   cached = {
     port: (() => {
       const n = Number(process.env.PORT ?? process.env.SPEKO_MCP_SERVER_PORT ?? 8787);
@@ -191,8 +221,15 @@ export function loadConfig(): AppConfig {
       .map((number) => normalizeE164(number.trim()))
       .filter(Boolean),
     guardStateDir: (process.env.SPEKO_GUARD_STATE_DIR ?? "").trim() || undefined,
+    ownerStateDir:
+      (process.env.SPEKO_OWNER_STATE_DIR ?? process.env.SPEKO_GUARD_STATE_DIR ?? "").trim() || undefined,
     rateCapPerNumberHour: positiveIntEnv("SPEKO_MAX_CALLS_PER_NUMBER_HOUR", RATE_CAP_PER_NUMBER_HOUR),
     rateCapPerNumberDay: positiveIntEnv("SPEKO_MAX_CALLS_PER_NUMBER_DAY", RATE_CAP_PER_NUMBER_DAY),
+    clientProfile,
+    clientProfileConfigured: rawClientProfile.length > 0 && knownClientProfiles.has(rawClientProfile as ClientProfile),
+    callMeDisabled: ["1", "true", "yes", "on"].includes(
+      (process.env.SPEKO_CALLME_DISABLED ?? "").trim().toLowerCase(),
+    ),
     dashboardBaseUrl:
       ((process.env.SPEKO_DASHBOARD_URL ?? process.env.SPEKO_PLATFORM_URL ?? "").trim() || "https://platform.speko.dev").replace(/\/+$/, ""),
     // OFF unless explicitly opted in (kill switch); #903 per-call rooms made the guard redundant (#37 M4).

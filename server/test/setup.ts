@@ -1,4 +1,5 @@
 import { beforeEach } from "vitest";
+import { resetCallMeBusyForTests } from "../src/calls/callMeResult.js";
 import { resetDialReplayGuard } from "../src/calls/makeCall.js";
 
 // The dial replay guard is a module-level TTL cache keyed on number+objective. Tests across a
@@ -6,4 +7,5 @@ import { resetDialReplayGuard } from "../src/calls/makeCall.js";
 // the guard would reject those as duplicates and every suite would be order-dependent.
 beforeEach(() => {
   resetDialReplayGuard();
+  resetCallMeBusyForTests();
 });

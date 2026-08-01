@@ -37,10 +37,20 @@ export interface CallNumberDeps {
   cfg: AppConfig;
   bearerHash: string;
   sleep?: (ms: number) => Promise<void>;
+  /** Internal owner/verification path; never supplied by the MCP request body. */
+  ownerDial?: boolean;
+  forceFullRails?: boolean;
+  skipAfterHoursGate?: boolean;
+  firstMessageOverride?: string;
+  systemPromptOverride?: (endCallTool: boolean) => string;
+  metadataSource?: string;
+  metadataExtra?: Record<string, string | number | boolean | null>;
+  returnAfterDial?: boolean;
+  beforeDial?: () => void;
 }
 
 export async function callNumber(input: CallNumberInput, deps: CallNumberDeps): Promise<CallSummary> {
-  if (!deps.cfg.allowDirectDial) {
+  if (!deps.cfg.allowDirectDial && !deps.ownerDial) {
     throw new RejectionError(
       "Direct dialing has been turned off on this deployment (SPEKO_ALLOW_DIRECT_DIAL is set to off), so " +
         "call_number is disabled and cannot place this call. (Direct dialing is on by default.)",
@@ -88,6 +98,14 @@ export async function callNumber(input: CallNumberInput, deps: CallNumberDeps): 
       bearerHash: deps.bearerHash,
       sleep: deps.sleep,
       allowAnyLineType: true, // set server-side only, behind cfg.allowDirectDial
+      forceFullRails: deps.forceFullRails,
+      skipAfterHoursGate: deps.skipAfterHoursGate,
+      firstMessageOverride: deps.firstMessageOverride,
+      systemPromptOverride: deps.systemPromptOverride,
+      metadataSource: deps.metadataSource,
+      metadataExtra: deps.metadataExtra,
+      returnAfterDial: deps.returnAfterDial,
+      beforeDial: deps.beforeDial,
     },
   );
 }
