@@ -1,6 +1,7 @@
 import { MCPTool } from "mcp-framework";
 import { z } from "zod";
 import { getServerClient } from "../http/serverClient.js";
+import { clampCallWait, startCallProgress } from "./_shared/callProgress.js";
 import { summarizeCallResult } from "./_shared/callSummary.js";
 
 const schema = z.object({
@@ -59,11 +60,6 @@ const schema = z.object({
   max_duration_seconds: z.number().int().optional().describe("Max seconds to wait for the call to finish; clamped 30-300."),
 });
 
-const MIN_WAIT = 30;
-const MAX_WAIT = 300;
-const HEARTBEAT_MS = 5000;
-const clamp = (n: number, lo: number, hi: number): number => Math.min(Math.max(n, lo), hi);
-
 export default class CallNumberTool extends MCPTool {
   name = "call_number";
   description =
@@ -86,22 +82,12 @@ export default class CallNumberTool extends MCPTool {
   };
 
   async execute(input: z.infer<typeof schema>): Promise<Record<string, unknown>> {
-    const maxWait = clamp(input.max_duration_seconds ?? MAX_WAIT, MIN_WAIT, MAX_WAIT);
+    const maxWait = clampCallWait(input.max_duration_seconds);
     const client = getServerClient();
-
-    // Heartbeat so the call feels alive in the terminal. The authoritative status lives
-    // server-side; here we surface elapsed time from the wall clock — counting ticks drifts
-    // behind reality whenever the event loop is busy (skipped/late intervals), understating
-    // the progress %. Clamp the progress value to the cap so it never renders past 100%.
-    const startedAtMs = Date.now();
-    // Immediate progress so the terminal isn't silent for the first ~5s while the call places + rings.
-    void this.reportProgress(0, maxWait, "Placing the call…").catch(() => {});
-    const timer = setInterval(() => {
-      const elapsed = Math.round((Date.now() - startedAtMs) / 1000);
-      void this.reportProgress(Math.min(elapsed, maxWait), maxWait, `Call in progress — ${elapsed}s elapsed`).catch(
-        () => {},
-      );
-    }, HEARTBEAT_MS);
+    const stopProgress = startCallProgress(
+      (progress, total, message) => this.reportProgress(progress, total, message),
+      maxWait,
+    );
 
     try {
       const summary = (await client.post(
@@ -123,7 +109,7 @@ export default class CallNumberTool extends MCPTool {
 
       return { summary: summarizeCallResult(summary, { retryTool: "call_number" }), ...summary };
     } finally {
-      clearInterval(timer);
+      stopProgress();
     }
   }
 }
