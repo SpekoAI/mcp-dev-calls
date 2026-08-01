@@ -21,7 +21,9 @@ schema → verify.** No per-agent binaries.
 `mcp/src/cli/init.ts` today: Claude Code (`claude mcp add`, idempotent remove→add) + Claude
 Desktop (safe read-merge-backup-write). `--client code|desktop|both`. **Zero external deps**
 (Node builtins only). Installs the companion **Skill** to `~/.claude/skills` (Claude-only). Writes
-`{command:"npx",args:["-y","@spekoai/mcp-calls"],env:{SPEKO_API_KEY}}`. We also ship
+`{command:"npx",args:["-y","@spekoai/mcp-calls"],env:{SPEKO_API_KEY,SPEKO_CLIENT_PROFILE}}`.
+The profile is target-specific so `call_me` can degrade to nonblocking polling on clients with
+short tool ceilings. We also ship
 `mcp/server.json` (MCP **registry** manifest) → registry-aware clients can install with no
 file-editing at all.
 
@@ -48,6 +50,7 @@ Desktop merge), VS Code `servers`+`type`, Zed `context_servers` (nested), Codex 
 ```ts
 interface AgentTarget {
   id: string; label: string;
+  profile: "claude-code" | "codex" | "cline" | "gemini" | "cursor" | "windsurf" | "safe-default";
   detect(): boolean;            // config dir / CLI present?
   write(key: string): { ok: boolean; detail: string };  // idempotent merge in that agent's schema
   manualHint(key: string): string;                       // fallback line if write fails
@@ -77,7 +80,7 @@ nested, Cline globalStorage).
 
 | layer | same everywhere? | why |
 |---|---|---|
-| Protocol / the 6 tools | ✅ identical | one stdio server; same tools/list, schemas, env passing; stdout-reserved invariant (`router.ts`) |
+| Protocol / the 6 tools | ✅ identical | one stdio server; same tools/list and schemas; target profile changes only timeout/wait policy |
 | Config format | ⚠️ per-adapter | 4 formats; solvable, it's the bulk of the work |
 | Agent guidance (Skill) | ❌ Claude-only | `SKILL.md` → `~/.claude/skills` only; others have no "skills" |
 | Model reasoning driving the flow | ⚠️ varies | `make_call` is multi-step + safety-sensitive; weaker agents may fumble sequencing |
@@ -93,10 +96,11 @@ weaker agent can produce a clumsy UX but **never an unsafe/undisclosed call**.
 ## 6. Conformance & parity strategy (how we guarantee "works the same")
 
 **Anti-drift single source of truth.** Define the logical server invocation once —
-`{ command:"npx", args:["-y","@spekoai/mcp-calls"], env:{SPEKO_API_KEY} }` — and the tool set once.
-Every adapter *derives* its file from this constant; none hand-writes command/args. A test asserts
-every adapter emits the same logical (command,args,env) triple, differing only in syntax. This
-makes it impossible to give one agent different args or a different tool surface.
+`{ command:"npx", args:["-y","@spekoai/mcp-calls"], env:{SPEKO_API_KEY,SPEKO_CLIENT_PROFILE} }`
+and the tool set once. Every adapter derives its command/args/key from this constant and supplies
+its declared profile. Tests assert command/args/key parity plus the exact per-target profile.
+Codex additionally gets `tool_timeout_sec = 2700`; Cline gets `"timeout": 2700`. Cursor,
+Windsurf, Claude Desktop, VS Code, and Zed use poll-safe behavior where required.
 
 **Test pyramid:**
 
@@ -147,7 +151,7 @@ makes it impossible to give one agent different args or a different tool surface
 | Codex project config loads only for *trusted* projects | pin ignored | target global `~/.codex/config.toml` |
 | client negotiates older MCP protocol | subtle tool behavior diff | declare min protocol; test against supported client versions |
 | large tool results truncated differently | transcript render varies | keep results compact (known concern) |
-| `call_me` throws; no Skill on non-Claude to explain | worse trap surface | hide `call_me` until v2 (already recommended) |
+| client tool ceiling kills a blocking `call_me` | reply is stranded or agent redials | wizard profile forces `wait:false` on Cursor/Windsurf/safe-default; Codex/Cline get 2700s; Gemini clamps to 240s |
 | version drift (`npx` unpinned = latest) | parity by construction, but a bad publish breaks all agents at once | keep unpinned for parity; rely on release gating + doctor |
 
 ## 8. Open questions
