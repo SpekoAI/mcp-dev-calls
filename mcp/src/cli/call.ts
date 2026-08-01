@@ -1,8 +1,9 @@
 /**
- * `speko call <report|events|transcript> <call-id> [--json]` — inspect a finished call.
+ * `speko call <report|events|transcript|recording> <call-id> [--json]` — inspect a finished call.
  * report → speko.calls.report(id) (outcome/summary/cost + cost_breakdown table);
  * events → speko.calls.events(id) (a sorted "speech diagram" timeline);
- * transcript → speko.calls.get(id) (one line per turn from transcript.entries).
+ * transcript → speko.calls.get(id) (one line per turn from transcript.entries);
+ * recording → speko.calls.recording(id) (the audio recording URL, pipe-friendly).
  */
 import { parseArgs } from "node:util";
 import type { Speko } from "@spekoai/sdk";
@@ -18,10 +19,10 @@ const OPTIONS = {
   json: { type: "boolean" },
 } as const;
 
-const SUBS = ["report", "events", "transcript"] as const;
+const SUBS = ["report", "events", "transcript", "recording"] as const;
 type Sub = (typeof SUBS)[number];
 
-const USAGE = "usage: speko call <report|events|transcript> <call-id> [--json]";
+const USAGE = "usage: speko call <report|events|transcript|recording> <call-id> [--json]";
 
 /** Micro-USD (string|number) → a $-prefixed display value. More precision under $1. */
 const usd = (micro: string | number): string =>
@@ -140,6 +141,18 @@ export async function runCall(argv: string[], deps: CallDeps = {}): Promise<numb
           lines.push(`  ${parts.join("  ")}`);
         }
       }
+    } else if (sub === "recording") {
+      const recording = await speko.calls.recording(id);
+      if (values.json) {
+        stdout.write(JSON.stringify(recording) + "\n");
+        return 0;
+      }
+      if (!recording.url) {
+        stderr("call: no recording is available for this call.");
+        return 1;
+      }
+      // Bare URL on stdout so it pipes cleanly (curl/open/afplay).
+      lines.push(recording.url);
     } else {
       const detail = await speko.calls.get(id);
       if (values.json) {

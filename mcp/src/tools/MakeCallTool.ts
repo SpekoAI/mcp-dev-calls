@@ -1,6 +1,8 @@
 import { MCPTool } from "mcp-framework";
 import { z } from "zod";
 import { getServerClient } from "../http/serverClient.js";
+import { clampCallWait, startCallProgress } from "./_shared/callProgress.js";
+import { summarizeCallResult } from "./_shared/callSummary.js";
 
 const schema = z.object({
   dial_token: z
@@ -50,41 +52,6 @@ const schema = z.object({
     .describe("Max seconds to wait for the call to finish; clamped to 30-300."),
 });
 
-const MIN_WAIT = 30;
-const MAX_WAIT = 300;
-const HEARTBEAT_MS = 5000;
-const clamp = (n: number, lo: number, hi: number): number => Math.min(Math.max(n, lo), hi);
-
-function summarize(s: Record<string, unknown>): string {
-  const status = typeof s.status === "string" ? s.status : "unknown";
-  const callId = typeof s.call_id === "string" ? s.call_id : null;
-  const outcome = typeof s.outcome === "string" ? s.outcome : null;
-  const reason = typeof s.reason === "string" ? s.reason : null;
-  const connected = s.connected === true;
-  const answered = s.answered === true;
-
-  if (status === "not_placed") {
-    return (
-      reason ??
-      "The call was NOT placed: this Speko deployment has no outbound caller-ID/SIP configured. " +
-        "Run check_call_readiness, configure a caller ID, then retry make_call."
-    );
-  }
-  if (status === "not_connected") {
-    // The server reason now differentiates a trunk/caller-ID dial failure from a destination-side
-    // no-answer (E1) — render it as-is instead of unconditionally blaming the outbound trunk.
-    return reason ?? "The call did not connect — the other party was never heard.";
-  }
-  if (status === "timeout") {
-    return `Reached the wait limit; the call may still be in progress${callId ? ` (call_id '${callId}')` : ""}. Check again with get_call.`;
-  }
-  if (connected && !answered) {
-    return reason ?? `The call connected but no one responded${callId ? ` (call_id '${callId}')` : ""}.`;
-  }
-  if (outcome) return outcome;
-  return `Call ${callId ?? ""} finished with status '${status}' and no OUTCOME line.`.trim();
-}
-
 export default class MakeCallTool extends MCPTool {
   name = "make_call";
   description =
@@ -104,22 +71,12 @@ export default class MakeCallTool extends MCPTool {
   };
 
   async execute(input: z.infer<typeof schema>): Promise<Record<string, unknown>> {
-    const maxWait = clamp(input.max_duration_seconds ?? MAX_WAIT, MIN_WAIT, MAX_WAIT);
+    const maxWait = clampCallWait(input.max_duration_seconds);
     const client = getServerClient();
-
-    // Heartbeat so the call feels alive in the terminal. The authoritative status lives
-    // server-side; here we surface elapsed time from the wall clock — counting ticks drifts
-    // behind reality whenever the event loop is busy (skipped/late intervals), understating
-    // the progress %. Clamp the progress value to the cap so it never renders past 100%.
-    const startedAtMs = Date.now();
-    // Immediate progress so the terminal isn't silent for the first ~5s while the call places + rings.
-    void this.reportProgress(0, maxWait, "Placing the call…").catch(() => {});
-    const timer = setInterval(() => {
-      const elapsed = Math.round((Date.now() - startedAtMs) / 1000);
-      void this.reportProgress(Math.min(elapsed, maxWait), maxWait, `Call in progress — ${elapsed}s elapsed`).catch(
-        () => {},
-      );
-    }, HEARTBEAT_MS);
+    const stopProgress = startCallProgress(
+      (progress, total, message) => this.reportProgress(progress, total, message),
+      maxWait,
+    );
 
     try {
       const summary = (await client.post(
@@ -137,9 +94,9 @@ export default class MakeCallTool extends MCPTool {
         { timeoutMs: (maxWait + 30) * 1000, signal: this.abortSignal },
       )) as Record<string, unknown>;
 
-      return { summary: summarize(summary), ...summary };
+      return { summary: summarizeCallResult(summary, { retryTool: "make_call" }), ...summary };
     } finally {
-      clearInterval(timer);
+      stopProgress();
     }
   }
 }

@@ -108,6 +108,28 @@ while it rings → the `OUTCOME:` line lands back in your terminal.
 verified personal phone — it is intentionally not registered in v1 (no inert tools in the agent's
 context); `check_call_readiness` reports its availability.
 
+## CLI
+
+The same binary is a terminal CLI (`npx @spekoai/mcp-calls <command>`, or `speko <command>` once installed):
+
+```
+speko init | setup | login     onboarding & auth
+speko status                   health check: key, backend, credits, call readiness (alias: whoami)
+speko dnc list|add|remove|check  manage the local do-not-call list
+speko audio speak "<text>"     text-to-speech (TTS)
+speko audio transcribe <f|->   speech-to-text (STT)
+speko voices [--provider <p>]  list available voices (alias: models)
+speko usage                    account usage this period (sessions, minutes, spend, balance)
+speko credits [--ledger]       prepaid balance (+ recent credit movements)
+speko call report <id>         a finished call's outcome, cost + cost breakdown
+speko call events <id>         timeline / speech diagram of the call
+speko call transcript <id>     the call transcript, one line per turn
+speko call recording <id>      the call's audio recording URL
+```
+
+`speko status` is the "is this thing set up?" doctor: exit 0 means ready to place calls.
+`status`, `call *` and `audio *` accept `--json` for machine-readable output.
+
 ## Safety rails (enforced in `server/`)
 
 Built around consent and server-side enforcement: a **hard-coded, non-overridable AI disclosure**,

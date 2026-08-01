@@ -6,10 +6,12 @@ interface Captured {
   reportId?: string;
   eventsId?: string;
   getId?: string;
+  recordingId?: string;
 }
 
 interface FakeOpts {
-  throwOn?: "report" | "events" | "get";
+  throwOn?: "report" | "events" | "get" | "recording";
+  recordingUrl?: string | null;
 }
 
 function fakeSpeko(opts: FakeOpts = {}): { speko: Speko; calls: Captured } {
@@ -81,6 +83,11 @@ function fakeSpeko(opts: FakeOpts = {}): { speko: Speko; calls: Captured } {
           },
         };
       },
+      recording: async (id: string) => {
+        calls.recordingId = id;
+        if (opts.throwOn === "recording") return boom();
+        return { url: opts.recordingUrl === undefined ? "https://cdn.speko.dev/rec/sess.mp3" : opts.recordingUrl };
+      },
     },
   } as unknown as Speko;
   return { speko, calls };
@@ -92,7 +99,7 @@ function cap() {
   return { out, err, stdout: { write: (s: string) => void out.push(s) }, stderr: (line: string) => void err.push(line) };
 }
 
-const USAGE = "usage: speko call <report|events|transcript> <call-id> [--json]";
+const USAGE = "usage: speko call <report|events|transcript|recording> <call-id> [--json]";
 
 describe("runCall", () => {
   it("report: renders outcome/summary/cost + a cost_breakdown table", async () => {
@@ -155,6 +162,32 @@ describe("runCall", () => {
     const text = c.out.join("");
     expect(text).toContain("agent: hi, are you open?");
     expect(text).toContain("user: yes until 9pm");
+  });
+
+  it("recording: prints the bare URL (pipe-friendly)", async () => {
+    const { speko, calls } = fakeSpeko();
+    const c = cap();
+    const code = await runCall(["recording", "sess-4"], { speko, stdout: c.stdout, stderr: c.stderr });
+    expect(code).toBe(0);
+    expect(calls.recordingId).toBe("sess-4");
+    expect(c.out.join("")).toBe("https://cdn.speko.dev/rec/sess.mp3\n");
+  });
+
+  it("recording --json: emits the raw SDK result", async () => {
+    const { speko } = fakeSpeko();
+    const c = cap();
+    const code = await runCall(["recording", "sess-4", "--json"], { speko, stdout: c.stdout, stderr: c.stderr });
+    expect(code).toBe(0);
+    expect(JSON.parse(c.out.join("").trim())).toEqual({ url: "https://cdn.speko.dev/rec/sess.mp3" });
+  });
+
+  it("recording with no URL → message on stderr, exit 1", async () => {
+    const { speko } = fakeSpeko({ recordingUrl: null });
+    const c = cap();
+    const code = await runCall(["recording", "sess-4"], { speko, stdout: c.stdout, stderr: c.stderr });
+    expect(code).toBe(1);
+    expect(c.err.join("")).toContain("no recording is available");
+    expect(c.out).toEqual([]);
   });
 
   it("no sub → usage on stderr, exit 2, no stdout", async () => {

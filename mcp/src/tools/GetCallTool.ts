@@ -1,6 +1,7 @@
 import { MCPTool } from "mcp-framework";
 import { z } from "zod";
 import { getServerClient } from "../http/serverClient.js";
+import { summarizeCallResult } from "./_shared/callSummary.js";
 
 const schema = z.object({
   call_id: z
@@ -24,6 +25,9 @@ export default class GetCallTool extends MCPTool {
 
   async execute(input: z.infer<typeof schema>): Promise<Record<string, unknown>> {
     const id = encodeURIComponent(String(input.call_id ?? "").trim());
-    return (await getServerClient().get(`/call/${id}`)) as Record<string, unknown>;
+    const result = (await getServerClient().get(`/call/${id}`)) as Record<string, unknown>;
+    // Same plain-language `summary` line make_call/call_number lead with, so the agent
+    // never has to interpret the raw status/connected/answered fields itself.
+    return { summary: summarizeCallResult(result, { retryTool: null }), ...result };
   }
 }

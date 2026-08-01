@@ -1,6 +1,8 @@
 import { MCPTool } from "mcp-framework";
 import { z } from "zod";
 import { getServerClient } from "../http/serverClient.js";
+import { clampCallWait, startCallProgress } from "./_shared/callProgress.js";
+import { summarizeCallResult } from "./_shared/callSummary.js";
 
 const schema = z.object({
   phone_number: z
@@ -58,36 +60,6 @@ const schema = z.object({
   max_duration_seconds: z.number().int().optional().describe("Max seconds to wait for the call to finish; clamped 30-300."),
 });
 
-const MIN_WAIT = 30;
-const MAX_WAIT = 300;
-const HEARTBEAT_MS = 5000;
-const clamp = (n: number, lo: number, hi: number): number => Math.min(Math.max(n, lo), hi);
-
-function summarize(s: Record<string, unknown>): string {
-  const status = typeof s.status === "string" ? s.status : "unknown";
-  const callId = typeof s.call_id === "string" ? s.call_id : null;
-  const outcome = typeof s.outcome === "string" ? s.outcome : null;
-  const reason = typeof s.reason === "string" ? s.reason : null;
-  const connected = s.connected === true;
-  const answered = s.answered === true;
-
-  if (status === "not_placed") {
-    return reason ?? "The call was NOT placed: no outbound caller-ID/SIP is configured for this deployment.";
-  }
-  if (status === "not_connected") {
-    // Server reason now distinguishes trunk/caller-ID dial failure from a destination no-answer (E1).
-    return reason ?? "The call did not connect — the other party was never heard.";
-  }
-  if (status === "timeout") {
-    return `Reached the wait limit; the call may still be in progress${callId ? ` (call_id '${callId}')` : ""}.`;
-  }
-  if (connected && !answered) {
-    return reason ?? `The call connected but no one responded${callId ? ` (call_id '${callId}')` : ""}.`;
-  }
-  if (outcome) return outcome;
-  return `Call ${callId ?? ""} finished with status '${status}'.`.trim();
-}
-
 export default class CallNumberTool extends MCPTool {
   name = "call_number";
   description =
@@ -110,16 +82,12 @@ export default class CallNumberTool extends MCPTool {
   };
 
   async execute(input: z.infer<typeof schema>): Promise<Record<string, unknown>> {
-    const maxWait = clamp(input.max_duration_seconds ?? MAX_WAIT, MIN_WAIT, MAX_WAIT);
+    const maxWait = clampCallWait(input.max_duration_seconds);
     const client = getServerClient();
-
-    let elapsed = 0;
-    // Immediate progress so the terminal isn't silent for the first ~5s while the call places + rings.
-    void this.reportProgress(0, maxWait, "Placing the call…").catch(() => {});
-    const timer = setInterval(() => {
-      elapsed += HEARTBEAT_MS / 1000;
-      void this.reportProgress(elapsed, maxWait, `Call in progress — ${elapsed}s elapsed`).catch(() => {});
-    }, HEARTBEAT_MS);
+    const stopProgress = startCallProgress(
+      (progress, total, message) => this.reportProgress(progress, total, message),
+      maxWait,
+    );
 
     try {
       const summary = (await client.post(
@@ -139,9 +107,9 @@ export default class CallNumberTool extends MCPTool {
         { timeoutMs: (maxWait + 30) * 1000, signal: this.abortSignal },
       )) as Record<string, unknown>;
 
-      return { summary: summarize(summary), ...summary };
+      return { summary: summarizeCallResult(summary, { retryTool: "call_number" }), ...summary };
     } finally {
-      clearInterval(timer);
+      stopProgress();
     }
   }
 }

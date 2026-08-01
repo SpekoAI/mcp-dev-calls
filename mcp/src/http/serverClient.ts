@@ -36,15 +36,62 @@ function combineSignals(a: AbortSignal | undefined, b: AbortSignal): AbortSignal
   return a ? AbortSignal.any([a, b]) : b;
 }
 
+interface RequestContext {
+  method: "GET" | "POST";
+  path: string;
+}
+
+const DIAL_PATHS = new Set(["/call", "/call-number", "/call-me"]);
+const RETRY_SAFE_POST_PATHS = new Set(["/lookup"]);
+
+function isDialMutation(context: RequestContext): boolean {
+  return context.method === "POST" && DIAL_PATHS.has(context.path);
+}
+
+function isRetrySafeOperation(context: RequestContext): boolean {
+  return context.method === "GET" || (context.method === "POST" && RETRY_SAFE_POST_PATHS.has(context.path));
+}
+
+function uncertainDialOutcomeGuidance(): string {
+  return (
+    "The outcome is unknown and a call may already have been placed. Do not retry or place another call. " +
+    "If you have a call ID, inspect it with get_call; otherwise review recent calls before taking any action."
+  );
+}
+
+function uncertainMutationOutcomeGuidance(context: RequestContext): string {
+  if (isDialMutation(context)) return uncertainDialOutcomeGuidance();
+  return (
+    "The outcome is unknown and the operation may already have been applied. Do not retry until you verify " +
+    "the current server state."
+  );
+}
+
+function boundedInline(value: string, maxLength = 1_000): string {
+  return value.replace(/[\u0000-\u001f\u007f]+/g, " ").replace(/\s+/g, " ").trim().slice(0, maxLength);
+}
+
+function remoteDiagnostic(status: number): string {
+  return `The Speko backing server returned HTTP ${status}.`;
+}
+
+function isKnownPreDialRejection(status: number | undefined): boolean {
+  return status === 400 || status === 401 || status === 402 || status === 403 || status === 404 || status === 422;
+}
+
 /**
  * Apply the caller's timeout + abort signal to in-process work. The core functions don't take a
  * signal, so we can't cancel the underlying work, but we DO return control to the tool instead of
  * hanging forever — matching the guarantees the HTTP backend gives via fetch(). Honors an already
  * aborted signal, a timeout, and an abort mid-flight.
  */
-function withOpts<T>(opts: RequestOptions, work: () => Promise<T>): Promise<T> {
+function withOpts<T>(opts: RequestOptions, context: RequestContext, work: () => Promise<T>): Promise<T> {
   const { timeoutMs, signal } = opts;
-  if (signal?.aborted) return Promise.reject(new DemoServerError("The request was aborted before it started."));
+  if (signal?.aborted) {
+    return Promise.reject(
+      new DemoServerError("The request was aborted before it started; next_step=Retry only if the operation is still needed."),
+    );
+  }
   const base = work();
   if (timeoutMs == null && !signal) return base;
   return new Promise<T>((resolve, reject) => {
@@ -58,7 +105,10 @@ function withOpts<T>(opts: RequestOptions, work: () => Promise<T>): Promise<T> {
       if (settled) return;
       settled = true;
       cleanup();
-      reject(new DemoServerError("The request was aborted."));
+      const nextStep = isRetrySafeOperation(context)
+        ? "The request was aborted. Retry only if the operation is still needed."
+        : uncertainMutationOutcomeGuidance(context);
+      reject(new DemoServerError(`The request was aborted; next_step=${nextStep}`));
     };
     if (typeof timeoutMs === "number") {
       timer = setTimeout(() => {
@@ -68,7 +118,11 @@ function withOpts<T>(opts: RequestOptions, work: () => Promise<T>): Promise<T> {
         reject(
           new DemoServerError(
             `The in-process backend did not finish within ${Math.round(timeoutMs / 1000)}s; ` +
-              "next_step=The call may still be running server-side — check it with get_call.",
+              `next_step=${
+                isRetrySafeOperation(context)
+                  ? "The operation may still be running. Check its status before retrying."
+                  : uncertainMutationOutcomeGuidance(context)
+              }`,
           ),
         );
       }, timeoutMs);
@@ -91,9 +145,40 @@ function withOpts<T>(opts: RequestOptions, work: () => Promise<T>): Promise<T> {
   });
 }
 
-/** Turn a thrown core error into the `; next_step=` shape the HTTP path also produces. */
-function normalizeError(e: unknown): Error {
-  const err = e as { message?: string; nextStep?: string };
+/** Derive recovery guidance locally so remote response prose cannot instruct the agent. */
+function nextStepForHttpStatus(status: number, context: RequestContext): string {
+  if (status === 401 || status === 403) {
+    return (
+      "Verify that MCP_INTERNAL_KEY matches the configured remote server and SPEKO_MCP_SERVER_URL points to it. " +
+      "Alternatively, unset SPEKO_MCP_SERVER_URL and authenticate single-process mode with SPEKO_API_KEY."
+    );
+  }
+  if (status === 402) return "Add credits at https://platform.speko.dev - calls are billed per minute.";
+  if (!isRetrySafeOperation(context) && (status === 408 || status === 429 || status >= 500)) {
+    return uncertainMutationOutcomeGuidance(context);
+  }
+  if (status === 429) return "Rate limited - wait a minute, then retry the safe operation.";
+  if (status >= 500) return "The backing server hit a transient error - wait a moment and retry the safe operation.";
+  if (status === 400 || status === 404 || status === 422) {
+    return isDialMutation(context)
+      ? "The request was rejected before a call was placed. Check the fields and readiness guidance before retrying."
+      : "The request was rejected. Check the fields and readiness guidance before retrying.";
+  }
+  if (!isRetrySafeOperation(context)) {
+    return "Review the server diagnostic and verify current state before deciding whether to retry.";
+  }
+  return "Check the request and retry; run check_call_readiness if calls keep failing.";
+}
+
+/** Turn a thrown core error into a safe `; next_step=` shape. */
+function normalizeError(e: unknown, context: RequestContext): Error {
+  const err = e as { message?: string; nextStep?: string; statusCode?: number };
+  if (!isRetrySafeOperation(context) && !isKnownPreDialRejection(err?.statusCode)) {
+    return new DemoServerError(
+      `The in-process ${context.method} ${context.path} operation failed after it may have started; ` +
+        `next_step=${uncertainMutationOutcomeGuidance(context)}`,
+    );
+  }
   if (err && typeof err.message === "string") {
     if (typeof err.nextStep === "string" && err.nextStep && !err.message.includes("next_step=")) {
       return new DemoServerError(`${err.message}; next_step=${err.nextStep}`);
@@ -127,7 +212,7 @@ export class InProcessBackend implements Backend {
   }
 
   async post(path: string, body: unknown, opts: RequestOptions = {}): Promise<unknown> {
-    return withOpts(opts, () => this.dispatchPost(path, body));
+    return withOpts(opts, { method: "POST", path }, () => this.dispatchPost(path, body));
   }
 
   private async dispatchPost(path: string, body: unknown): Promise<unknown> {
@@ -179,12 +264,12 @@ export class InProcessBackend implements Backend {
       }
       throw new DemoServerError(`Unknown backend path: POST ${path}`);
     } catch (e) {
-      throw normalizeError(e);
+      throw normalizeError(e, { method: "POST", path });
     }
   }
 
   async get(path: string, opts: RequestOptions = {}): Promise<unknown> {
-    return withOpts(opts, () => this.dispatchGet(path));
+    return withOpts(opts, { method: "GET", path }, () => this.dispatchGet(path));
   }
 
   private async dispatchGet(path: string): Promise<unknown> {
@@ -200,7 +285,7 @@ export class InProcessBackend implements Backend {
       }
       throw new DemoServerError(`Unknown backend path: GET ${path}`);
     } catch (e) {
-      throw normalizeError(e);
+      throw normalizeError(e, { method: "GET", path });
     }
   }
 }
@@ -223,7 +308,8 @@ export class ServerClient implements Backend {
     return this.request("GET", path, undefined, opts);
   }
 
-  private async request(method: string, path: string, body: unknown, opts: RequestOptions): Promise<unknown> {
+  private async request(method: "GET" | "POST", path: string, body: unknown, opts: RequestOptions): Promise<unknown> {
+    const context = { method, path } satisfies RequestContext;
     const url = `${this.baseUrl}${path}`;
     const headers: Record<string, string> = { accept: "application/json" };
     if (body !== undefined) headers["content-type"] = "application/json";
@@ -242,20 +328,57 @@ export class ServerClient implements Backend {
       });
     } catch (e) {
       const err = e as Error;
+      if (!isRetrySafeOperation(context)) {
+        const reason = err.name === "TimeoutError" ? "timed out" : opts.signal?.aborted ? "was aborted" : "failed";
+        throw new DemoServerError(
+          `The ${method} ${path} request ${reason} after it may have reached the server; ` +
+            `next_step=${uncertainMutationOutcomeGuidance(context)}`,
+        );
+      }
+      if (opts.signal?.aborted) {
+        throw new DemoServerError(
+          "The request was aborted; next_step=Retry the safe operation only if it is still needed.",
+        );
+      }
       if (err.name === "TimeoutError") {
         throw new DemoServerError(
           `The Speko backing server did not respond within ${Math.round(timeoutMs / 1000)}s; ` +
-            "next_step=The call may still be running server-side — wait a moment and check again, " +
-            "and make sure the backing server is reachable.",
+            "next_step=Wait a moment, verify that the backing server is reachable, then retry the safe operation.",
         );
       }
       throw new DemoServerError(
         `Could not reach the Speko backing server at ${this.baseUrl}: ${err.message}; ` +
-          "next_step=Run 'npx @spekoai/mcp-calls init' to (re)configure, or set SPEKO_API_KEY for single-process mode.",
+          "next_step=Verify SPEKO_MCP_SERVER_URL, MCP_INTERNAL_KEY, and server reachability. " +
+          "To use single-process mode instead, unset SPEKO_MCP_SERVER_URL and configure SPEKO_API_KEY.",
       );
     }
 
-    const text = await resp.text();
+    if (!resp.ok) {
+      try {
+        await resp.body?.cancel();
+      } catch {
+        // The local recovery guidance must still be returned if cleanup fails.
+      }
+      const nextStep = nextStepForHttpStatus(resp.status, context);
+      throw new DemoServerError(`${remoteDiagnostic(resp.status)}; next_step=${nextStep}`);
+    }
+
+    let text: string;
+    try {
+      text = await resp.text();
+    } catch (e) {
+      const err = e as Error;
+      if (!isRetrySafeOperation(context)) {
+        throw new DemoServerError(
+          `The ${method} ${path} response could not be read after the request reached the server: ${boundedInline(err.message)}; ` +
+            `next_step=${uncertainMutationOutcomeGuidance(context)}`,
+        );
+      }
+      throw new DemoServerError(
+        `Could not read the Speko backing server response: ${boundedInline(err.message)}; ` +
+          "next_step=Retry the safe operation after verifying that the backing server is reachable.",
+      );
+    }
     let data: unknown = {};
     if (text) {
       try {
@@ -265,11 +388,6 @@ export class ServerClient implements Backend {
       }
     }
 
-    if (!resp.ok) {
-      const rec = data as Record<string, unknown>;
-      const msg = typeof rec.error === "string" ? rec.error : `The Speko backing server returned ${resp.status}.`;
-      throw new DemoServerError(msg);
-    }
     return data;
   }
 }
