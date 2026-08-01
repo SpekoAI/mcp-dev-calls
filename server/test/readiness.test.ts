@@ -88,4 +88,22 @@ describe("check_call_readiness plain-language headline", () => {
     expect(guidance).not.toMatch(/still being set up/i);
     expect(guidance).not.toMatch(/[^\x00-\x7F]/);
   });
+
+  it("keeps inbound warnings ASCII-only", async () => {
+    const r = await checkReadiness(
+      fakeClient({
+        balanceUsd: 50,
+        numbers: [
+          {
+            e164: "+14155550142",
+            direction: "both",
+            source: "sip_trunk",
+            agentId: null,
+            setupStatus: { status: "ready", inboundReady: false, outboundReady: true, agentReady: false, issues: [] },
+          },
+        ],
+      }),
+    );
+    expect(r.next_steps.join(" ")).not.toMatch(/[^\x00-\x7F]/);
+  });
 });

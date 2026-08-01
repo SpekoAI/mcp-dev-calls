@@ -91,7 +91,7 @@ export async function checkReadiness(client: SpekoClient): Promise<ReadinessRepo
       const label = row.e164 || "an owned inbound number";
       const why = !row.agent_attached ? "no agent is attached" : "inbound is not ready";
       nextSteps.push(
-        `Inbound calls to ${label} will NOT be answered (${why}), even though outbound_ready may be true — ` +
+        `Inbound calls to ${label} will NOT be answered (${why}), even though outbound_ready may be true - ` +
           "outbound readiness says nothing about inbound answerability.",
       );
     }
