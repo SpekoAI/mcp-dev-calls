@@ -4,13 +4,16 @@
  * is reported as a deferred v2 feature (the platform exposes no verified personal
  * phone today).
  */
-import { CHECK_READINESS_NEXT_STEP, MIN_CALL_BALANCE_USD } from "../constants.js";
+import { MIN_CALL_BALANCE_USD } from "../constants.js";
 import { isAuthFailure, type SpekoClient } from "../speko/client.js";
 import type { OwnedNumber, ReadinessReport } from "../types.js";
 
 const CALL_ME_NOTE =
   "call_me is a v2 feature (the Speko platform exposes no verified personal phone yet); " +
   "make_call to a business does not need it.";
+const NOT_CONNECTED_GUIDANCE =
+  "If it returns not_connected, follow the returned reason; it distinguishes a dial/setup failure, " +
+  "destination no-answer, or an unconfirmed connection.";
 
 export async function checkReadiness(client: SpekoClient): Promise<ReadinessReport> {
   let authFailed = false;
@@ -62,21 +65,18 @@ export async function checkReadiness(client: SpekoClient): Promise<ReadinessRepo
   if (!creditsSufficient) {
     const shown = balanceUsd != null ? `$${balanceUsd.toFixed(2)}` : "unknown";
     nextSteps.push(
-      `Add prepaid credits (current balance ${shown}); outbound calls debit credits per minute, so top up before make_call.`,
+      `Add credits at platform.speko.dev to place calls (current balance ${shown}); calls are billed per minute.`,
     );
   }
-  if (!anyOutboundReady && authOk) {
+  if (authOk && creditsSufficient) {
+    // Honest but plain: we can't confirm the outbound line is actually wired until a real call
+    // runs, so frame the first call as the confirmation instead of a scary SIP-trunk warning.
+    // (Full technical detail stays in the structured `outbound` field for anyone who needs it.)
     nextSteps.push(
-      "You own no outbound-ready caller ID, but make_call can still work if this Speko deployment has a " +
-        "server-default caller ID (the 'from' field is optional), so try a call first.",
-    );
-  }
-  if (anyOutboundReady && authOk) {
-    nextSteps.push(
-      "Note: a number reporting outboundReady does NOT guarantee the deployment's outbound SIP trunk is wired. " +
-        "If make_call returns not_connected (the session/agent start but the phone never rings), the platform's " +
-        "LiveKit outbound trunk / Telnyx outbound SIP connection for the caller-ID still needs configuring — " +
-        "place one real test call to confirm.",
+      anyOutboundReady
+        ? `Your first call confirms the line end to end. ${NOT_CONNECTED_GUIDANCE}`
+        : "No outbound-ready number is listed. This deployment may have a shared number, but readiness " +
+            `cannot confirm it. Place one call to check. ${NOT_CONNECTED_GUIDANCE}`,
     );
   }
   for (const row of owned) {
@@ -91,21 +91,18 @@ export async function checkReadiness(client: SpekoClient): Promise<ReadinessRepo
       const label = row.e164 || "an owned inbound number";
       const why = !row.agent_attached ? "no agent is attached" : "inbound is not ready";
       nextSteps.push(
-        `Inbound calls to ${label} will NOT be answered (${why}), even though outbound_ready may be true — ` +
+        `Inbound calls to ${label} will NOT be answered (${why}), even though outbound_ready may be true - ` +
           "outbound readiness says nothing about inbound answerability.",
       );
     }
   }
 
+  // Plain-language, scannable status. Honest: "ready" means auth + credits are good and a call
+  // will be attempted; the first call is what confirms the outbound line (see next_steps).
   let headline: string;
-  if (!authOk) headline = "Ready to call: no - authentication failed.";
-  else if (!creditsSufficient) headline = "Ready to call: with caveats - see next_steps.";
-  else if (anyOutboundReady)
-    headline = "Ready to call: caller ID available (place one test call to confirm the outbound trunk connects).";
-  else
-    headline =
-      "Ready to call: yes (relying on the deployment's server-default caller ID; if a call returns " +
-      `'dialing-stub', no outbound number is configured). ${CHECK_READINESS_NEXT_STEP}`;
+  if (!authOk) headline = "Not connected: your Speko key was rejected. Sign in again to continue.";
+  else if (!creditsSufficient) headline = "Almost ready: add credits and you can start placing calls.";
+  else headline = "Ready to place calls.";
 
   return {
     auth: { ok: authOk, error: creditsError ?? numbersError },
