@@ -1,6 +1,8 @@
 import type { NextFunction, Request, RequestHandler, Response, Router } from "express";
 import { z } from "zod";
+import { parseClientProfile, type AppConfig } from "./config.js";
 import { callNumber } from "./calls/callNumber.js";
+import { callMe } from "./calls/callMe.js";
 import { describeCall } from "./calls/getCall.js";
 import { makeCall } from "./calls/makeCall.js";
 import { checkReadiness } from "./calls/readiness.js";
@@ -39,6 +41,15 @@ export const callNumberSchema = z.object({
   max_duration_seconds: z.number().int().optional(),
 });
 
+export const callMeSchema = z.object({
+  message: z.string().min(1).max(2000),
+  mode: z.enum(["notify", "converse"]).default("converse"),
+  context: z.string().max(500).optional(),
+  after_hours_confirmation: z.string().optional(),
+  max_duration_seconds: z.number().int().min(30).max(300).default(180),
+  wait: z.boolean().default(true),
+});
+
 /** Express 5 forwards rejected promises to the error handler, but wrap explicitly to be safe. */
 function asyncHandler(fn: (req: Request, res: Response) => Promise<void>): RequestHandler {
   return (req: Request, res: Response, next: NextFunction) => {
@@ -46,7 +57,7 @@ function asyncHandler(fn: (req: Request, res: Response) => Promise<void>): Reque
   };
 }
 
-function parse<T>(schema: z.ZodType<T>, body: unknown): T {
+function parse<S extends z.ZodTypeAny>(schema: S, body: unknown): z.output<S> {
   const r = schema.safeParse(body);
   if (!r.success) {
     const detail = r.error.issues.map((i) => `${i.path.join(".") || "(body)"}: ${i.message}`).join("; ");
@@ -56,6 +67,12 @@ function parse<T>(schema: z.ZodType<T>, body: unknown): T {
     });
   }
   return r.data;
+}
+
+function requestProfileConfig(req: Request, cfg: AppConfig): AppConfig {
+  const header = req.headers["x-speko-client-profile"];
+  const parsed = parseClientProfile(typeof header === "string" ? header : "");
+  return { ...cfg, clientProfile: parsed.profile, clientProfileConfigured: parsed.configured };
 }
 
 export function registerRoutes(router: Router, ctx: ServerContext): void {
@@ -122,10 +139,29 @@ export function registerRoutes(router: Router, ctx: ServerContext): void {
     }),
   );
 
+  router.post(
+    "/call-me",
+    asyncHandler(async (req, res) => {
+      const b = parse(callMeSchema, req.body);
+      const summary = await callMe(
+        {
+          message: b.message,
+          mode: b.mode,
+          context: b.context ?? null,
+          afterHoursConfirmation: b.after_hours_confirmation ?? null,
+          maxDurationSeconds: b.max_duration_seconds,
+          wait: b.wait,
+        },
+        { client: ctx.client, cfg: requestProfileConfig(req, ctx.cfg), bearerHash: ctx.bearerHash },
+      );
+      res.json(summary);
+    }),
+  );
+
   router.get(
     "/readiness",
-    asyncHandler(async (_req, res) => {
-      const report = await checkReadiness(ctx.client);
+    asyncHandler(async (req, res) => {
+      const report = await checkReadiness(ctx.client, requestProfileConfig(req, ctx.cfg));
       res.json(report);
     }),
   );
@@ -138,7 +174,7 @@ export function registerRoutes(router: Router, ctx: ServerContext): void {
       if (!id) {
         throw new AppError("Missing call id.", { statusCode: 400, nextStep: "Call GET /call/<call_id>." });
       }
-      const summary = await describeCall(id, ctx.client, ctx.cfg.dashboardBaseUrl);
+      const summary = await describeCall(id, ctx.client, ctx.cfg.dashboardBaseUrl, ctx.cfg.ownerStateDir);
       res.json(summary);
     }),
   );

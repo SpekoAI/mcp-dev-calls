@@ -2,7 +2,7 @@ import { timingSafeEqual } from "node:crypto";
 import express from "express";
 import type { ErrorRequestHandler, Request, Response } from "express";
 import type { ServerContext } from "./http/context.js";
-import { AppError } from "./lib/errors.js";
+import { AppError, publicErrorCode } from "./lib/errors.js";
 import { registerRoutes } from "./routes.js";
 
 /** Constant-time string compare (equal length required) — avoids leaking the key via timing. */
@@ -48,7 +48,9 @@ export function buildApp(ctx: ServerContext): express.Express {
   const errorHandler: ErrorRequestHandler = (err, _req, res, _next) => {
     const e = err instanceof AppError ? err : new AppError((err as Error)?.message ?? "Internal error");
     const message = e.nextStep ? `${e.message}; next_step=${e.nextStep}` : e.message;
-    res.status(e.statusCode).json({ error: message, next_step: e.nextStep ?? null });
+    const code = publicErrorCode(e);
+    if (code) res.setHeader("x-speko-error-code", code);
+    res.status(e.statusCode).json({ error: message, next_step: e.nextStep ?? null, ...(code ? { code } : {}) });
   };
   app.use(errorHandler);
 

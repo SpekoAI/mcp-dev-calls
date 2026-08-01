@@ -2,6 +2,7 @@
  * Speko Calls entry. One bin, cli + mcp:
  *  • `speko init|setup|login`        → onboarding wizard (may log to stdout).
  *  • `speko status|whoami`           → doctor: key, backend mode, credits, call readiness.
+ *  • `speko me verify|status`        → verify/inspect the local call_me owner.
  *  • `speko dnc list|add|remove|check` → local do-not-call guardrail ledger.
  *  • `speko audio speak|transcribe`  → terminal TTS/STT (voice on the CLI).
  *  • `speko voices|models`           → list voices the router can pick.
@@ -26,15 +27,17 @@ import { runVoices } from "./cli/voices.js";
 import { runUsage } from "./cli/usage.js";
 import { runCredits } from "./cli/credits.js";
 import { runCall } from "./cli/call.js";
+import { runMe } from "./cli/me.js";
 import { resolveMode } from "./cli/router.js";
 import { loadEnv } from "./lib/env.js";
 import CallNumberTool from "./tools/CallNumberTool.js";
+import CallMeTool from "./tools/CallMeTool.js";
 import CheckCallReadinessTool from "./tools/CheckCallReadinessTool.js";
 import GetCallTool from "./tools/GetCallTool.js";
 import LookupBusinessTool from "./tools/LookupBusinessTool.js";
 import MakeCallTool from "./tools/MakeCallTool.js";
 
-const VERSION = "0.6.4";
+const VERSION = "0.7.0";
 
 function printHelp(): number {
   process.stderr.write(
@@ -43,6 +46,7 @@ function printHelp(): number {
       "  speko                          (when launched by an MCP host) the stdio MCP server\n" +
       "  speko init | setup | login     onboarding & auth\n" +
       "  speko status                   health check: key, backend, credits, call readiness (alias: whoami)\n" +
+      "  speko me verify|status         verify or inspect the local call_me owner\n" +
       "  speko dnc list|add|remove|check  manage the local do-not-call list\n" +
       '  speko audio speak "<text>"     text-to-speech (TTS)\n' +
       "  speko audio transcribe <f|->   speech-to-text (STT)\n" +
@@ -54,7 +58,7 @@ function printHelp(): number {
       "  speko call transcript <id>     the call transcript, one line per turn\n" +
       "  speko call recording <id>      the call's audio recording URL\n" +
       "  speko --help | --version\n\n" +
-      "`status`, `call *` and `audio *` accept --json for machine-readable output.\n",
+      "`status`/`whoami`, `audio speak|transcribe`, `voices`/`models`, `usage`, `credits`, and `call *` accept --json.\n",
   );
   return 0;
 }
@@ -72,6 +76,7 @@ const CLI: Record<string, () => Promise<number> | number> = {
   login: async () => (await runInit(rest, "login"), 0),
   status: () => runStatus(rest),
   whoami: () => runStatus(rest),
+  me: () => runMe(rest),
   dnc: () => runDnc(rest),
   audio: () => runAudio(rest),
   voices: () => runVoices(rest),
@@ -126,9 +131,6 @@ server.addTool(MakeCallTool);
 server.addTool(CallNumberTool);
 server.addTool(CheckCallReadinessTool);
 server.addTool(GetCallTool);
-// call_me (ring the owner's verified phone) is deliberately NOT registered: the platform
-// exposes no verified personal phone yet, and an always-throwing tool is a trap control
-// in the agent's context (§ product doctrine). The implementation stays in
-// tools/CallMeTool.ts; re-register it when the platform ships the verified-owner phone.
+server.addTool(CallMeTool);
 
 await server.start();

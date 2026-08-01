@@ -22,6 +22,7 @@ description: 'Speko Calls MCP — how to place real, disclosed phone calls from 
 export const vscodeTarget: AgentTarget = {
   id: "vscode",
   label: "VS Code",
+  profile: "safe-default",
   detect: (ctx) => ctx.hasCli("code") || existsSync(vscodeUserDir(ctx)),
   // User-profile instructions file (VS Code "instructions files"); ours to own/overwrite.
   installGuidance: (ctx) =>
@@ -32,7 +33,7 @@ export const vscodeTarget: AgentTarget = {
       // fallback paths can never diverge on how the server is declared.
       const status = ctx.runCli("code", [
         "--add-mcp",
-        JSON.stringify({ name: SERVER_NAME, type: "stdio", ...serverEntry(key) }),
+        JSON.stringify({ name: SERVER_NAME, type: "stdio", ...serverEntry(key, "safe-default") }),
       ]);
       if (status === 0) {
         return { ok: true, detail: "added via `code --add-mcp`", restartHint: "Reload the VS Code window to load it." };
@@ -41,7 +42,10 @@ export const vscodeTarget: AgentTarget = {
     const path = join(vscodeUserDir(ctx), "mcp.json");
     const r = mergeJsonFile(path, (cfg) => {
       const servers = (cfg.servers && typeof cfg.servers === "object" ? cfg.servers : {}) as Record<string, unknown>;
-      return { ...cfg, servers: { ...servers, [SERVER_NAME]: { type: "stdio", ...serverEntry(key) } } };
+      return {
+        ...cfg,
+        servers: { ...servers, [SERVER_NAME]: { type: "stdio", ...serverEntry(key, "safe-default") } },
+      };
     });
     return { ok: r.ok, detail: r.detail, ...(r.ok ? { restartHint: "Reload the VS Code window to load it." } : {}) };
   },

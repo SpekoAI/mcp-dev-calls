@@ -58,7 +58,10 @@ export interface ShapeInput {
  */
 export function attachDashboardUrl(summary: CallSummary, dashboardBaseUrl: string | undefined): CallSummary {
   if (!summary.call_id || !dashboardBaseUrl) return summary;
-  return { ...summary, dashboard_url: `${dashboardBaseUrl.replace(/\/+$/, "")}/sessions/${summary.call_id}` };
+  let end = dashboardBaseUrl.length;
+  while (end > 0 && dashboardBaseUrl.charCodeAt(end - 1) === 47) end -= 1;
+  const base = dashboardBaseUrl.slice(0, end);
+  return { ...summary, dashboard_url: `${base}/sessions/${summary.call_id}` };
 }
 
 export function shapeCallSummary(input: ShapeInput): CallSummary {

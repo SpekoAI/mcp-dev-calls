@@ -1,21 +1,25 @@
 /**
  * check_call_readiness backing logic. Read-only: derives auth + credit + outbound
- * caller-ID readiness from the SDK's credit balance and phone-number list. call_me
- * is reported as a deferred v2 feature (the platform exposes no verified personal
- * phone today).
+ * caller-ID readiness from the SDK's credit balance and phone-number list, plus
+ * local owner readiness for call_me. The local profile is a setup/consent artifact;
+ * it never relaxes call rails.
  */
+import { parseClientProfile, type AppConfig, type ClientProfile } from "../config.js";
 import { MIN_CALL_BALANCE_USD } from "../constants.js";
+import { readOwnerProfile } from "../owner/state.js";
 import { isAuthFailure, type SpekoClient } from "../speko/client.js";
 import type { OwnedNumber, ReadinessReport } from "../types.js";
 
-const CALL_ME_NOTE =
-  "call_me is a v2 feature (the Speko platform exposes no verified personal phone yet); " +
-  "make_call to a business does not need it.";
 const NOT_CONNECTED_GUIDANCE =
   "If it returns not_connected, follow the returned reason; it distinguishes a dial/setup failure, " +
   "destination no-answer, or an unconfirmed connection.";
 
-export async function checkReadiness(client: SpekoClient): Promise<ReadinessReport> {
+function readinessClientProfile(cfg?: AppConfig): { profile: ClientProfile; configured: boolean } {
+  if (cfg) return { profile: cfg.clientProfile, configured: cfg.clientProfileConfigured };
+  return parseClientProfile(process.env.SPEKO_CLIENT_PROFILE);
+}
+
+export async function checkReadiness(client: SpekoClient, cfg?: AppConfig): Promise<ReadinessReport> {
   let authFailed = false;
   let balanceUsd: number | null = null;
   let creditsError: string | null = null;
@@ -104,6 +108,20 @@ export async function checkReadiness(client: SpekoClient): Promise<ReadinessRepo
   else if (!creditsSufficient) headline = "Almost ready: add credits and you can start placing calls.";
   else headline = "Ready to place calls.";
 
+  const owner = readOwnerProfile(cfg?.ownerStateDir);
+  const disabled =
+    cfg?.callMeDisabled ??
+    ["1", "true", "yes", "on"].includes((process.env.SPEKO_CALLME_DISABLED ?? "").trim().toLowerCase());
+  const profile = readinessClientProfile(cfg);
+  const profileNote = profile.configured
+    ? ""
+    : " Re-run `npx @spekoai/mcp-calls@latest init` to write a client profile; until then call_me uses poll-safe mode.";
+  const callMeNote = disabled
+    ? `call_me is disabled by SPEKO_CALLME_DISABLED.${profileNote}`
+    : owner
+      ? `call_me is set up for the verified owner ending in ${owner.owner_phone.slice(-4)}. Local verification does not relax DNC, rate caps, or quiet hours.${profileNote}`
+      : `call_me is not set up: run \`speko me verify\` on the host running this call backend (or run \`npx @spekoai/mcp-calls init\` there) to verify your number.${profileNote}`;
+
   return {
     auth: { ok: authOk, error: creditsError ?? numbersError },
     credits: {
@@ -118,7 +136,12 @@ export async function checkReadiness(client: SpekoClient): Promise<ReadinessRepo
       server_default_possible: true,
       error: numbersError,
     },
-    call_me: { available: false, note: CALL_ME_NOTE },
+    call_me: {
+      available: Boolean(owner) && !disabled,
+      note: callMeNote,
+      ...(owner ? { owner_phone_last4: owner.owner_phone.slice(-4) } : {}),
+      client_profile: profile.profile,
+    },
     next_steps: nextSteps,
     headline,
   };

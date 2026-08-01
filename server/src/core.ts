@@ -15,8 +15,19 @@ export { lookupBusiness } from "./lookup/index.js";
 export { makeCall } from "./calls/makeCall.js";
 export { callNumber } from "./calls/callNumber.js";
 export type { CallNumberInput } from "./calls/callNumber.js";
+export { callMe } from "./calls/callMe.js";
+export { placeOwnerVerificationCall } from "./calls/ownerVerification.js";
 export { checkReadiness } from "./calls/readiness.js";
 export { describeCall } from "./calls/getCall.js";
 export { AppError, RejectionError } from "./lib/errors.js";
 export { dncAdd, dncList, dncRemove, normalizeE164, resolveGuardStateDir } from "./safety/guard.js";
-export type { CallSummary, SessionDetail, MakeCallInput } from "./types.js";
+export {
+  checkOwnerVerificationCode,
+  createOwnerVerificationChallenge,
+  normalizeNanpOwnerPhone,
+  readOwnerProfile,
+  resolveOwnerStateDir,
+  writeOwnerProfile,
+} from "./owner/state.js";
+export type { OwnerProfile, OwnerVerificationChallenge } from "./owner/state.js";
+export type { CallMeInput, CallSummary, SessionDetail, MakeCallInput } from "./types.js";

@@ -8,17 +8,28 @@
  */
 import { existsSync } from "node:fs";
 import { dirname } from "node:path";
-import { PKG, SERVER_NAME } from "./invocation.js";
+import { MANUAL_API_KEY_PLACEHOLDER, PKG, SERVER_NAME } from "./invocation.js";
 import { zedSettingsPath } from "./paths.js";
 import type { AgentTarget } from "./types.js";
 
 export const zedTarget: AgentTarget = {
   id: "zed",
   label: "Zed",
+  profile: "safe-default",
   detect: (ctx) => existsSync(dirname(zedSettingsPath(ctx))),
-  write(key, ctx) {
+  write(_key, ctx) {
     const snippet = JSON.stringify(
-      { "context_servers": { [SERVER_NAME]: { command: { path: "npx", args: ["-y", PKG], env: { SPEKO_API_KEY: key } } } } },
+      {
+        context_servers: {
+          [SERVER_NAME]: {
+            command: {
+              path: "npx",
+              args: ["-y", PKG],
+              env: { SPEKO_API_KEY: MANUAL_API_KEY_PLACEHOLDER, SPEKO_CLIENT_PROFILE: "safe-default" },
+            },
+          },
+        },
+      },
       null,
       2,
     );

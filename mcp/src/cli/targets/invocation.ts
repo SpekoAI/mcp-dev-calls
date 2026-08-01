@@ -7,6 +7,16 @@
 
 export const PKG = "@spekoai/mcp-calls";
 export const SERVER_NAME = "speko-calls";
+export const MANUAL_API_KEY_PLACEHOLDER = "YOUR_SPEKO_API_KEY";
+
+export type ClientProfile =
+  | "claude-code"
+  | "codex"
+  | "cline"
+  | "gemini"
+  | "cursor"
+  | "windsurf"
+  | "safe-default";
 
 export interface ServerEntry {
   command: string;
@@ -14,6 +24,10 @@ export interface ServerEntry {
   env: Record<string, string>;
 }
 
-export function serverEntry(key: string): ServerEntry {
-  return { command: "npx", args: ["-y", PKG], env: { SPEKO_API_KEY: key } };
+export function serverEntry(key: string, profile: ClientProfile = "safe-default"): ServerEntry {
+  return {
+    command: "npx",
+    args: ["-y", PKG],
+    env: { SPEKO_API_KEY: key, SPEKO_CLIENT_PROFILE: profile },
+  };
 }

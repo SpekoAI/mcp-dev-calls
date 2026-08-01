@@ -13,6 +13,30 @@ export interface SummarizeOptions {
   retryTool: "make_call" | "call_number" | null;
 }
 
+/** Canonical agent-facing summary for call_me, shared by the initial result and get_call. */
+export function summarizeOwnerCallResult(s: Record<string, unknown>): string | null {
+  const isOwnerCall =
+    typeof s.message === "string" || typeof s.owner_reply === "string" || typeof s.confirmation === "string";
+  if (!isOwnerCall) return null;
+
+  const confirmation = typeof s.confirmation === "string" ? s.confirmation : null;
+  const finalInstruction = typeof s.final_instruction === "string" ? s.final_instruction : null;
+  const ownerReply = typeof s.owner_reply === "string" ? s.owner_reply : null;
+  const nextStep = typeof s.next_step === "string" ? s.next_step : null;
+  if (confirmation === "confirmed" || confirmation === "corrected") {
+    if (!finalInstruction) {
+      return (
+        "The owner-call confirmation record is inconsistent, so no instruction is confirmed. " +
+        (nextStep ?? "Re-confirm with the human before taking action.")
+      );
+    }
+    const label = confirmation === "corrected" ? "corrected and confirmed" : "confirmed";
+    return `Owner instruction ${label} (voice transcript, speaker unverified): ${finalInstruction}`;
+  }
+  if (ownerReply) return `${ownerReply}${nextStep ? ` ${nextStep}` : ""}`;
+  return nextStep;
+}
+
 export function summarizeCallResult(s: Record<string, unknown>, opts: SummarizeOptions): string {
   const status = typeof s.status === "string" ? s.status : "unknown";
   const callId = typeof s.call_id === "string" ? s.call_id : null;

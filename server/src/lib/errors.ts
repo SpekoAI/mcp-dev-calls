@@ -19,10 +19,16 @@ export class AppError extends Error {
 
 /** A pre-dial / business-rule rejection (HTTP 422). */
 export class RejectionError extends AppError {
-  constructor(message: string, nextStep?: string) {
-    super(message, { statusCode: 422, nextStep });
+  constructor(message: string, nextStep?: string, code?: string) {
+    super(message, { statusCode: 422, nextStep, code });
     this.name = "RejectionError";
   }
+}
+
+const PUBLIC_ERROR_CODES = new Set(["CALL_ME_NOT_CONFIGURED"]);
+
+export function publicErrorCode(error: AppError): string | null {
+  return error.code && PUBLIC_ERROR_CODES.has(error.code) ? error.code : null;
 }
 
 export function withNextStep(message: string, nextStep: string): string {

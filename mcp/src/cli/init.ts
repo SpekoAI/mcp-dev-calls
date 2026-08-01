@@ -18,8 +18,9 @@ import { homedir, platform } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { browserLogin, OrgKeyUnavailableError } from "./login.js";
+import { runMe } from "./me.js";
 import { ALL_TARGETS, TARGET_LABELS, realCtx, resolveSelection } from "./targets/index.js";
-import { PKG, SERVER_NAME, serverEntry } from "./targets/invocation.js";
+import { MANUAL_API_KEY_PLACEHOLDER, PKG, SERVER_NAME, serverEntry } from "./targets/invocation.js";
 import { codexTomlBlock } from "./targets/codex.js";
 
 const API_BASE = (process.env.SPEKOAI_API_URL || "https://api.speko.dev").replace(/\/+$/, "");
@@ -137,8 +138,10 @@ function desktopConfigPath(): string {
 
 /** Add to Claude Code via its CLI. Returns true on success; prints the manual command otherwise. */
 function configureClaudeCode(key: string, scope: string): boolean {
-  const envArgs = ["--env", `SPEKO_API_KEY=${key}`];
-  const manual = `claude mcp add ${SERVER_NAME} --scope ${scope} --env SPEKO_API_KEY=<your-key> -- npx -y ${PKG}`;
+  const envArgs = ["--env", `SPEKO_API_KEY=${key}`, "--env", "SPEKO_CLIENT_PROFILE=claude-code"];
+  const manual =
+    `claude mcp add ${SERVER_NAME} --scope ${scope} --env SPEKO_API_KEY=<your-key> ` +
+    `--env SPEKO_CLIENT_PROFILE=claude-code -- npx -y ${PKG}`;
   if (!claudeCliPresent()) {
     console.log(c.yellow("  • Claude Code CLI not found on PATH. Run this yourself once installed:"));
     console.log("    " + c.cyan(manual));
@@ -178,7 +181,7 @@ function configureClaudeDesktop(key: string): boolean {
       mkdirSync(dirname(path), { recursive: true });
     }
     const servers = (cfg.mcpServers && typeof cfg.mcpServers === "object" ? cfg.mcpServers : {}) as Record<string, unknown>;
-    servers[SERVER_NAME] = serverEntry(key);
+    servers[SERVER_NAME] = serverEntry(key, "safe-default");
     cfg.mcpServers = servers;
     writeFileSync(path, `${JSON.stringify(cfg, null, 2)}\n`);
     console.log(c.green(`  ✓ Updated Claude Desktop config (${path}).`));
@@ -219,24 +222,75 @@ function installSkill(): boolean {
   }
 }
 
-/** Manual config for every supported agent — used by --print-config and the zero-detected fallback. */
-function printManualConfigs(key: string, scope: string): void {
+/**
+ * Manual config for every supported agent. Never print the authenticated key: terminal output is
+ * commonly captured in shell logs, CI transcripts, and agent context.
+ */
+export function printManualConfigs(scope: string): void {
+  const key = MANUAL_API_KEY_PLACEHOLDER;
+  console.log(
+    c.yellow(
+      "\n  Manual snippets use YOUR_SPEKO_API_KEY. Replace it only inside your private client config; the real key is never printed.",
+    ),
+  );
   console.log("\n  Claude Code:");
-  console.log("    " + c.cyan(`claude mcp add ${SERVER_NAME} --scope ${scope} --env SPEKO_API_KEY=${key} -- npx -y ${PKG}`));
-  console.log("\n  Claude Desktop / Cursor / Windsurf / Gemini CLI / Cline (mcpServers entry):");
-  console.log("    " + c.cyan(JSON.stringify({ [SERVER_NAME]: serverEntry(key) })));
+  console.log(
+    "    " +
+      c.cyan(
+        `claude mcp add ${SERVER_NAME} --scope ${scope} --env SPEKO_API_KEY=${key} ` +
+          `--env SPEKO_CLIENT_PROFILE=claude-code -- npx -y ${PKG}`,
+      ),
+  );
+  console.log("\n  Claude Desktop (poll-safe default):");
+  console.log("    " + c.cyan(JSON.stringify({ [SERVER_NAME]: serverEntry(key, "safe-default") })));
+  for (const [label, profile, extra] of [
+    ["Cursor", "cursor", {}],
+    ["Windsurf", "windsurf", {}],
+    ["Gemini CLI", "gemini", {}],
+    ["Cline", "cline", { disabled: false, autoApprove: [], timeout: 2700 }],
+  ] as const) {
+    console.log(`\n  ${label}:`);
+    console.log("    " + c.cyan(JSON.stringify({ [SERVER_NAME]: { ...serverEntry(key, profile), ...extra } })));
+  }
   console.log("\n  VS Code (user mcp.json or .vscode/mcp.json — note the `servers` root key):");
-  console.log("    " + c.cyan(JSON.stringify({ servers: { [SERVER_NAME]: { type: "stdio", ...serverEntry(key) } } })));
+  console.log(
+    "    " +
+      c.cyan(JSON.stringify({ servers: { [SERVER_NAME]: { type: "stdio", ...serverEntry(key, "safe-default") } } })),
+  );
   console.log("\n  Codex CLI (~/.codex/config.toml):");
   console.log(c.cyan(codexTomlBlock(key).replace(/^/gm, "    ")));
   console.log("\n  Zed (settings.json → context_servers):");
   console.log(
     "    " +
       c.cyan(
-        JSON.stringify({ context_servers: { [SERVER_NAME]: { command: { path: "npx", args: ["-y", PKG], env: { SPEKO_API_KEY: key } } } } }),
+        JSON.stringify({
+          context_servers: {
+            [SERVER_NAME]: {
+              command: {
+                path: "npx",
+                args: ["-y", PKG],
+                env: { SPEKO_API_KEY: key, SPEKO_CLIENT_PROFILE: "safe-default" },
+              },
+            },
+          },
+        }),
       ),
   );
   console.log("");
+}
+
+async function offerOwnerVerification(key: string, quick: boolean, nonInteractive: boolean): Promise<void> {
+  if (quick || nonInteractive || !process.stdin.isTTY) return;
+  const answer = (await ask("\n  Verify your phone for call_me now? [y/N] ")).trim().toLowerCase();
+  if (answer !== "y" && answer !== "yes") return;
+  try {
+    const code = await runMe(["verify", "--yes"], undefined, { apiKey: key });
+    if (code !== 0) console.log(c.yellow("  Owner verification did not complete; run `speko me verify` later."));
+  } catch (error) {
+    console.log(
+      c.yellow(`  Owner verification could not complete: ${(error as Error).message}. Run \`speko me verify\` later.`),
+    );
+  }
 }
 
 export async function runInit(argv: string[], mode: "init" | "setup" | "login" = "init"): Promise<void> {
@@ -295,10 +349,12 @@ export async function runInit(argv: string[], mode: "init" | "setup" | "login" =
     }
   }
   if (!key) {
-    console.log(`\n  Opening ${c.cyan(DASHBOARD)} — copy your API key (starts with "sk_"; create one if you just signed up).`);
-    console.log(c.dim(`  (If it doesn't open: visit ${DASHBOARD} → API keys.)\n`));
-    if (!f.yes) await ask("  Press Enter to open your browser… ");
-    openBrowser(DASHBOARD);
+    if (!f.paste) {
+      console.log(`\n  Opening ${c.cyan(DASHBOARD)} — copy your API key (starts with "sk_"; create one if you just signed up).`);
+      console.log(c.dim(`  (If it doesn't open: visit ${DASHBOARD} → API keys.)\n`));
+      if (!f.yes) await ask("  Press Enter to open your browser… ");
+      openBrowser(DASHBOARD);
+    }
     key = await askSecret("  Paste your Speko API key: ");
   }
   if (!key) {
@@ -321,7 +377,7 @@ export async function runInit(argv: string[], mode: "init" | "setup" | "login" =
   console.log(c.green("ok ✓"));
 
   if (f.printConfig) {
-    printManualConfigs(key, f.scope);
+    printManualConfigs(f.scope);
     return;
   }
 
@@ -329,7 +385,8 @@ export async function runInit(argv: string[], mode: "init" | "setup" | "login" =
   console.log("");
   if (sel.ids.length === 0) {
     console.log(c.yellow("  • No coding agents detected — manual setup below (or force one with --client <name>):"));
-    printManualConfigs(key, f.scope);
+    printManualConfigs(f.scope);
+    await offerOwnerVerification(key, quick, f.yes);
     return;
   }
   for (const id of sel.ids) {
@@ -367,6 +424,8 @@ export async function runInit(argv: string[], mode: "init" | "setup" | "login" =
 
   // 5) The full Claude skill (other agents got the calling card in their own rules convention above).
   if (sel.ids.includes("code") || sel.ids.includes("desktop")) installSkill();
+
+  await offerOwnerVerification(key, quick, f.yes);
 
   // 6) Next steps.
   console.log(c.bold("\n  ✅ Done.\n"));

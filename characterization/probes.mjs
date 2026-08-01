@@ -7,7 +7,7 @@
  *
  * Structure: sessions (one spawned MCP server per env recipe) + CLI probes.
  * Baseline = these probes run against the published 0.4.9 tarball (frozen).
- * Target   = same probes against the local 0.5.0 build.
+ * Target   = same probes against the current local build.
  */
 import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -132,7 +132,7 @@ export function buildMatrix() {
         { id: "token.night-noconfirm", tool: "make_call", args: () => ({ dial_token: mintToken({ e164: NUM, utcOffsetMinutes: NIGHT() }), objective: "Ask if they have a table for four.", caller_name: CALLER }) },
 
         // misc tools
-        { id: "tool.call-me", tool: "call_me", args: () => ({ objective: "Ping me for the characterization probe." }) },
+        { id: "tool.call-me", tool: "call_me", args: () => ({ message: "Ping me for the characterization probe." }) },
         { id: "tool.get-call-unknown", tool: "get_call", args: () => ({ call_id: "00000000-0000-0000-0000-000000000000" }), timeoutMs: DIAL_TIMEOUT_MS },
         { id: "tool.readiness", tool: "check_call_readiness", args: () => ({}), timeoutMs: DIAL_TIMEOUT_MS },
       ],

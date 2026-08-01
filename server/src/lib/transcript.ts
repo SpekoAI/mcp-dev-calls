@@ -8,6 +8,8 @@ const TURN_TEXT_KEYS = ["text", "content", "message"] as const;
 // not `role`. Without it, reply extraction matched nothing.
 const TURN_ROLE_KEYS = ["source", "role", "speaker", "participant"] as const;
 const AGENT_ROLES = new Set(["agent", "assistant", "ai", "bot", "system"]);
+const SPOKEN_AGENT_ROLES = new Set(["agent", "assistant", "ai", "bot"]);
+const OWNER_ROLES = new Set(["user", "owner", "caller", "callee", "human", "customer"]);
 
 /** Yield every string found anywhere inside a transcript payload. */
 export function* iterTranscriptStrings(node: unknown): Generator<string> {
@@ -121,6 +123,31 @@ function turnText(turn: Record<string, unknown>): string | null {
     if (typeof text === "string" && text.trim()) return text.trim();
   }
   return null;
+}
+
+export interface AttributedTurn {
+  role: "agent" | "owner";
+  text: string;
+  index: number;
+}
+
+/** Ordered role-attributed turns. Unattributed entries are omitted rather than guessed. */
+export function attributedTurns(transcript: unknown): AttributedTurn[] | null {
+  const turns = findTurnList(transcript);
+  if (!turns) return null;
+  const out: AttributedTurn[] = [];
+  for (let index = 0; index < turns.length; index += 1) {
+    const value = turns[index];
+    if (!value || typeof value !== "object") continue;
+    const turn = value as Record<string, unknown>;
+    const rawRole = turnRole(turn);
+    if (!rawRole) continue;
+    const text = turnText(turn);
+    if (!text) continue;
+    if (SPOKEN_AGENT_ROLES.has(rawRole)) out.push({ role: "agent", text, index });
+    else if (OWNER_ROLES.has(rawRole)) out.push({ role: "owner", text, index });
+  }
+  return out;
 }
 
 /**

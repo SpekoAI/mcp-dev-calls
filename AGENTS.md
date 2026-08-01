@@ -34,16 +34,14 @@ Prefer these tools over shelling out when you're an agent inside an MCP host.
 | `lookup_business(name, location?, phone_number?, utc_offset_minutes?)` | read-only | You want the **verified-directory** path for a business. Resolves to dialable candidates and mints a short-lived signed `dial_token` per callable one. This is the **only** path that can authorize `make_call`. If you already found the official number via web search, pass `phone_number` (E.164) to skip the directory lookup — it's still carrier-verified as a business line. |
 | `make_call(dial_token, objective, caller_name, context?, behavior?, after_hours_confirmation?, max_duration_seconds?)` | mutating | Place the disclosed, objective-scoped call authorized by a `dial_token`. Blocks until the call finishes, returns the `OUTCOME` + transcript with honest `connected`/`answered`/`not_connected`. |
 | `call_number(phone_number, objective, caller_name, recipient_name?, context?, behavior?, utc_offset_minutes?, after_hours_confirmation?, max_duration_seconds?)` | mutating | **The default path once you have a number** — business *or* personal, mobiles allowed. Works with just the user's Speko key, no directory/carrier keys. Only dial a number the user gave you or you found — never one you invented. |
+| `call_me(message, mode?, context?, after_hours_confirmation?, max_duration_seconds?, wait?)` | mutating | Ring this install's locally verified owner. There is no destination field. Use `notify` for one-way delivery and `converse` for a reply. A converse instruction is usable only when the result says `confirmation: confirmed|corrected`; unconfirmed speech is advisory. |
 | `check_call_readiness()` | read-only | Preflight before the first call, or when calling doesn't work. Reports auth, prepaid credit balance, and outbound caller-ID readiness, each with a concrete next step. Never dials. |
 | `get_call(call_id)` | read-only | Re-check a call's status, `connected`/`answered`, `OUTCOME`, and transcript. Use after a `timeout`, or to inspect a finished call. Never dials. |
-
-`call_me` (ring the owner's own verified phone) is **not registered in v1** — the platform exposes
-no verified personal phone yet, and an inert always-throwing tool would just be a trap in your
-context. It returns in v2; `check_call_readiness` reports its availability.
 
 **Choosing a path:**
 - Personal number, or a business number you already have/found → `call_number`.
 - Business you want carrier/directory-verified before dialing → `lookup_business` → `make_call`.
+- Your agent is blocked or wants to report completion to its verified owner -> `call_me`.
 
 **`objective` vs `behavior` (important):** `objective` is the **ask in plain words**, not a
 script and not a greeting. Never write "Hi, I'm calling to…" — the server composes the
@@ -56,6 +54,7 @@ read out to the callee.
 
 ```
 speko init | setup | login        onboarding & auth (browser OAuth; may print to stdout)
+speko me verify | status          verify or inspect the local call_me owner
 speko audio speak "<text>"        text-to-speech (stdin/pipe ok; -o file, --format wav|mp3, --no-play, --json)
 speko audio transcribe <file|url|->  speech-to-text (--lang, --keywords a,b,c, --format txt|md, --json)
 speko voices [--provider <p>]     list voices/providers the router can pick (--json)
@@ -93,6 +92,10 @@ route around it.
 - **After-hours gate.** Calls outside **08:00–21:00 destination-local** (or when the timezone
   is unverified) require `after_hours_confirmation` — pass the **human's own explicit words**.
   Never set it yourself. Setting it asserts the callee consented to be called.
+- **Owner calls do not bypass rails.** The local voice OTP is a setup/consent artifact only.
+  `call_me` is NANP-only in 0.7.0, uses the ordinary 3/hour and 8/day caps, honors DNC and content
+  screens, and never consults `SPEKO_TRUSTED_NUMBERS`. A second live owner call returns
+  `owner_busy` without dialing. `SPEKO_CALLME_DISABLED=1` disables the tool locally.
 
 **Rule of thumb:** only dial a number the user asked you to call or that you verified for a
 real business. Calls dial real people and cost money.
@@ -101,7 +104,7 @@ real business. Calls dial real people and cost money.
 
 ## 4. Honest telemetry
 
-Results don't pretend a call succeeded. `make_call` / `call_number` / `get_call` report:
+Results don't pretend a call succeeded. `make_call` / `call_number` / `call_me` / `get_call` report:
 
 - `status` — one of `not_placed`, `not_connected`, `timeout`, or finished.
 - `connected` / `answered` — booleans. "Connected but nobody responded" and "never
@@ -126,6 +129,13 @@ speko credits    # prepaid credit balance
 
 On a `timeout`, the call may still be running — poll `get_call(call_id)` (or
 `speko call report <id>`) instead of re-dialing.
+
+For `call_me(mode="converse")`, owner speech is labeled
+`OWNER_REPLY (voice transcript, speaker unverified)`. The voice agent reads the complete
+instruction back and accepts only literal `CONFIRMED`; a correction must begin `CORRECTION` and
+is read back again. Never execute destructive or production-changing work from
+`confirmation: unconfirmed`. Treat any ambiguous POST failure as possibly dialed: inspect state
+and never auto-retry.
 
 ---
 
@@ -166,4 +176,17 @@ backing server instead of in-process, set `SPEKO_MCP_SERVER_URL`.
 4. speko call report <call_id>
    → confirm the honest outcome + what it cost.
    (if make_call returned status=timeout, poll get_call(call_id) first)
+```
+
+Owner remote-control flow:
+
+```
+1. check_call_readiness()
+   -> if call_me.available is false, ask the human to run `speko me verify`.
+
+2. call_me(message: "The task is blocked. Should I deploy staging or stop?", mode: "converse")
+   -> act only on a confirmed/corrected owner instruction.
+
+3. If the result is dialing/in_progress/timeout, poll get_call(call_id).
+   -> do not place another call while the first is live.
 ```

@@ -110,26 +110,81 @@ const GREETING_SENTENCE_RE = new RegExp(`^\\s*${GREETING_SRC}(?:[\\s,]+\\p{L}[\\
 
 /**
  * Meta lead-ins peeled (repeatedly) off the front of a sentence to expose the underlying action
- * clause: "Hi, I'm calling to book..." / "Can you check..." / "Please confirm..." become
- * "book... / check... / confirm...". The in-sentence greeting REQUIRES trailing punctuation so a
- * proper noun like "Hello Kitty Cafe" is never clipped.
+ * clause. Input whitespace is collapsed first, so literal-prefix scans stay linear and avoid
+ * backtracking over attacker-controlled text.
  */
-const META_LEAD_INS: readonly RegExp[] = [
-  new RegExp(`^${GREETING_SRC}\\s*[,!.:;]+\\s*`, "i"),
-  /^(?:i\s+am|i'm)\s+calling\s+to\s+/i,
-  /^i\s+(?:want(?:ed)?|need(?:ed)?)\s+to\s+/i,
-  /^(?:i\s+would|i'd)\s+(?:like|love)\s+to\s+/i,
-  /^(?:can|could|would|will)\s+you\s+(?:please\s+)?/i,
-  /^(?:please|kindly|just|then|also|and)[,\s]+/i,
+const GREETING_PREFIXES = [
+  "good afternoon",
+  "good morning",
+  "good evening",
+  "greetings",
+  "good day",
+  "hello",
+  "howdy",
+  "hiya",
+  "hey",
+  "hi",
+] as const;
+const META_REWRITE_PREFIXES: ReadonlyArray<readonly [string, string]> = [
+  ["i am calling you regarding ", "call about "],
+  ["i'm calling you regarding ", "call about "],
+  ["i am calling you about ", "call about "],
+  ["i'm calling you about ", "call about "],
+  ["i am calling regarding ", "call about "],
+  ["i'm calling regarding ", "call about "],
+  ["i am calling about ", "call about "],
+  ["i'm calling about ", "call about "],
+  ["let me know ", "find out "],
+  ["tell me ", "find out "],
 ];
+const META_STRIP_PREFIXES = [
+  "i would like to ",
+  "i would love to ",
+  "i'm calling to ",
+  "i am calling to ",
+  "i wanted to ",
+  "i needed to ",
+  "i want to ",
+  "i need to ",
+  "i'd like to ",
+  "i'd love to ",
+  "could you please ",
+  "would you please ",
+  "can you please ",
+  "will you please ",
+  "could you ",
+  "would you ",
+  "can you ",
+  "will you ",
+] as const;
+const META_SINGLE_WORD_PREFIXES = ["please", "kindly", "just", "then", "also", "and"] as const;
 
-/** Lead-ins that need a REWRITE (not a bare strip) to stay grammatical after the graft. */
-const META_LEAD_IN_REWRITES: ReadonlyArray<readonly [RegExp, string]> = [
-  // "I'm calling about my order" leaves a noun phrase that can't follow "asked me to" on its own.
-  [/^(?:i\s+am|i'm)\s+calling\s+(?:you\s+)?(?:about|regarding)\s+/i, "call about "],
-  // "(Can you) tell me if..." would graft as the broken "asked me to tell me if...".
-  [/^(?:tell\s+me|let\s+me\s+know)\s+/i, "find out "],
-];
+function peelMetaLeadIn(clause: string): string | null {
+  const lower = clause.toLowerCase();
+  for (const greeting of GREETING_PREFIXES) {
+    if (!lower.startsWith(greeting)) continue;
+    let end = greeting.length;
+    if (lower.startsWith(" there", end)) end += " there".length;
+    while (clause[end] === " ") end += 1;
+    if (![",", "!", ".", ":", ";"].includes(clause[end] ?? "")) continue;
+    while ([",", "!", ".", ":", ";"].includes(clause[end] ?? "")) end += 1;
+    while (clause[end] === " ") end += 1;
+    return clause.slice(end);
+  }
+  for (const [prefix, rewrite] of META_REWRITE_PREFIXES) {
+    if (lower.startsWith(prefix)) return rewrite + clause.slice(prefix.length);
+  }
+  for (const prefix of META_STRIP_PREFIXES) {
+    if (lower.startsWith(prefix)) return clause.slice(prefix.length);
+  }
+  for (const prefix of META_SINGLE_WORD_PREFIXES) {
+    if (lower !== prefix && !lower.startsWith(`${prefix} `) && !lower.startsWith(`${prefix},`)) continue;
+    let end = prefix.length;
+    while (clause[end] === " " || clause[end] === ",") end += 1;
+    return clause.slice(end);
+  }
+  return null;
+}
 
 /**
  * Verbs that make a clause read as a clean imperative action, so "<caller> asked me to <clause>"
@@ -195,53 +250,109 @@ const DISCLOSURE_UNDERMINING_RE =
   /\b(?:i|you|this)\s*(?:'m|'re|am|are|is)\s+(?:really\s+|actually\s+|totally\s+)?(?:an?\s+)?(?:real\s+|actual\s+|live\s+)?(?:human(?:\s+being)?|person)\b|\b(?:i|you|this)\s*(?:'m|'re|am|are|is)\s+not\s+(?:an?\s+)?(?:ai|a\.i\.|bot|robot|assistant|machine|artificial)\b|\b(?:human|person)\s*,\s*not\s+an?\s+(?:ai|a\.i\.|bot|robot)\b/i;
 
 /**
- * Trailing call-management adverbials ("before ending the call", "then hang up") are private
- * execution timing, not the transactional ask, and sound absurd in the spoken opener. Each is
- * anchored at the end only with flat literal alternations, keeping the attacker-influenced
- * sanitizer linear-time. Deliberately only "before"/"then" forms: an "after/when ... the call"
- * tail can be real ask content ("ask whether I can still update the order after ending the
- * call"), and a false strip there weakens a legitimate opener. Chained tails ("... before
- * ending the call, then end the call") are handled by the fixpoint loop in
- * scrubTrailingCallManagement, which re-applies every pattern until nothing matches.
+ * `call_me` relays the owner's text directly after its AI disclosure. Reject any message
+ * containing a sentence that would contradict that disclosure instead of silently changing the
+ * message. This screen is intentionally narrower than the business-call objective sanitizer:
+ * owner messages such as "Do not deploy" are legitimate content, not speaking directives.
  */
-const TRAILING_CALL_MANAGEMENT_RES: readonly RegExp[] = [
-  // "(and) (right) before ending/you end/we end/hanging up/... the call"
-  /,?\s*(?:and\s+)?(?:right\s+)?(?:before|then)\s+(?:ending|you\s+end|we\s+end|hanging\s+up|you\s+hang\s+up|we\s+hang\s+up|wrapping\s+up)\s+(?:the\s+|this\s+)?call[.!?]?\s*$/i,
-  // "before the call ends"
-  /,?\s*(?:and\s+)?(?:right\s+)?before\s+(?:the\s+|this\s+)?call\s+ends[.!?]?\s*$/i,
-  // "and/then (end|hang up) the call"
-  /,?\s*(?:and\s+then|and|then)\s+(?:end|hang\s+up)\s+(?:the\s+|this\s+)?call[.!?]?\s*$/i,
-  // bare "and/then hang up" ("end" alone is too ambiguous to strip without an object)
-  /,?\s*(?:and\s+then|and|then)\s+hang\s+up[.!?]?\s*$/i,
-  // "before we/you hang up" (no "the call" object)
-  /,?\s*(?:and\s+)?(?:right\s+)?before\s+(?:we|you)\s+hang\s+up[.!?]?\s*$/i,
-];
+export function isDisclosureSafeRelay(message: string): boolean {
+  return splitSentences((message ?? "").trim()).every(
+    (sentence) => !DISCLOSURE_UNDERMINING_RE.test(normalizeApostrophes(sentence)),
+  );
+}
+
+/** Collapse all Unicode whitespace without a regular expression. */
+function collapseWhitespace(text: string): string {
+  let out = "";
+  let pendingSpace = false;
+  for (const char of text) {
+    if (char.trim() === "") {
+      if (out) pendingSpace = true;
+      continue;
+    }
+    if (pendingSpace) out += " ";
+    out += char;
+    pendingSpace = false;
+  }
+  return out;
+}
+
+function trimTrailingCharacters(text: string, characters: string): string {
+  let end = text.length;
+  while (end > 0) {
+    const char = text[end - 1];
+    if (!characters.includes(char) && char.trim() !== "") break;
+    end -= 1;
+  }
+  return text.slice(0, end);
+}
+
+/**
+ * Trailing call-management adverbials ("before ending the call", "then hang up") are private
+ * execution timing, not the transactional ask. Enumerating normalized literal suffixes keeps the
+ * attacker-influenced sanitizer linear-time and preserves "after/when ... the call" as real ask
+ * content. The fixpoint loop still handles chained tails.
+ */
+const TRAILING_CALL_MANAGEMENT_SUFFIXES: readonly string[] = (() => {
+  const suffixes = new Set<string>();
+  const addWithOptionalAnd = (suffix: string) => {
+    suffixes.add(suffix);
+    suffixes.add(`and ${suffix}`);
+  };
+  for (const timing of ["before", "then", "right before", "right then"]) {
+    for (const action of ["ending", "you end", "we end", "hanging up", "you hang up", "we hang up", "wrapping up"]) {
+      for (const object of ["call", "the call", "this call"]) {
+        addWithOptionalAnd(`${timing} ${action} ${object}`);
+      }
+    }
+  }
+  for (const timing of ["before", "right before"]) {
+    for (const object of ["call", "the call", "this call"]) {
+      addWithOptionalAnd(`${timing} ${object} ends`);
+    }
+    for (const subject of ["we", "you"]) addWithOptionalAnd(`${timing} ${subject} hang up`);
+  }
+  for (const lead of ["and then", "and", "then"]) {
+    for (const action of ["end", "hang up"]) {
+      for (const object of ["call", "the call", "this call"]) suffixes.add(`${lead} ${action} ${object}`);
+    }
+    suffixes.add(`${lead} hang up`);
+  }
+  return [...suffixes].sort((a, b) => b.length - a.length);
+})();
 
 /** Cut overlong text at a word boundary (a mid-word cut sounds broken in TTS). */
 function truncateAtWordBoundary(text: string, max: number): string {
   if (text.length <= max) return text;
   const cut = text.slice(0, max + 1);
   const lastSpace = cut.lastIndexOf(" ");
-  return (lastSpace > 0 ? cut.slice(0, lastSpace) : text.slice(0, max)).replace(/[\s,.;:!?-]+$/, "");
+  return trimTrailingCharacters(lastSpace > 0 ? cut.slice(0, lastSpace) : text.slice(0, max), " \t\r\n,.;:!?-");
 }
 
 function scrubTrailingCallManagement(sentence: string): string {
-  let out = sentence;
+  let out = collapseWhitespace(sentence);
   // Fixpoint, because stripping one tail can expose another ("... before ending the call,
-  // then end the call"). Bounded: every replacement shortens the string, and 6 passes
+  // then end the call"). Bounded: every match shortens the string, and 6 passes
   // outlasts any realistic stack of tails.
   for (let pass = 0; pass < 6; pass += 1) {
-    let changed = false;
-    for (const re of TRAILING_CALL_MANAGEMENT_RES) {
-      const next = out.replace(re, "");
-      if (next !== out) {
-        out = next;
-        changed = true;
+    const candidate = trimTrailingCharacters(out, " \t\r\n.!?");
+    const lower = candidate.toLowerCase();
+    let next: string | null = null;
+    for (const suffix of TRAILING_CALL_MANAGEMENT_SUFFIXES) {
+      if (lower === suffix) {
+        next = "";
+        break;
+      }
+      const start = candidate.length - suffix.length;
+      if (start > 0 && lower.endsWith(suffix) && (candidate[start - 1] === " " || candidate[start - 1] === ",")) {
+        next = trimTrailingCharacters(candidate.slice(0, start), " \t\r\n,;:");
+        break;
       }
     }
-    if (!changed) break;
+    if (next == null) break;
+    out = next;
   }
-  return out.replace(/[\s,;:]+$/, "").trim();
+  return trimTrailingCharacters(out, " \t\r\n,;:");
 }
 
 /**
@@ -272,26 +383,16 @@ function speakableSentences(objective: string): string[] {
  * null NEVER means "graft it raw" - the caller falls back to the relayed composition instead.
  */
 function imperativeClause(sentence: string, name: string): string | null {
-  let clause = sentence.trim();
+  let clause = collapseWhitespace(sentence);
   // Peel stacked lead-ins ("Please can you book..." -> "can you book..." -> "book..."). Bounded:
-  // every peel shortens the clause, and 8 passes outlasts any realistic stack.
-  for (let pass = 0; pass < 8; pass += 1) {
-    let peeled = false;
-    for (const re of META_LEAD_INS) {
-      if (re.test(clause)) {
-        clause = clause.replace(re, "").trim();
-        peeled = true;
-      }
-    }
-    for (const [re, rewrite] of META_LEAD_IN_REWRITES) {
-      if (re.test(clause)) {
-        clause = clause.replace(re, rewrite).trim();
-        peeled = true;
-      }
-    }
-    if (!peeled) break;
+  // every peel shortens the clause. The 64-pass ceiling preserves the old multi-pattern
+  // fixpoint behavior while remaining strictly bounded for hostile stacked prefixes.
+  for (let pass = 0; pass < 64; pass += 1) {
+    const next = peelMetaLeadIn(clause);
+    if (next == null || next === clause) break;
+    clause = next.trim();
   }
-  clause = clause.replace(/[.!?]+\s*$/, "").trim();
+  clause = trimTrailingCharacters(clause, " \t\r\n.!?");
   if (!clause) return null;
   const firstWord = (clause.split(/\s+/)[0] ?? "").toLowerCase().replace(/[^a-z-]/g, "");
   if (!IMPERATIVE_VERBS.has(firstWord)) return null;

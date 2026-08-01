@@ -43,6 +43,15 @@ interface RequestContext {
 
 const DIAL_PATHS = new Set(["/call", "/call-number", "/call-me"]);
 const RETRY_SAFE_POST_PATHS = new Set(["/lookup"]);
+const KNOWN_CLIENT_PROFILES = new Set([
+  "claude-code",
+  "codex",
+  "cline",
+  "gemini",
+  "cursor",
+  "windsurf",
+  "safe-default",
+]);
 
 function isDialMutation(context: RequestContext): boolean {
   return context.method === "POST" && DIAL_PATHS.has(context.path);
@@ -73,6 +82,16 @@ function boundedInline(value: string, maxLength = 1_000): string {
 
 function remoteDiagnostic(status: number): string {
   return `The Speko backing server returned HTTP ${status}.`;
+}
+
+function remoteErrorGuidance(code: string | null, status: number, context: RequestContext): string | null {
+  if (code === "CALL_ME_NOT_CONFIGURED" && status === 422 && context.method === "POST" && context.path === "/call-me") {
+    return (
+      "call_me has no verified owner on the backing server. Run `speko me verify` on that server host with " +
+      "SPEKO_MCP_SERVER_URL unset, then retry from the MCP client."
+    );
+  }
+  return null;
 }
 
 function isKnownPreDialRejection(status: number | undefined): boolean {
@@ -262,6 +281,20 @@ export class InProcessBackend implements Backend {
           { client: ctx.client, cfg: ctx.cfg, bearerHash: ctx.bearerHash },
         );
       }
+      if (path === "/call-me") {
+        return await core.callMe(
+          {
+            message: String(b.message ?? ""),
+            mode: b.mode === "notify" ? "notify" : "converse",
+            context: (b.context as string | undefined) ?? null,
+            afterHoursConfirmation:
+              typeof b.after_hours_confirmation === "string" ? b.after_hours_confirmation : null,
+            maxDurationSeconds: typeof b.max_duration_seconds === "number" ? b.max_duration_seconds : undefined,
+            wait: typeof b.wait === "boolean" ? b.wait : true,
+          },
+          { client: ctx.client, cfg: ctx.cfg, bearerHash: ctx.bearerHash },
+        );
+      }
       throw new DemoServerError(`Unknown backend path: POST ${path}`);
     } catch (e) {
       throw normalizeError(e, { method: "POST", path });
@@ -275,12 +308,13 @@ export class InProcessBackend implements Backend {
   private async dispatchGet(path: string): Promise<unknown> {
     const { core, ctx } = await this.init();
     try {
-      if (path === "/readiness") return await core.checkReadiness(ctx.client);
+      if (path === "/readiness") return await core.checkReadiness(ctx.client, ctx.cfg);
       if (path.startsWith("/call/")) {
         return await core.describeCall(
           decodeURIComponent(path.slice("/call/".length)),
           ctx.client,
           ctx.cfg.dashboardBaseUrl,
+          ctx.cfg.ownerStateDir,
         );
       }
       throw new DemoServerError(`Unknown backend path: GET ${path}`);
@@ -314,6 +348,8 @@ export class ServerClient implements Backend {
     const headers: Record<string, string> = { accept: "application/json" };
     if (body !== undefined) headers["content-type"] = "application/json";
     if (this.internalKey) headers["x-internal-key"] = this.internalKey;
+    const clientProfile = (process.env.SPEKO_CLIENT_PROFILE ?? "").trim();
+    if (KNOWN_CLIENT_PROFILES.has(clientProfile)) headers["x-speko-client-profile"] = clientProfile;
 
     const timeoutMs = opts.timeoutMs ?? 30_000;
     const signal = combineSignals(opts.signal, AbortSignal.timeout(timeoutMs));
@@ -354,12 +390,13 @@ export class ServerClient implements Backend {
     }
 
     if (!resp.ok) {
+      const errorCode = resp.headers.get("x-speko-error-code");
       try {
         await resp.body?.cancel();
       } catch {
         // The local recovery guidance must still be returned if cleanup fails.
       }
-      const nextStep = nextStepForHttpStatus(resp.status, context);
+      const nextStep = remoteErrorGuidance(errorCode, resp.status, context) ?? nextStepForHttpStatus(resp.status, context);
       throw new DemoServerError(`${remoteDiagnostic(resp.status)}; next_step=${nextStep}`);
     }
 

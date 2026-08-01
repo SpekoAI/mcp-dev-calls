@@ -43,6 +43,7 @@ describe("upsertGuidanceBlock (pure)", () => {
     expect(out.startsWith("# my rules\n\nalways write tests")).toBe(true);
     expect(count(out, GUIDANCE_BEGIN)).toBe(1);
     expect(out).toContain(GUIDANCE_CARD);
+    expect(GUIDANCE_CARD).toContain("call_me");
   });
 
   it("is idempotent: applying twice yields exactly one block", () => {

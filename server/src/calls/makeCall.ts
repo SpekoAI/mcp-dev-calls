@@ -112,6 +112,22 @@ export interface MakeCallDeps {
    * tool can't use it to bypass the mobile block.
    */
   allowAnyLineType?: boolean;
+  /** Internal owner/OTP calls must never inherit SPEKO_TRUSTED_NUMBERS exemptions. */
+  forceFullRails?: boolean;
+  /** Internal verification calls only: possession flow is user-initiated and may skip the time gate. */
+  skipAfterHoursGate?: boolean;
+  /** Internal prompt overrides. Never populated from an MCP request body. */
+  firstMessageOverride?: string;
+  systemPromptOverride?: (endCallTool: boolean) => string;
+  /** Internal metadata used to recover call_me semantics through get_call. */
+  metadataSource?: string;
+  metadataExtra?: Record<string, string | number | boolean | null>;
+  /** Return immediately after the platform supplies a real call id. */
+  returnAfterDial?: boolean;
+  /** Runs once immediately before the first platform dial (used for the OTP-call ledger). */
+  beforeDial?: () => void;
+  /** Runs immediately after the platform returns a call id, before polling or returning. */
+  onDialAccepted?: (callId: string) => void;
   /** Internal: set only by makeCall so runPhoneCall unit tests do not write guard state. */
   afterHoursConfirmationForLedger?: string | null;
 }
@@ -167,7 +183,7 @@ export async function makeCall(input: MakeCallInput, deps: MakeCallDeps): Promis
   if (dialReason) throw new RejectionError(dialReason, MAKE_CALL_NEXT_STEP);
 
   const normalizedE164 = normalizeE164(e164);
-  const trusted = (deps.cfg.trustedNumbers ?? []).includes(normalizedE164);
+  const trusted = !deps.forceFullRails && (deps.cfg.trustedNumbers ?? []).includes(normalizedE164);
 
   const dnc = dncReason(e164, deps.cfg.guardStateDir);
   if (dnc) {
@@ -198,17 +214,19 @@ export async function makeCall(input: MakeCallInput, deps: MakeCallDeps): Promis
       );
     }
 
-    const collectionMatched = collectionMatch([input.objective, input.behavior, input.context]);
-    const afterHoursReason = afterHoursGateReason(
-      offset,
-      input.afterHoursConfirmation,
-      collectionMatched,
-    );
-    if (afterHoursReason) {
-      throw new RejectionError(
-        afterHoursReason,
-        afterHoursNextStep({ direct: deps.allowAnyLineType === true, offset, collectionMatched }),
+    if (!deps.skipAfterHoursGate) {
+      const collectionMatched = collectionMatch([input.objective, input.behavior, input.context]);
+      const afterHoursReason = afterHoursGateReason(
+        offset,
+        input.afterHoursConfirmation,
+        collectionMatched,
       );
+      if (afterHoursReason) {
+        throw new RejectionError(
+          afterHoursReason,
+          afterHoursNextStep({ direct: deps.allowAnyLineType === true, offset, collectionMatched }),
+        );
+      }
     }
   }
 
@@ -315,19 +333,22 @@ export async function makeCall(input: MakeCallInput, deps: MakeCallDeps): Promis
       sttOptions: { keywords: [caller, businessName, ...DIAL_STT_KEYWORDS] },
       ttsOptions: { speed: deps.cfg.ttsSpeed ?? 1.0 },
       llm: { temperature: 0.5, maxTokens: 100 },
-      firstMessage: buildFirstMessage(caller, input.objective),
-      systemPrompt: buildSystemPrompt(
-        input.objective,
-        input.context ?? null,
-        businessName,
-        caller,
-        input.behavior ?? null,
-        agentId != null,
-      ),
+      firstMessage: deps.firstMessageOverride ?? buildFirstMessage(caller, input.objective),
+      systemPrompt:
+        deps.systemPromptOverride?.(agentId != null) ??
+        buildSystemPrompt(
+          input.objective,
+          input.context ?? null,
+          businessName,
+          caller,
+          input.behavior ?? null,
+          agentId != null,
+        ),
       metadata: {
-        source: "speko-mcp-calls-demo",
+        source: deps.metadataSource ?? "speko-mcp-calls-demo",
         objective: input.objective,
         business_name: businessName,
+        ...(deps.metadataExtra ?? {}),
         // Persist to/from so get_call can report dialed_number/caller_id (CallDetail has no top-level
         // to/from; the poll/recovery path reads them back from metadata).
         to: e164,
@@ -341,12 +362,36 @@ export async function makeCall(input: MakeCallInput, deps: MakeCallDeps): Promis
     return body;
   };
 
+  let beforeDialRecorded = false;
+  const beforeDialOnce = (): void => {
+    if (beforeDialRecorded) return;
+    // Mark the callback independently so a later ordinary-ledger write failure cannot repeat a
+    // side-effectful OTP reservation during the deleted-agent retry path.
+    beforeDialRecorded = true;
+    deps.beforeDial?.();
+    appendDialLedger(
+      {
+        e164,
+        call_id: null,
+        after_hours_confirmation: input.afterHoursConfirmation ?? undefined,
+      },
+      deps.cfg.guardStateDir,
+    );
+  };
+
   const placeCall = async (agentId: string | null): Promise<CallSummary> =>
     attachDashboardUrl(
       await runPhoneCall(
         buildBody(agentId),
         durationCap,
-        { ...deps, afterHoursConfirmationForLedger: input.afterHoursConfirmation ?? null },
+        {
+          ...deps,
+          // `placeCall` can run twice only when a deleted persisted agent makes the first
+          // platform request fail before a phone leg exists. Guard both local ledgers so one
+          // invocation still consumes exactly one ordinary attempt and one OTP attempt.
+          beforeDial: beforeDialOnce,
+          afterHoursConfirmationForLedger: undefined,
+        },
         sleep,
       ),
       deps.cfg.dashboardBaseUrl,
@@ -514,6 +559,7 @@ async function runPhoneCallInner(
   const to = body.to ?? null;
   let dial;
   try {
+    deps.beforeDial?.();
     if (deps.afterHoursConfirmationForLedger !== undefined && to) {
       appendDialLedger(
         {
@@ -533,6 +579,7 @@ async function runPhoneCallInner(
       dial = await deps.client.dial(omitTurnHandling(body));
     }
   } catch (e) {
+    if (e instanceof AppError) throw e;
     throw dialFailure(e);
   }
 
@@ -563,6 +610,24 @@ async function runPhoneCallInner(
       "Speko returned a dial response with no session id; the call may not have been placed.",
       { statusCode: 502, nextStep: "Do not assume a call is in flight; check recent calls before retrying." },
     );
+  }
+
+  try {
+    deps.onDialAccepted?.(callId);
+  } catch (error) {
+    throw new AppError(`The call was accepted, but its local recovery binding could not be saved: ${(error as Error).message}`, {
+      statusCode: 502,
+      nextStep: `Do not dial again; call '${callId}' may be in progress. Inspect it with get_call('${callId}').`,
+    });
+  }
+
+  if (deps.returnAfterDial) {
+    return {
+      ...baseSummary(callId, to, from),
+      status: "dialing",
+      reason: "The call was placed and is continuing in the background.",
+      next_step: `Poll get_call('${callId}') until it reaches a terminal status. Do not place another call.`,
+    };
   }
 
   // Poll until the call REALLY ends. The platform flips `status` to "failed" the moment a

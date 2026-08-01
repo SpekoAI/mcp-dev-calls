@@ -8,8 +8,18 @@ import { AUTH_NEXT_STEP, HARD_FAILURE_EVENTS, ROOM_END_EVENTS } from "../constan
 import { AppError } from "../lib/errors.js";
 import { eventType } from "../lib/events.js";
 import { bestOutcome, extractEndCallReason } from "../lib/transcript.js";
+import {
+  readOwnerCallBinding,
+  readOwnerProfile,
+  releaseOwnerCallLeaseByCallId,
+} from "../owner/state.js";
 import { isAuthFailure, type SpekoClient } from "../speko/client.js";
 import type { CallSummary, SessionDetail } from "../types.js";
+import {
+  callMeMetadata,
+  decorateCallMeSummary,
+  isCallMeTerminal,
+} from "./callMeResult.js";
 import { attachDashboardUrl, shapeCallSummary } from "./summary.js";
 
 function strField(md: Record<string, unknown> | undefined, key: string): string | null {
@@ -25,6 +35,7 @@ export async function describeCall(
   callId: string,
   client: SpekoClient,
   dashboardBaseUrl?: string,
+  ownerStateDir?: string,
 ): Promise<CallSummary> {
   let detail;
   try {
@@ -81,7 +92,7 @@ export async function describeCall(
     // Best effort.
   }
 
-  return attachDashboardUrl(
+  const summary = attachDashboardUrl(
     shapeCallSummary({
       callId,
       to,
@@ -96,4 +107,40 @@ export async function describeCall(
     }),
     dashboardBaseUrl,
   );
+  const ownerMetadata = callMeMetadata(detail.metadata as Record<string, unknown> | undefined);
+  if (isCallMeTerminal(summary.status)) {
+    try {
+      releaseOwnerCallLeaseByCallId(callId, { dir: ownerStateDir });
+    } catch {
+      // A corrupt local owner ledger must not break ordinary get_call results. It only prevents
+      // promotion into trusted owner fields below.
+    }
+  }
+  let binding: ReturnType<typeof readOwnerCallBinding>;
+  try {
+    binding = readOwnerCallBinding(callId, { dir: ownerStateDir });
+  } catch {
+    return summary;
+  }
+  const owner = readOwnerProfile(ownerStateDir);
+  const bindingMatches = Boolean(
+    ownerMetadata &&
+      binding &&
+      owner &&
+      binding.instanceId === owner.instance_id &&
+      binding.ownerPhone === owner.owner_phone &&
+      to === owner.owner_phone &&
+      ownerMetadata.instanceId === binding.instanceId &&
+      ownerMetadata.mode === binding.mode &&
+      ownerMetadata.message === binding.message &&
+      ownerMetadata.context === binding.context,
+  );
+  if (!bindingMatches || !binding) return summary;
+  const decorated = decorateCallMeSummary(summary, {
+    mode: binding.mode,
+    message: binding.message,
+    context: binding.context,
+    instanceId: binding.instanceId,
+  });
+  return decorated;
 }

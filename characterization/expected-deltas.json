@@ -1,17 +1,20 @@
 [
   {
     "probeId": "mcp.initialize",
-    "justification": "Version bump 0.5.2->0.5.4: adds read-only CLI inspection commands usage/credits/call (CLI-only, no new MCP tool). serverInfo.version follows the VERSION const.",
+    "justification": "Cumulative release delta through 0.7.0. The new owner-call surface ships as package/server version 0.7.0, and serverInfo.version follows the VERSION const.",
     "expectContains": [
-      "\"version\":\"0.5.4\"",
+      "\"version\":\"0.7.0\"",
       "\"name\":\"speko-calls\""
     ]
   },
   {
     "probeId": "mcp.tools-list",
-    "justification": "PR #30/#31 adds after_hours_confirmation to make_call + call_number schemas (the after-hours confirmation gate); dnc stays CLI-only, not an MCP tool. 0.5.6 (multi-agent launch) additionally UNREGISTERS the inert call_me stub (product doctrine: no always-throwing trap tools in the agent's context) — tools/list now returns 5 tools; call_me returns in v2 when the platform exposes a verified personal phone.",
+    "justification": "Cumulative through 0.7.0: after_hours_confirmation remains on business/direct calls, and call_me is now registered with a real owner-only message/mode/wait schema. It has no destination field and keeps the full rail contract in its description.",
     "expectContains": [
       "after_hours_confirmation",
+      "call_me",
+      "message",
+      "wait",
       "call_number",
       "make_call",
       "lookup_business"
@@ -19,10 +22,51 @@
   },
   {
     "probeId": "tool.call-me",
-    "justification": "0.5.6 (multi-agent launch) unregisters the always-throwing call_me stub — the probe now fails at dispatch (unknown tool) instead of the tool's own v1 not-available error. Readiness still reports call_me availability; the implementation stays in tools/CallMeTool.ts for v2.",
+    "justification": "0.7.0 registers the real call_me tool. This offline probe deliberately has no local owner profile, so it must fail closed before any dial and return the exact self-serve verification command.",
     "expectContains": [
-      "call_me"
+      "call_me is not set up: no verified owner phone",
+      "speko me verify"
     ]
+  },
+  {
+    "probeId": "benign.prank-supplies",
+    "justification": "PR #64 hardens every mutation-unsafe dial failure: once a request may have started, raw sinkhole/network errors are replaced with an outcome-unknown, no-redial recovery contract. This benign control still passed all rails; only post-dispatch error semantics changed.",
+    "expectContains": ["outcome is unknown", "Do not retry or place another call", "get_call"]
+  },
+  {
+    "probeId": "benign.annoying-pests",
+    "justification": "PR #64 hardens every mutation-unsafe dial failure: once a request may have started, raw sinkhole/network errors are replaced with an outcome-unknown, no-redial recovery contract. This benign control still passed all rails; only post-dispatch error semantics changed.",
+    "expectContains": ["outcome is unknown", "Do not retry or place another call", "get_call"]
+  },
+  {
+    "probeId": "benign.wakeup-call",
+    "justification": "PR #64 hardens every mutation-unsafe dial failure: once a request may have started, raw sinkhole/network errors are replaced with an outcome-unknown, no-redial recovery contract. This benign control still passed all rails; only post-dispatch error semantics changed.",
+    "expectContains": ["outcome is unknown", "Do not retry or place another call", "get_call"]
+  },
+  {
+    "probeId": "benign.court-clerk",
+    "justification": "PR #64 hardens every mutation-unsafe dial failure: once a request may have started, raw sinkhole/network errors are replaced with an outcome-unknown, no-redial recovery contract. This benign control still passed all rails; only post-dispatch error semantics changed.",
+    "expectContains": ["outcome is unknown", "Do not retry or place another call", "get_call"]
+  },
+  {
+    "probeId": "benign.prospect-park",
+    "justification": "PR #64 hardens every mutation-unsafe dial failure: once a request may have started, raw sinkhole/network errors are replaced with an outcome-unknown, no-redial recovery contract. This benign control still passed all rails; only post-dispatch error semantics changed.",
+    "expectContains": ["outcome is unknown", "Do not retry or place another call", "get_call"]
+  },
+  {
+    "probeId": "gate.collection-day",
+    "justification": "PR #64 replaces raw post-dispatch sinkhole errors with the outcome-unknown, no-redial contract. The daytime collection probe still passes its time/content rails and reaches dispatch.",
+    "expectContains": ["outcome is unknown", "Do not retry or place another call", "get_call"]
+  },
+  {
+    "probeId": "rail.clean-day-dials",
+    "justification": "PR #64 replaces raw post-dispatch sinkhole errors with the outcome-unknown, no-redial contract. The clean daytime direct call still passes every rail and reaches dispatch.",
+    "expectContains": ["outcome is unknown", "Do not retry or place another call", "get_call"]
+  },
+  {
+    "probeId": "token.valid-day-dials",
+    "justification": "PR #64 replaces raw post-dispatch sinkhole errors with the outcome-unknown, no-redial contract. The valid signed-token call still passes verification and reaches dispatch.",
+    "expectContains": ["outcome is unknown", "Do not retry or place another call", "get_call"]
   },
   {
     "probeId": "rail.behavior-smuggle",
@@ -72,9 +116,10 @@
   },
   {
     "probeId": "gate.night-confirm",
-    "justification": "PR #30/#31: with after_hours_confirmation supplied, a late call passes the gate and reaches the dial layer (<NETERR> sinkhole). 0.4.9 had no such param and hard-blocked.",
+    "justification": "PR #30/#31 lets explicit after_hours_confirmation pass the late-call gate. PR #64 then normalizes the post-dispatch sinkhole failure to an outcome-unknown, no-redial contract.",
     "expectContains": [
-      "<NETERR>"
+      "outcome is unknown",
+      "Do not retry or place another call"
     ]
   },
   {
@@ -95,9 +140,10 @@
   },
   {
     "probeId": "gate.unknown-offset-confirm",
-    "justification": "PR #31: unknown-timezone number + confirmation reaches the dial layer instead of the 0.4.9 fail-closed block.",
+    "justification": "PR #31 lets an unknown-timezone number plus explicit confirmation reach dispatch. PR #64 normalizes the post-dispatch sinkhole failure to an outcome-unknown, no-redial contract.",
     "expectContains": [
-      "<NETERR>"
+      "outcome is unknown",
+      "Do not retry or place another call"
     ]
   },
   {
@@ -126,23 +172,25 @@
   },
   {
     "probeId": "guard.trusted-skips-time-and-rate",
-    "justification": "PR #30/#31 SPEKO_TRUSTED_NUMBERS skips the rate cap AND after-hours gate; a trusted number at night with a full ledger still reaches the dial layer. 0.4.9 had no trusted concept and hard-blocked on quiet hours.",
+    "justification": "PR #30/#31 SPEKO_TRUSTED_NUMBERS skips rate/time friction on the ordinary call_number path, so this seeded probe reaches dispatch. PR #64 normalizes the sinkhole failure to an outcome-unknown, no-redial contract.",
     "expectContains": [
-      "<NETERR>"
+      "outcome is unknown",
+      "Do not retry or place another call"
     ]
   },
   {
     "probeId": "cli.version",
-    "justification": "Version bump 0.5.2->0.5.4 (adds usage/credits/call CLI commands). --version prints the VERSION const to stdout.",
+    "justification": "Version bump to 0.7.0 for the call_me owner-control release. --version prints the VERSION const to stdout.",
     "expectContains": [
-      "0.5.4"
+      "0.7.0"
     ]
   },
   {
     "probeId": "cli.help",
-    "justification": "0.5.4 adds read-only CLI commands usage/credits/call to CLI_COMMANDS and to printHelp() usage text; version banner is 0.5.4. The dnc lines remain from 0.5.x.",
+    "justification": "Cumulative CLI help through 0.7.0: version banner is 0.7.0 and the local owner verification/status command is documented alongside existing inspection commands.",
     "expectContains": [
-      "speko 0.5.4",
+      "speko 0.7.0",
+      "speko me verify|status",
       "speko dnc",
       "do-not-call",
       "speko usage",
@@ -201,9 +249,12 @@
   },
   {
     "probeId": "tool.readiness",
-    "justification": "0.6.x DX: check_call_readiness now speaks plain language with a scannable ASCII status headline (was 'Ready to call: with caveats - see next_steps') and human next-steps. Dropped the 'outbound SIP trunk'/'dialing-stub'/LiveKit/Telnyx jargon wall; honesty is preserved because the first call confirms the line, an absent outbound-ready number does not promise a shared number, and not_connected guidance follows the returned reason. Full technical state stays in the structured `outbound` field. Inbound-answerability warning unchanged.",
+    "justification": "Cumulative through 0.7.0: readiness keeps the plain-language status and now reports local call_me owner availability plus the enforced client profile. With no owner profile, it returns the exact speko me verify setup path and safe-default poll behavior.",
     "expectContains": [
-      "Almost ready"
+      "Almost ready",
+      "call_me is not set up",
+      "speko me verify",
+      "safe-default"
     ]
   }
 ]
