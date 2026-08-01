@@ -3,9 +3,9 @@
  * implements, plus the injectable context that makes adapters unit-testable
  * (temp HOME, fake platform, fake CLI runner) without touching a real machine.
  *
- * Parity invariant: every adapter derives its config from `serverEntry()` in
- * invocation.ts — no adapter hand-writes command/args/env, so no agent can be
- * given a different server invocation than the others (see targets.test.ts).
+ * Parity invariant: every adapter derives command/args/key from `serverEntry()`
+ * and supplies its declared client profile. Only profile-specific timeout fields
+ * may differ (see targets.test.ts).
  */
 
 export interface TargetCtx {
@@ -31,6 +31,8 @@ export interface WriteResult {
 export interface AgentTarget {
   id: string;
   label: string;
+  /** Timeout behavior enforced by the in-process call_me server. */
+  profile: import("./invocation.js").ClientProfile;
   detect(ctx: TargetCtx): boolean;
   write(key: string, ctx: TargetCtx): WriteResult;
   /**

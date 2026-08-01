@@ -54,7 +54,7 @@ describe("standard mcpServers adapters (Cursor / Windsurf / Gemini / Cline)", ()
       expect(target.write(KEY, ctx).ok).toBe(true);
       const path = join(home, ...config);
       const first = readJson(path);
-      expect(first.mcpServers[SERVER_NAME]).toEqual(serverEntry(KEY));
+      expect(first.mcpServers[SERVER_NAME]).toEqual(serverEntry(KEY, target.profile));
 
       // idempotent: second write yields the identical file, no duplicates
       expect(target.write(KEY, ctx).ok).toBe(true);
@@ -72,7 +72,7 @@ describe("standard mcpServers adapters (Cursor / Windsurf / Gemini / Cline)", ()
       const cfg = readJson(path);
       expect(cfg.theme).toBe("dark");
       expect(cfg.mcpServers.other).toEqual({ command: "foo" });
-      expect(cfg.mcpServers[SERVER_NAME]).toEqual(serverEntry(KEY));
+      expect(cfg.mcpServers[SERVER_NAME]).toEqual(serverEntry(KEY, target.profile));
       expect(existsSync(`${path}.speko-backup`)).toBe(true);
     });
 
@@ -100,7 +100,12 @@ describe("standard mcpServers adapters (Cursor / Windsurf / Gemini / Cline)", ()
 
     expect(clineTarget.write(KEY, ctx).ok).toBe(true);
     const cfg = readJson(join(extDir, "settings", "cline_mcp_settings.json"));
-    expect(cfg.mcpServers[SERVER_NAME]).toEqual({ ...serverEntry(KEY), disabled: false, autoApprove: [] });
+    expect(cfg.mcpServers[SERVER_NAME]).toEqual({
+      ...serverEntry(KEY, "cline"),
+      disabled: false,
+      autoApprove: [],
+      timeout: 2700,
+    });
   });
 });
 
@@ -138,10 +143,25 @@ describe("Codex adapter", () => {
     });
     expect(codexTarget.write(KEY, ctx).ok).toBe(true);
     expect(calls.map((c) => c.args[1])).toEqual(["remove", "add"]);
-    expect(calls[1].args).toEqual(["mcp", "add", SERVER_NAME, "--env", `SPEKO_API_KEY=${KEY}`, "--", "npx", "-y", PKG]);
+    expect(calls[1].args).toEqual([
+      "mcp",
+      "add",
+      SERVER_NAME,
+      "--env",
+      `SPEKO_API_KEY=${KEY}`,
+      "--env",
+      "SPEKO_CLIENT_PROFILE=codex",
+      "--",
+      "npx",
+      "-y",
+      PKG,
+    ]);
+    const toml = readFileSync(join(ctx.home, ".codex", "config.toml"), "utf8");
+    expect(toml).toContain("tool_timeout_sec = 2700");
+    expect(toml).toContain('SPEKO_CLIENT_PROFILE = "codex"');
   });
 
-  it("TOML fallback: append-only, preserves existing content, idempotent, backed up", () => {
+  it("TOML fallback: preserves existing content, adds timeout/profile, stays idempotent, and backs up", () => {
     const home = freshHome();
     const ctx = fakeCtx(home); // no CLI
     const path = join(home, ".codex", "config.toml");
@@ -154,12 +174,49 @@ describe("Codex adapter", () => {
     expect(after.startsWith(prior)).toBe(true); // append never rewrites
     expect(after).toContain(`[mcp_servers.${SERVER_NAME}]`);
     expect(after).toContain(`SPEKO_API_KEY = ${JSON.stringify(KEY)}`);
+    expect(after).toContain("tool_timeout_sec = 2700");
+    expect(after).toContain('SPEKO_CLIENT_PROFILE = "codex"');
     expect(existsSync(`${path}.speko-backup`)).toBe(true);
 
     // idempotent: section already present → left as-is, still ok
     const r2 = codexTarget.write(KEY, ctx);
     expect(r2.ok).toBe(true);
     expect(readFileSync(path, "utf-8")).toBe(after);
+  });
+
+  it("updates only stale Speko timeout/profile values in an existing TOML section", () => {
+    const home = freshHome();
+    const ctx = fakeCtx(home);
+    const path = join(home, ".codex", "config.toml");
+    mkdirSync(join(home, ".codex"), { recursive: true });
+    writeFileSync(
+      path,
+      [
+        '# keep this comment',
+        'model = "o5"',
+        '',
+        `[mcp_servers.${SERVER_NAME}]`,
+        'command = "npx"',
+        `args = ["-y", "${PKG}"]`,
+        'tool_timeout_sec = 60',
+        '',
+        `[mcp_servers.${SERVER_NAME}.env]`,
+        'SPEKO_API_KEY = "stale"',
+        'SPEKO_CLIENT_PROFILE = "safe-default"',
+        '',
+        '[mcp_servers.other]',
+        'command = "keep"',
+        '',
+      ].join("\n"),
+    );
+    expect(codexTarget.write(KEY, ctx).ok).toBe(true);
+    const after = readFileSync(path, "utf8");
+    expect(after).toContain('# keep this comment');
+    expect(after).toContain('[mcp_servers.other]\ncommand = "keep"');
+    expect(after).toContain('tool_timeout_sec = 2700');
+    expect(after).toContain(`SPEKO_API_KEY = ${JSON.stringify(KEY)}`);
+    expect(after).toContain('SPEKO_CLIENT_PROFILE = "codex"');
+    expect(after).not.toContain('tool_timeout_sec = 60');
   });
 
   it("TOML block escapes values safely", () => {
@@ -181,8 +238,8 @@ describe("Zed adapter", () => {
   });
 });
 
-describe("parity: every auto-writing adapter emits the same logical invocation", () => {
-  it("command/args/env are identical across Cursor, Windsurf, Gemini, Cline, VS Code, Codex", () => {
+describe("parity: every auto-writing adapter emits the shared invocation plus its client profile", () => {
+  it("command/args/key are identical and SPEKO_CLIENT_PROFILE matches the adapter", () => {
     const entries: Record<string, { command: string; args: string[]; env: Record<string, string> }> = {};
 
     for (const t of [cursorTarget, windsurfTarget, geminiTarget]) {
@@ -219,9 +276,18 @@ describe("parity: every auto-writing adapter emits the same logical invocation",
       expect(toml).toContain(`SPEKO_API_KEY = ${JSON.stringify(KEY)}`);
     }
 
-    const canonical = serverEntry(KEY);
+    const profiles: Record<string, string> = {
+      cursor: "cursor",
+      windsurf: "windsurf",
+      gemini: "gemini",
+      cline: "cline",
+      vscode: "safe-default",
+    };
     for (const [id, e] of Object.entries(entries)) {
-      expect(e, `adapter '${id}' drifted from the canonical invocation`).toEqual(canonical);
+      expect(e.command, `adapter '${id}' command drifted`).toBe("npx");
+      expect(e.args, `adapter '${id}' args drifted`).toEqual(["-y", PKG]);
+      expect(e.env.SPEKO_API_KEY, `adapter '${id}' key drifted`).toBe(KEY);
+      expect(e.env.SPEKO_CLIENT_PROFILE, `adapter '${id}' profile drifted`).toBe(profiles[id]);
     }
   });
 });

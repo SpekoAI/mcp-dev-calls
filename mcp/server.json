@@ -2,18 +2,18 @@
   "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
   "name": "ai.speko/mcp-calls",
   "title": "agentvoice - AI calls for coding agents (by Speko)",
-  "description": "Place real, disclosed outbound phone calls to businesses straight from your coding agent.",
+  "description": "Place real, disclosed outbound phone calls to businesses, or call your verified owner for remote control, straight from your coding agent.",
   "repository": {
     "url": "https://github.com/SpekoAI/mcp-dev-calls",
     "source": "github"
   },
-  "version": "0.6.4",
+  "version": "0.7.0",
   "websiteUrl": "https://agentvoice.to",
   "packages": [
     {
       "registryType": "npm",
       "identifier": "@spekoai/mcp-calls",
-      "version": "0.6.4",
+      "version": "0.7.0",
       "transport": {
         "type": "stdio"
       },
@@ -28,6 +28,13 @@
         {
           "name": "SPEKO_MCP_SERVER_URL",
           "description": "Optional: route through a hosted/remote Speko backing server instead of running in-process. When set, the API key lives on that server, not here.",
+          "isRequired": false,
+          "isSecret": false,
+          "format": "string"
+        },
+        {
+          "name": "SPEKO_CLIENT_PROFILE",
+          "description": "Client timeout profile written by the init wizard. Unknown or missing values use a poll-safe default for call_me.",
           "isRequired": false,
           "isSecret": false,
           "format": "string"

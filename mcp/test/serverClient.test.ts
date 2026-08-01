@@ -6,12 +6,14 @@ import { InProcessBackend, ServerClient } from "../src/http/serverClient.js";
 // regression this pins). Mock the core and assert what actually reaches makeCall/callNumber.
 const makeCall = vi.fn(async () => ({ status: "completed" }));
 const callNumber = vi.fn(async () => ({ status: "completed" }));
+const callMe = vi.fn(async () => ({ status: "completed" }));
 
 vi.mock("@spekoai/mcp-calls-demo-server/core", () => ({
   loadConfig: () => ({ demo: { enabled: false } }),
   buildContext: () => ({ cfg: { demo: { enabled: false } }, client: {}, bearerHash: "bh" }),
   makeCall: (...args: unknown[]) => makeCall(...args),
   callNumber: (...args: unknown[]) => callNumber(...args),
+  callMe: (...args: unknown[]) => callMe(...args),
   lookupBusiness: vi.fn(),
   checkReadiness: vi.fn(),
   describeCall: vi.fn(),
@@ -20,6 +22,7 @@ vi.mock("@spekoai/mcp-calls-demo-server/core", () => ({
 beforeEach(() => {
   makeCall.mockClear();
   callNumber.mockClear();
+  callMe.mockClear();
 });
 
 describe("InProcessBackend input mapping", () => {
@@ -59,6 +62,29 @@ describe("InProcessBackend input mapping", () => {
       caller_name: "Bek",
     });
     expect(callNumber.mock.calls[1][0]).toMatchObject({ afterHoursConfirmation: null, greetFirst: null });
+  });
+
+  it("maps the owner-only /call-me contract without a destination field", async () => {
+    const backend = new InProcessBackend();
+    await backend.post("/call-me", {
+      message: "Which environment?",
+      mode: "notify",
+      context: "platform repo",
+      after_hours_confirmation: "Bek explicitly requested this call",
+      max_duration_seconds: 240,
+      wait: false,
+      phone_number: "+14155550199",
+    });
+    expect(callMe).toHaveBeenCalledTimes(1);
+    expect(callMe.mock.calls[0][0]).toEqual({
+      message: "Which environment?",
+      mode: "notify",
+      context: "platform repo",
+      afterHoursConfirmation: "Bek explicitly requested this call",
+      maxDurationSeconds: 240,
+      wait: false,
+    });
+    expect(callMe.mock.calls[0][0]).not.toHaveProperty("phoneNumber");
   });
 
   it("overrides retry prose after an ambiguous in-process dial failure", async () => {

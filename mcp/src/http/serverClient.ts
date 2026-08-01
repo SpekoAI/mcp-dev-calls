@@ -262,6 +262,20 @@ export class InProcessBackend implements Backend {
           { client: ctx.client, cfg: ctx.cfg, bearerHash: ctx.bearerHash },
         );
       }
+      if (path === "/call-me") {
+        return await core.callMe(
+          {
+            message: String(b.message ?? ""),
+            mode: b.mode === "notify" ? "notify" : "converse",
+            context: (b.context as string | undefined) ?? null,
+            afterHoursConfirmation:
+              typeof b.after_hours_confirmation === "string" ? b.after_hours_confirmation : null,
+            maxDurationSeconds: typeof b.max_duration_seconds === "number" ? b.max_duration_seconds : undefined,
+            wait: typeof b.wait === "boolean" ? b.wait : true,
+          },
+          { client: ctx.client, cfg: ctx.cfg, bearerHash: ctx.bearerHash },
+        );
+      }
       throw new DemoServerError(`Unknown backend path: POST ${path}`);
     } catch (e) {
       throw normalizeError(e, { method: "POST", path });
@@ -275,7 +289,7 @@ export class InProcessBackend implements Backend {
   private async dispatchGet(path: string): Promise<unknown> {
     const { core, ctx } = await this.init();
     try {
-      if (path === "/readiness") return await core.checkReadiness(ctx.client);
+      if (path === "/readiness") return await core.checkReadiness(ctx.client, ctx.cfg);
       if (path.startsWith("/call/")) {
         return await core.describeCall(
           decodeURIComponent(path.slice("/call/".length)),
