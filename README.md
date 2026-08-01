@@ -24,44 +24,40 @@ bring your own business-lookup (Google Places), and let Speko place the call.
 ## Architecture
 
 ```
-┌─────────────┐   MCP (stdio)    ┌──────────────────────┐   HTTP (+SPEKO_API_KEY)   ┌──────────────────┐
-│ Claude Code │ ───────────────▶ │  mcp/   (no secrets) │ ────────────────────────▶ │  api.speko.dev   │
-│  (you)      │  lookup/make/    │  mcp-framework tools │   via @spekoai/sdk        │  dial · poll ·   │
-└─────────────┘  readiness       └──────────┬───────────┘                           │  transcript      │
-                                            │ HTTP                                  └──────────────────┘
-                                            ▼
-                                 ┌──────────────────────────────────────────┐
-                                 │  server/  (the backing API — holds keys)  │
-                                 │  • Google Places business lookup          │
-                                 │  • Twilio carrier line-type check         │
-                                 │  • signed HMAC dial tokens                │
-                                 │  • disclosure + abuse guardrails          │
-                                 └──────────────────────────────────────────┘
+Default (single process):
+MCP host -> stdio MCP + embedded server core -> @spekoai/sdk -> api.speko.dev
+                    key, owner/DNC state, lookup credentials, and rails live here
+
+Optional remote mode:
+MCP host -> stdio MCP -> authenticated HTTP -> Express server -> @spekoai/sdk -> api.speko.dev
+                                             keys, state, lookup, and rails live here
 ```
 
 - **`mcp/`** — the stdio MCP and CLI. In the default single-process install it embeds the server core and reads `SPEKO_API_KEY` from the client's MCP environment.
 - **`server/`** — the reusable calling core plus optional Express wrapper. It runs lookup, owner resolution, safety rails, and `@spekoai/sdk` dialing.
 
-Why split it? Two reasons: secrets and rails **must** live somewhere trusted (you can't ship keys in an `npx` package), and per the demo's design the Google lookup stays **out of** `api.speko.dev` — it belongs to the app.
+The source is split so the same trusted core can run embedded or behind Express. Google lookup
+stays **out of** `api.speko.dev`; it belongs to this app and runs wherever the core runs.
 
 ---
 
 ## Quickstart
 
 ```bash
-# one command: sign in with your browser, then it writes the MCP into every coding
-# agent it detects (Claude Code/Desktop, Cursor, Windsurf, VS Code, Gemini, Codex, Cline)
-# and installs the calling guide in each.
+# one command: sign in with your browser, then configure every detected supported
+# client (Claude Code/Desktop, Cursor, Windsurf, VS Code, Gemini, Codex, Cline).
+# Zed receives a paste-ready manual snippet.
 npx @spekoai/mcp-calls@latest init
 ```
 
-`init` signs you in via your browser, then writes your key and client timeout profile into every coding agent it finds.
-Already have a key, or on a headless box? `--token sk_...` or `--paste` skips the browser, and
+`init` signs you in via your browser, then writes your key and client timeout profile into every detected supported client.
+Already have a key, or on a headless box? `--token sk_...` supplies it directly and `--paste` skips browser opening, while
 `npx @spekoai/mcp-calls login` re-authenticates later. The package runs **single-process** —
 your key calls `api.speko.dev` directly (no separate server to boot).
 
-The optional final step places one real voice-OTP call and enables `call_me`. You can also run
-`speko me verify` later. Verification is NANP-only in 0.7.0.
+After a successful connection, the optional final step places one real voice-OTP call; `call_me`
+is enabled only if the OTP succeeds. You can run `speko me verify` later. Verification is
+NANP-only in 0.7.0.
 
 Then, in your agent:
 
@@ -85,13 +81,20 @@ claude mcp add speko-calls --scope user --env SPEKO_API_KEY=sk_... --env SPEKO_C
 ```
 
 To route through a hosted/remote backing server instead of running in-process, set
-`SPEKO_MCP_SERVER_URL` (then `SPEKO_API_KEY` lives on that server, not in your client).
-In that mode, `call_me` owner state also lives on the backing-server host; run verification there
-with the same `SPEKO_OWNER_STATE_DIR`. The default wizard install is in-process.
+`SPEKO_MCP_SERVER_URL`; this always selects remote mode. Put `SPEKO_API_KEY`, lookup credentials,
+`SPEKO_DIAL_TOKEN_SECRET`, safety settings, and state directories on that server. The MCP client
+sends only an allowlisted client timeout profile and, when configured, `MCP_INTERNAL_KEY`.
+`speko me` and `speko dnc` modify only the host where they run, so run them on the backing-server
+host with `SPEKO_MCP_SERVER_URL` unset. Other account/audio CLI commands still call Speko directly
+and require a local API key. Non-loopback server binding requires `MCP_INTERNAL_KEY`. The default
+wizard install is in-process.
 </details>
 
 `lookup_business` mints a dial token → `make_call` places the disclosed call and streams progress
 while it rings → the `OUTCOME:` line lands back in your terminal.
+
+The wizard installs no Google or Twilio credentials. Name search requires Google Places, and every
+real `lookup_business` dial token requires Twilio carrier credentials. `call_number` needs neither.
 
 > **Telephony note:** real calls require the Speko deployment's outbound SIP trunk / caller-ID to be
 > configured. If `make_call` returns `not_connected` (the AI agent starts but the phone never rings),
@@ -103,11 +106,11 @@ while it rings → the `OUTCOME:` line lands back in your terminal.
 
 | Tool | What it does |
 | --- | --- |
-| `lookup_business(name, location?, phone_number?)` | Resolve a business → dialable candidates + a signed `dial_token` per callable one (the only path that can authorize `make_call`). Pass `phone_number` (E.164 — e.g. found via the agent's web search) to skip the directory lookup; still carrier-verified as a business line. |
-| `make_call(dial_token, objective, caller_name, context?)` | Place the disclosed, objective-scoped call. Waits for completion, streams progress, returns the `OUTCOME` line + transcript. Reports `connected`/`answered` honestly — a call the platform never actually puts on the wire (no telephony leg) comes back as `not_connected`, never a fake success. |
-| `call_number(phone_number, objective, caller_name)` | Disclosed PERSONAL call to a specific number (e.g. a friend) — mobiles allowed. On by default (set `SPEKO_ALLOW_DIRECT_DIAL=0` to restrict to business lines). |
+| `lookup_business(name, location?, phone_number?, utc_offset_minutes?)` | Resolve a business → dialable candidates + a signed `dial_token` per callable one (the only path that can authorize `make_call`). Pass `phone_number` (E.164 — e.g. found via the agent's web search) to skip the directory search; it is still carrier-verified as a business line. |
+| `make_call(dial_token, objective, caller_name, context?, behavior?, greet_first?, after_hours_confirmation?, max_duration_seconds?)` | Place the disclosed, objective-scoped call. Waits for completion, streams progress, returns the `OUTCOME` line + transcript. Reports `connected`/`answered` honestly — a call the platform never actually puts on the wire comes back as `not_connected`. |
+| `call_number(phone_number, objective, caller_name, recipient_name?, context?, behavior?, greet_first?, utc_offset_minutes?, after_hours_confirmation?, max_duration_seconds?)` | Disclosed personal or business call to a specific number — mobiles allowed. On by default (set `SPEKO_ALLOW_DIRECT_DIAL=0` to restrict to business lines). |
 | `call_me(message, mode?, context?, after_hours_confirmation?, max_duration_seconds?, wait?)` | Call this install's verified owner without accepting a destination. `notify` is one-way; `converse` returns a strict read-back-confirmed owner reply as untrusted transcript data. `wait:false` returns a call ID to poll with `get_call`. |
-| `get_call(call_id)` | Read-only: re-check an existing call's status, `OUTCOME`, and transcript. Never dials. |
+| `get_call(call_id)` | Read-only: re-check an existing call, including a call ID returned by `call_me`. Never dials. |
 | `check_call_readiness()` | Read-only preflight — auth, credit balance, outbound caller-ID, owner verification, and client profile. Never dials. |
 
 ## CLI
@@ -131,7 +134,8 @@ speko call recording <id>      the call's audio recording URL
 ```
 
 `speko status` is the "is this thing set up?" doctor: exit 0 means ready to place calls.
-`status`, `call *` and `audio *` accept `--json` for machine-readable output.
+`status`/`whoami`, `audio speak|transcribe`, `voices`/`models`, `usage`, `credits`, and `call *`
+accept `--json` for machine-readable output.
 
 ## Safety rails (enforced in `server/`)
 
@@ -146,8 +150,8 @@ designed to constrain well-behaved installs; a machine owner can modify an open 
 The local owner profile is a setup and consent artifact, not a privileged trust boundary. Every
 `call_me` still uses the ordinary 3/hour and 8/day caps, DNC, content screens, and the 08:00-21:00
 destination-local gate. It never consults `SPEKO_TRUSTED_NUMBERS`; late calls require the human's
-own words in `after_hours_confirmation`. One invocation places at most one call, and an ambiguous
-dial failure is never retried automatically.
+own words in `after_hours_confirmation`. A host-local, cross-process lease blocks a second live
+owner call. One invocation places at most one call, and an ambiguous dial failure is never retried.
 
 ---
 
@@ -155,13 +159,13 @@ dial failure is never retried automatically.
 
 ```
 mcp-dev-calls/
-├── mcp/              # the MCP server (mcp-framework, no secrets)
+├── mcp/              # stdio MCP + CLI; embeds the core by default
 │   ├── src/
 │   │   ├── index.ts          # MCPServer bootstrap (stdio)
 │   │   ├── tools/            # LookupBusiness · MakeCall · CheckCallReadiness · CallMe
 │   │   └── http/             # client to the backing server
 │   └── server.json           # MCP registry metadata
-├── server/           # the backing API (Express; holds keys + rails)
+├── server/           # reusable trusted core + optional Express wrapper
 │   ├── src/
 │   │   ├── index.ts          # HTTP bootstrap
 │   │   ├── routes.ts         # /lookup · /call · /call-number · /call-me · /readiness · /call/:id

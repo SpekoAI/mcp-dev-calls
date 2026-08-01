@@ -2,7 +2,7 @@
 
 **Status:** implemented (adapters, selection, tests, docs — feat/multi-agent-init; `speko doctor`
 + dry-run E2E harness from §6 remain follow-ups)  ·  **Date:** 2026-07-08  ·  **Owner:** Amir (DX)
-**Scope:** extend `npx @spekoai/mcp-calls init` to detect every MCP-capable coding agent on the
+**Scope:** extend `npx @spekoai/mcp-calls init` to detect supported MCP-capable coding clients on the
 machine and register the server into each one's config — *without* changing the current Claude
 Code / Claude Desktop behavior, and with a strategy to guarantee it behaves the same everywhere.
 
@@ -16,9 +16,9 @@ config just points at the same `npx -y @spekoai/mcp-calls` stdio command, and np
 it once. So the wizard's job is: **detect installed agents → write each agent's config in its own
 schema → verify.** No per-agent binaries.
 
-## 2. Current state (what we keep, untouched)
+## 2. Historical starting state (before the multi-agent implementation)
 
-`mcp/src/cli/init.ts` today: Claude Code (`claude mcp add`, idempotent remove→add) + Claude
+The starting implementation supported Claude Code (`claude mcp add`, idempotent remove→add) + Claude
 Desktop (safe read-merge-backup-write). `--client code|desktop|both`. **Zero external deps**
 (Node builtins only). Installs the companion **Skill** to `~/.claude/skills` (Claude-only). Writes
 `{command:"npx",args:["-y","@spekoai/mcp-calls"],env:{SPEKO_API_KEY,SPEKO_CLIENT_PROFILE}}`.
@@ -35,7 +35,7 @@ file-editing at all.
 | Claude Desktop | `claude_desktop_config.json` | `mcpServers` | JSON | (done) |
 | Cursor | `~/.cursor/mcp.json` · `.cursor/mcp.json` | `mcpServers` | JSON | — |
 | Windsurf | `~/.codeium/windsurf/mcp_config.json` | `mcpServers` | JSON | — |
-| Gemini CLI | `~/.gemini/settings.json` · `.gemini/` | `mcpServers` | JSON | ✅ `gemini mcp add` |
+| Gemini CLI | `~/.gemini/settings.json` · `.gemini/` | `mcpServers` | JSON | file writer |
 | VS Code (Copilot) | `.vscode/mcp.json` · settings `"mcp"` | **`servers`** + `type:"stdio"` | JSON | ✅ `code --add-mcp` |
 | Codex CLI | `~/.codex/config.toml` · `.codex/` (trusted only) | **`[mcp_servers.<name>]`** | **TOML** | ✅ `codex mcp add` |
 | Zed | `~/.config/zed/settings.json` | **`context_servers`** (nested `command:{path,args,env}`) | JSON | — |
@@ -67,8 +67,8 @@ interface AgentTarget {
   File-merge only where there's no CLI.
 - `--client` extends: `all` (new default = detect+write everything found) + comma list
   (`cursor,codex`); keep `code|desktop|both` for back-compat.
-- Safeguards (already done for Desktop): read-merge-write, back up first, never clobber other
-  servers, validate before write, `--print-config`/dry-run, fully re-runnable.
+- Safeguards: read-merge-write, back up first, never clobber other servers, validate before write,
+  `--print-config`, and fully re-runnable. A no-write dry-run is not implemented.
 - **Zero-dep constraint:** Codex TOML is trivial — hand-roll the emitter or shell to `codex mcp
   add`; do not pull a TOML dependency.
 
@@ -82,7 +82,7 @@ nested, Cline globalStorage).
 |---|---|---|
 | Protocol / the 6 tools | ✅ identical | one stdio server; same tools/list and schemas; target profile changes only timeout/wait policy |
 | Config format | ⚠️ per-adapter | 4 formats; solvable, it's the bulk of the work |
-| Agent guidance (Skill) | ❌ Claude-only | `SKILL.md` → `~/.claude/skills` only; others have no "skills" |
+| Agent guidance | partial, target-specific | Claude gets the full Skill; Codex/Gemini/Windsurf/Cline/VS Code get a compact card; Cursor/Zed get none |
 | Model reasoning driving the flow | ⚠️ varies | `make_call` is multi-step + safety-sensitive; weaker agents may fumble sequencing |
 
 **The load-bearing point:** capability parity is *structural*, because there is **one server
@@ -102,7 +102,7 @@ its declared profile. Tests assert command/args/key parity plus the exact per-ta
 Codex additionally gets `tool_timeout_sec = 2700`; Cline gets `"timeout": 2700`. Cursor,
 Windsurf, Claude Desktop, VS Code, and Zed use poll-safe behavior where required.
 
-**Test pyramid:**
+**Test pyramid (implemented items and explicit follow-ups):**
 
 1. **Adapter unit tests (CI, deterministic) — per agent:**
    - writes into a fixture config → assert exact resulting file (correct schema: `mcpServers` vs
@@ -112,30 +112,30 @@ Windsurf, Claude Desktop, VS Code, and Zed use poll-safe behavior where required
    - **malformed input:** invalid JSON/TOML left untouched, clear error, non-zero.
    - **detect():** true only when that agent's marker exists; false otherwise.
 
-2. **Handshake smoke test (CI) — reused across all spawn configs:** take each adapter's written
+2. **Planned: handshake smoke test (CI) — reused across all spawn configs:** take each adapter's written
    `(command,args,env)`, spawn it, assert MCP `initialize` + `tools/list` returns the **same 6
    tools with identical input schemas** (snapshot/golden). Because it's one binary this is
    inherently equal — the test proves each spawn *style* actually boots it (catches env/stdin
    issues like Gemini's env sanitization).
 
-3. **Tool-contract snapshot (CI):** freeze the 6 tool names + input schemas. Any change fails
+3. **Planned: strict tool-contract snapshot (CI):** freeze the 6 tool names + input schemas. Any change fails
    until the snapshot is updated → all agents change together, never one-off.
 
-4. **`speko doctor` / `speko init --check` (on-demand, ships to users):** for every *detected*
+4. **Planned: `speko doctor` / `speko init --check`:** for every *detected*
    agent, verify config present + valid + points at the current command; optionally do a live
    `initialize` handshake and a `check_call_readiness` (auth/env passing). This is the answer to
    "is it working the same everywhere right now?" — runnable any time, not just at build.
 
-5. **Live dry-run E2E conformance harness (scriptable CLI agents only):** add a `SPEKO_DRY_RUN`
+5. **Planned: live dry-run E2E conformance harness (scriptable CLI agents only):** add a `SPEKO_DRY_RUN`
    that returns a canned `OUTCOME` with no real call/charge. Drive Claude Code, Codex CLI, Gemini
    CLI with the same transcript ("call <fixture> and ask X") and assert: (i) `lookup_business`
    then `make_call` in order, (ii) disclosure present, (iii) `OUTCOME` surfaced. GUI agents
    (Cursor/Windsurf/VS Code/Cline/Zed) can't be driven headlessly → **manual QA checklist** per
    release.
 
-6. **Guidance parity:** port `SKILL.md` content into each agent's convention (`AGENTS.md` /
-   `.cursor/rules` / Codex project doc); test the artifact is installed. Model behavior itself
-   isn't CI-testable — the harness (5) is the proxy.
+6. **Guidance coverage:** the implemented compact card covers Codex, Gemini, Windsurf, Cline, and
+   VS Code. Claude gets the full Skill. Cursor and Zed remain configuration/manual-only. Model
+   behavior itself is not CI-testable; the planned harness in item 5 is the proxy.
 
 7. **Support matrix doc:** per agent, publish {tested client version, parity level}: **Full**
    (config + guidance + E2E), **Config-only** (config + handshake, manual behavior), **Manual**
@@ -163,8 +163,8 @@ Windsurf, Claude Desktop, VS Code, and Zed use poll-safe behavior where required
 ## 9. Launch-copy guidance
 
 Claim **capability + safety parity**, not identical model behavior:
-> "Works with every MCP-capable coding agent — Claude Code/Desktop, Cursor, Windsurf, VS Code,
-> Codex, Gemini, Cline, Zed. Same tools, same server-enforced safety everywhere."
+> "Works with supported MCP coding clients — Claude Code/Desktop, Cursor, Windsurf, VS Code,
+> Codex, Gemini, and Cline; Zed has a manual snippet. Same server-enforced safety everywhere."
 
 Do **not** claim identical behavior on every model; the guided experience is richest on Claude
 today and AGENTS.md closes the gap.

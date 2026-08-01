@@ -58,7 +58,7 @@ function printHelp(): number {
       "  speko call transcript <id>     the call transcript, one line per turn\n" +
       "  speko call recording <id>      the call's audio recording URL\n" +
       "  speko --help | --version\n\n" +
-      "`status`, `call *` and `audio *` accept --json for machine-readable output.\n",
+      "`status`/`whoami`, `audio speak|transcribe`, `voices`/`models`, `usage`, `credits`, and `call *` accept --json.\n",
   );
   return 0;
 }

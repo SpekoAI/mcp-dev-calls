@@ -45,7 +45,7 @@ describe("check_call_readiness call_me state", () => {
   it("reports a verified owner by last four only and names the retained rails", async () => {
     writeOwnerProfile(
       {
-        ownerPhone: "+13463760044",
+        ownerPhone: "+12025550144",
         ownerName: "Bek",
         instanceId: "11111111-2222-4333-8444-555555555555",
       },
@@ -55,17 +55,17 @@ describe("check_call_readiness call_me state", () => {
       client,
       cfg({ clientProfile: "codex", clientProfileConfigured: true }),
     );
-    expect(r.call_me).toMatchObject({ available: true, owner_phone_last4: "0044", client_profile: "codex" });
-    expect(r.call_me.note).not.toContain("+13463760044");
+    expect(r.call_me).toMatchObject({ available: true, owner_phone_last4: "0144", client_profile: "codex" });
+    expect(r.call_me.note).not.toContain("+12025550144");
     expect(r.call_me.note).toMatch(/does not relax DNC, rate caps, or quiet hours/i);
     expect(r.call_me.note).not.toContain("poll-safe mode");
   });
 
   it("reports the kill switch as unavailable without deleting owner state", async () => {
-    writeOwnerProfile({ ownerPhone: "+13463760044", ownerName: "Bek" }, dir);
+    writeOwnerProfile({ ownerPhone: "+12025550144", ownerName: "Bek" }, dir);
     const r = await checkReadiness(client, cfg({ callMeDisabled: true }));
     expect(r.call_me.available).toBe(false);
-    expect(r.call_me.owner_phone_last4).toBe("0044");
+    expect(r.call_me.owner_phone_last4).toBe("0144");
     expect(r.call_me.note).toContain("SPEKO_CALLME_DISABLED");
   });
 

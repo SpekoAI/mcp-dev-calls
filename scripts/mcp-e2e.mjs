@@ -11,15 +11,32 @@
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { existsSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { resolve } from "node:path";
 
 if (existsSync(".env")) process.loadEnvFile?.(".env");
 
 const bundle = resolve(process.cwd(), "mcp/dist/index.js");
+const isolatedStateDir = resolve(tmpdir(), `speko-mcp-e2e-${process.pid}`);
 const transport = new StdioClientTransport({
   command: process.execPath,
   args: [bundle],
-  env: { ...process.env }, // inherits SPEKO_API_KEY + SPEKO_DEMO* from .env → single-process + demo lookup
+  env: {
+    ...process.env,
+    // Keep this smoke deterministic and offline even when the invoking shell is configured
+    // for a remote backing server or points at real local state.
+    SPEKO_MCP_SERVER_URL: "",
+    SPEKO_API_KEY: "sk_mcp_e2e_offline_fixture",
+    SPEKO_DIAL_TOKEN_SECRET: "mcp-e2e-offline-dial-secret",
+    SPEKO_DEMO: "1",
+    SPEKO_DEMO_E164: "+12025550123",
+    SPEKO_DEMO_BUSINESS: "Sakura Sushi",
+    SPEKO_DEMO_LINE_TYPE: "voip",
+    SPEKO_DEMO_UTC_OFFSET: "-420",
+    SPEKO_CLIENT_PROFILE: "safe-default",
+    SPEKO_OWNER_STATE_DIR: isolatedStateDir,
+    SPEKO_GUARD_STATE_DIR: isolatedStateDir,
+  },
   stderr: "ignore",
 });
 
@@ -49,6 +66,10 @@ const callMeProps = callMeTool?.inputSchema?.properties ?? {};
 check(Boolean(callMeProps.message), "call_me exposes message");
 check(Boolean(callMeProps.wait), "call_me exposes wait/get_call recovery mode");
 check(!("phone_number" in callMeProps), "call_me exposes no destination field");
+check(
+  JSON.stringify(callMeTool?.inputSchema?.required ?? []) === JSON.stringify(["message"]),
+  "call_me requires only message",
+);
 
 // read-only preflight
 const r = await client.callTool({ name: "check_call_readiness", arguments: {} });

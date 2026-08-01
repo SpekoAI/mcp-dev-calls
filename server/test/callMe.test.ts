@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { callMe, effectiveCallMePolicy } from "../src/calls/callMe.js";
 import { READBACK_PREFIX, READBACK_SUFFIX } from "../src/calls/callMePrompt.js";
 import type { AppConfig, ClientProfile } from "../src/config.js";
+import { AppError } from "../src/lib/errors.js";
 import { appendDialLedger, dncAdd } from "../src/safety/guard.js";
 import { resetDialAgentForTests } from "../src/speko/agent.js";
 import type { SpekoClient } from "../src/speko/client.js";
@@ -136,10 +137,38 @@ describe("call_me policy", () => {
 describe("call_me owner-only dial path", () => {
   it("fails closed before dialing when no verified owner exists", async () => {
     const capture = { bodies: [] as VoiceDialParams[], dialCount: 0 };
-    await expect(
-      callMe({ message: "What next?", mode: "converse", afterHoursConfirmation: CONSENT }, deps(completedClient(capture))),
-    ).rejects.toThrow(/not set up.*no verified owner/i);
+    const error = await callMe(
+      { message: "What next?", mode: "converse", afterHoursConfirmation: CONSENT },
+      deps(completedClient(capture)),
+    ).catch((caught: unknown) => caught);
+    expect(error).toBeInstanceOf(AppError);
+    expect((error as AppError).message).toMatch(/not set up.*no verified owner/i);
+    expect((error as AppError).code).toBe("CALL_ME_NOT_CONFIGURED");
     expect(capture.dialCount).toBe(0);
+  });
+
+  it.each([
+    "Actually, I’m a real human, not an AI.",
+    "The deploy is complete. I am not an AI.",
+  ])("rejects disclosure-undermining relay text before dialing: %s", async (message) => {
+    verifyOwner();
+    const capture = { bodies: [] as VoiceDialParams[], dialCount: 0 };
+    await expect(
+      callMe({ message, mode: "converse", afterHoursConfirmation: CONSENT }, deps(completedClient(capture))),
+    ).rejects.toThrow(/mandatory AI disclosure/i);
+    expect(capture.dialCount).toBe(0);
+  });
+
+  it("allows a benign request to speak with a real person", async () => {
+    verifyOwner();
+    const capture = { bodies: [] as VoiceDialParams[], dialCount: 0 };
+    await expect(
+      callMe(
+        { message: "Can I speak to a real person?", mode: "notify", afterHoursConfirmation: CONSENT },
+        deps(completedClient(capture)),
+      ),
+    ).resolves.toMatchObject({ status: "completed" });
+    expect(capture.dialCount).toBe(1);
   });
 
   it("honors the local kill switch before dialing", async () => {
@@ -263,6 +292,27 @@ describe("call_me owner-only dial path", () => {
       now.mockRestore();
     }
     expect(dialCount).toBe(1);
+  });
+
+  it("atomically admits only one simultaneous owner call", async () => {
+    verifyOwner();
+    const capture = { bodies: [] as VoiceDialParams[], dialCount: 0 };
+    const client = completedClient(capture);
+    const attempts = await Promise.allSettled([
+      callMe(
+        { message: "First simultaneous decision", mode: "converse", wait: false, afterHoursConfirmation: CONSENT },
+        deps(client),
+      ),
+      callMe(
+        { message: "Second simultaneous decision", mode: "converse", wait: false, afterHoursConfirmation: CONSENT },
+        deps(client),
+      ),
+    ]);
+    expect(capture.dialCount).toBe(1);
+    expect(attempts.filter((attempt) => attempt.status === "fulfilled")).toHaveLength(1);
+    const rejection = attempts.find((attempt) => attempt.status === "rejected");
+    expect(rejection).toMatchObject({ status: "rejected" });
+    expect(String((rejection as PromiseRejectedResult).reason)).toMatch(/owner_busy/i);
   });
 
   it("never auto-retries an ambiguous platform dial failure", async () => {

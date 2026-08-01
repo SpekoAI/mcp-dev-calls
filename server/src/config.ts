@@ -57,14 +57,23 @@ export interface DemoConfig {
   address: string;
 }
 
-export type ClientProfile =
-  | "claude-code"
-  | "codex"
-  | "cline"
-  | "gemini"
-  | "cursor"
-  | "windsurf"
-  | "safe-default";
+export const CLIENT_PROFILES = [
+  "claude-code",
+  "codex",
+  "cline",
+  "gemini",
+  "cursor",
+  "windsurf",
+  "safe-default",
+] as const;
+
+export type ClientProfile = (typeof CLIENT_PROFILES)[number];
+
+export function parseClientProfile(raw: unknown): { profile: ClientProfile; configured: boolean } {
+  const value = typeof raw === "string" ? raw.trim() : "";
+  const configured = (CLIENT_PROFILES as readonly string[]).includes(value);
+  return { profile: configured ? (value as ClientProfile) : "safe-default", configured };
+}
 
 export interface AppConfig {
   port: number;
@@ -171,18 +180,7 @@ export function loadConfig(): AppConfig {
   const twilioToken = (process.env.TWILIO_LOOKUP_TOKEN ?? "").trim();
 
   const rawClientProfile = (process.env.SPEKO_CLIENT_PROFILE ?? "").trim();
-  const knownClientProfiles = new Set<ClientProfile>([
-    "claude-code",
-    "codex",
-    "cline",
-    "gemini",
-    "cursor",
-    "windsurf",
-    "safe-default",
-  ]);
-  const clientProfile = knownClientProfiles.has(rawClientProfile as ClientProfile)
-    ? (rawClientProfile as ClientProfile)
-    : "safe-default";
+  const parsedClientProfile = parseClientProfile(rawClientProfile);
 
   cached = {
     port: (() => {
@@ -225,8 +223,8 @@ export function loadConfig(): AppConfig {
       (process.env.SPEKO_OWNER_STATE_DIR ?? process.env.SPEKO_GUARD_STATE_DIR ?? "").trim() || undefined,
     rateCapPerNumberHour: positiveIntEnv("SPEKO_MAX_CALLS_PER_NUMBER_HOUR", RATE_CAP_PER_NUMBER_HOUR),
     rateCapPerNumberDay: positiveIntEnv("SPEKO_MAX_CALLS_PER_NUMBER_DAY", RATE_CAP_PER_NUMBER_DAY),
-    clientProfile,
-    clientProfileConfigured: rawClientProfile.length > 0 && knownClientProfiles.has(rawClientProfile as ClientProfile),
+    clientProfile: parsedClientProfile.profile,
+    clientProfileConfigured: parsedClientProfile.configured,
     callMeDisabled: ["1", "true", "yes", "on"].includes(
       (process.env.SPEKO_CALLME_DISABLED ?? "").trim().toLowerCase(),
     ),

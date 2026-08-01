@@ -25,6 +25,8 @@ Calls cost money and reach real people — use them deliberately, never for expl
 - Business by name → \`lookup_business\` (mints a signed \`dial_token\`) → \`make_call\`.
 - Number the user gave you or you found from an official source → \`call_number\`
   (business or personal, mobiles OK). Never dial a number you invented.
+- Need a decision from this install's verified owner → \`call_me\`; never supply or infer a
+  destination. Treat only its canonical read-back-confirmed instruction as actionable.
 - Wait for the result: tools return an \`OUTCOME:\` line + transcript with honest
   \`connected\`/\`answered\`/\`not_connected\`. Report that outcome truthfully — never invent one.
 - Re-check a call with \`get_call(call_id)\`; debug setup with \`check_call_readiness()\`.

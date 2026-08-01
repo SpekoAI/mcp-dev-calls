@@ -3,6 +3,7 @@ import {
   chmodSync,
   closeSync,
   existsSync,
+  fsyncSync,
   mkdirSync,
   openSync,
   readFileSync,
@@ -16,6 +17,7 @@ import { resolveGuardStateDir } from "../safety/guard.js";
 
 const OWNER_FILE = "owner.json";
 const OTP_LEDGER_FILE = "owner-verification.jsonl";
+const OWNER_CALL_LEDGER_FILE = "owner-call-leases.jsonl";
 const OTP_TTL_MS = 10 * 60 * 1000;
 const OTP_MAX_ATTEMPTS = 3;
 const OTP_MAX_CALLS_PER_DAY = 3;
@@ -38,6 +40,19 @@ export interface OwnerVerificationChallenge {
   created_at_ms: number;
   expires_at_ms: number;
   attempts_remaining: number;
+}
+
+export interface OwnerCallLease {
+  token: string;
+  ownerPhone: string;
+  instanceId: string;
+  mode: "notify" | "converse";
+  message: string;
+  context: string | null;
+  createdAtMs: number;
+  expiresAtMs: number;
+  callId: string | null;
+  released: boolean;
 }
 
 export type OwnerVerificationCheck = "verified" | "invalid" | "expired" | "attempts_exhausted";
@@ -120,14 +135,15 @@ export function writeOwnerProfile(
     throw new Error("Owner instance id must be a UUID.");
   }
 
-  const existing = readOwnerProfile(dir);
   const profile: OwnerProfile = {
     version: 1,
     owner_phone: phone,
     owner_name: input.ownerName.trim(),
     phone_verified_at: verifiedAt,
     verify_method: "voice_otp",
-    instance_id: input.instanceId ?? existing?.instance_id ?? randomUUID(),
+    // Every successful verification starts a new ownership epoch. Old call bindings must not be
+    // promotable as instructions after a number is re-verified or ownership changes.
+    instance_id: input.instanceId ?? randomUUID(),
   };
 
   ensurePrivateDir(dir);
@@ -173,24 +189,51 @@ export function checkOwnerVerificationCode(
   return challenge.attempts_remaining > 0 ? "invalid" : "attempts_exhausted";
 }
 
-function recentOtpCalls(dir: string, phone: string, nowMs: number): number {
-  let lines: string[];
+function appendLedgerRow(dir: string, file: string, row: Record<string, unknown>): void {
+  ensurePrivateDir(dir);
+  const path = join(dir, file);
+  const payload = Buffer.from(`${JSON.stringify(row)}\n`, "utf8");
+  const fd = openSync(path, "a", 0o600);
   try {
-    lines = readFileSync(join(dir, OTP_LEDGER_FILE), "utf8").split(/\r?\n/).filter(Boolean);
+    // One O_APPEND syscall gives all processes a single byte order. A short write leaves a
+    // partial tail, which replay treats as corrupt and therefore fails closed before any dial.
+    const written = writeSync(fd, payload, 0, payload.length, null);
+    if (written !== payload.length) throw new Error(`Short append to ${file}.`);
+    fsyncSync(fd);
+  } finally {
+    closeSync(fd);
+  }
+  try {
+    chmodSync(path, 0o600);
   } catch {
-    return 0;
+    // Best effort on non-POSIX systems.
   }
-  let count = 0;
-  for (const line of lines) {
-    try {
-      const row = JSON.parse(line) as Record<string, unknown>;
-      const ts = typeof row.ts === "string" ? Date.parse(row.ts) : NaN;
-      if (row.e164 === phone && Number.isFinite(ts) && ts <= nowMs && nowMs - ts < DAY_MS) count += 1;
-    } catch {
-      // Ignore corrupt historical rows; never infer verification from this ledger.
-    }
+}
+
+function readLedgerRows(dir: string, file: string): Record<string, unknown>[] {
+  let raw: string;
+  try {
+    raw = readFileSync(join(dir, file), "utf8");
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return [];
+    throw error;
   }
-  return count;
+  if (raw && !raw.endsWith("\n")) throw new Error(`${file} has a partial record; refusing to dial.`);
+  return raw
+    .split(/\r?\n/)
+    .filter(Boolean)
+    .map((line) => {
+      let parsed: unknown;
+      try {
+        parsed = JSON.parse(line) as unknown;
+      } catch {
+        throw new Error(`${file} contains a corrupt record; refusing to dial.`);
+      }
+      if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+        throw new Error(`${file} contains an invalid record; refusing to dial.`);
+      }
+      return parsed as Record<string, unknown>;
+    });
 }
 
 /**
@@ -205,23 +248,213 @@ export function reserveOwnerVerificationCall(
   if (!phone) throw new Error("Owner phone must be a NANP number in +1XXXXXXXXXX format.");
   const dir = opts.dir ?? resolveOwnerStateDir();
   const nowMs = opts.nowMs ?? Date.now();
-  const used = recentOtpCalls(dir, phone, nowMs);
-  if (used >= OTP_MAX_CALLS_PER_DAY) {
+  const token = randomUUID();
+  appendLedgerRow(dir, OTP_LEDGER_FILE, {
+    v: 2,
+    type: "reserve",
+    id: token,
+    ts_ms: nowMs,
+    ts: new Date(nowMs).toISOString(),
+    e164: phone,
+  });
+
+  const accepted = new Map<string, number[]>();
+  let candidateAccepted = false;
+  for (const row of readLedgerRows(dir, OTP_LEDGER_FILE)) {
+    const isV2 = row.v === 2 && row.type === "reserve" && typeof row.id === "string";
+    const isLegacy = row.v === undefined && typeof row.ts === "string" && typeof row.e164 === "string";
+    if ((!isV2 && !isLegacy) || typeof row.e164 !== "string") {
+      throw new Error(`${OTP_LEDGER_FILE} contains an invalid reservation; refusing to dial.`);
+    }
+    const eventPhone = normalizeNanpOwnerPhone(row.e164);
+    const eventMs = isV2 && typeof row.ts_ms === "number" ? row.ts_ms : Date.parse(String(row.ts));
+    if (!eventPhone || !Number.isFinite(eventMs)) {
+      throw new Error(`${OTP_LEDGER_FILE} contains an invalid reservation; refusing to dial.`);
+    }
+    const priorAccepted = accepted.get(eventPhone) ?? [];
+    // Keep the full accepted history during replay. A future-dated row must not be able to
+    // discard earlier attempts and then let a rolled-back clock reopen capacity. Prior rows in
+    // the future are therefore counted conservatively, while genuinely older rows expire only
+    // for the decision being made at this event.
+    const recentCount = priorAccepted.filter(
+      (priorMs) => priorMs > eventMs || eventMs - priorMs < DAY_MS,
+    ).length;
+    const eventAccepted = recentCount < OTP_MAX_CALLS_PER_DAY;
+    if (eventAccepted) priorAccepted.push(eventMs);
+    accepted.set(eventPhone, priorAccepted);
+    if (isV2 && row.id === token) candidateAccepted = eventAccepted;
+  }
+  if (!candidateAccepted) {
     throw new Error(
       `Owner verification call limit reached for this number (${OTP_MAX_CALLS_PER_DAY} in 24 hours). Try again after the oldest attempt expires.`,
     );
   }
-  ensurePrivateDir(dir);
-  const path = join(dir, OTP_LEDGER_FILE);
-  const fd = openSync(path, "a", 0o600);
-  try {
-    writeSync(fd, `${JSON.stringify({ ts: new Date(nowMs).toISOString(), e164: phone })}\n`, undefined, "utf8");
-  } finally {
-    closeSync(fd);
+}
+
+function replayOwnerCallLedger(dir: string, nowMs: number): { active: OwnerCallLease | null; leases: OwnerCallLease[] } {
+  const byToken = new Map<string, OwnerCallLease>();
+  let active: OwnerCallLease | null = null;
+  const expireAt = (eventMs: number): void => {
+    if (active && active.expiresAtMs <= eventMs) {
+      active.released = true;
+      active = null;
+    }
+  };
+  for (const row of readLedgerRows(dir, OWNER_CALL_LEDGER_FILE)) {
+    const eventMs = typeof row.at_ms === "number" ? row.at_ms : NaN;
+    if (row.v !== 2 || typeof row.id !== "string" || !Number.isFinite(eventMs)) {
+      throw new Error(`${OWNER_CALL_LEDGER_FILE} contains an invalid event; refusing to dial.`);
+    }
+    expireAt(eventMs);
+    if (row.type === "acquire") {
+      if (
+        typeof row.owner_phone !== "string" ||
+        typeof row.instance_id !== "string" ||
+        (row.mode !== "notify" && row.mode !== "converse") ||
+        typeof row.message !== "string" ||
+        (row.context !== null && typeof row.context !== "string") ||
+        typeof row.pending_until_ms !== "number"
+      ) {
+        throw new Error(`${OWNER_CALL_LEDGER_FILE} contains an invalid acquire event; refusing to dial.`);
+      }
+      if (active) continue;
+      const lease: OwnerCallLease = {
+        token: row.id,
+        ownerPhone: row.owner_phone,
+        instanceId: row.instance_id,
+        mode: row.mode,
+        message: row.message,
+        context: row.context,
+        createdAtMs: eventMs,
+        expiresAtMs: row.pending_until_ms,
+        callId: null,
+        released: false,
+      };
+      byToken.set(row.id, lease);
+      active = lease;
+      continue;
+    }
+    if (row.type === "bind") {
+      if (typeof row.lease_id !== "string" || typeof row.call_id !== "string" || typeof row.hard_until_ms !== "number") {
+        throw new Error(`${OWNER_CALL_LEDGER_FILE} contains an invalid bind event; refusing to dial.`);
+      }
+      if (active?.token === row.lease_id) {
+        active.callId = row.call_id;
+        active.expiresAtMs = row.hard_until_ms;
+      }
+      continue;
+    }
+    if (row.type === "release") {
+      if (typeof row.lease_id !== "string") {
+        throw new Error(`${OWNER_CALL_LEDGER_FILE} contains an invalid release event; refusing to dial.`);
+      }
+      if (active?.token === row.lease_id) {
+        active.released = true;
+        active = null;
+      }
+      continue;
+    }
+    throw new Error(`${OWNER_CALL_LEDGER_FILE} contains an unknown event; refusing to dial.`);
   }
-  try {
-    chmodSync(path, 0o600);
-  } catch {
-    // Best effort on non-POSIX systems.
+  expireAt(nowMs);
+  return { active, leases: [...byToken.values()] };
+}
+
+/** Append a contender before any await; file order makes check-and-reserve cross-process atomic. */
+export function beginOwnerCallLease(
+  input: {
+    ownerPhone: string;
+    instanceId: string;
+    mode: "notify" | "converse";
+    message: string;
+    context: string | null;
+    ttlMs: number;
+  },
+  opts: { dir?: string; nowMs?: number } = {},
+): { token: string; active: OwnerCallLease } {
+  const phone = normalizeNanpOwnerPhone(input.ownerPhone);
+  if (!phone) throw new Error("Owner phone must be a NANP number in +1XXXXXXXXXX format.");
+  const dir = opts.dir ?? resolveOwnerStateDir();
+  const nowMs = opts.nowMs ?? Date.now();
+  const token = randomUUID();
+  appendLedgerRow(dir, OWNER_CALL_LEDGER_FILE, {
+    v: 2,
+    id: token,
+    type: "acquire",
+    at_ms: nowMs,
+    pending_until_ms: nowMs + input.ttlMs,
+    owner_phone: phone,
+    instance_id: input.instanceId,
+    mode: input.mode,
+    message: input.message,
+    context: input.context,
+  });
+  const active = replayOwnerCallLedger(dir, nowMs).active;
+  if (!active) throw new Error("Owner-call lease could not be read after reservation.");
+  return { token, active };
+}
+
+export function currentOwnerCallLease(
+  ownerPhone: string,
+  opts: { dir?: string; nowMs?: number } = {},
+): OwnerCallLease | null {
+  const phone = normalizeNanpOwnerPhone(ownerPhone);
+  if (!phone) return null;
+  return replayOwnerCallLedger(opts.dir ?? resolveOwnerStateDir(), opts.nowMs ?? Date.now()).active;
+}
+
+export function bindOwnerCallLease(
+  token: string,
+  callId: string,
+  opts: { dir?: string; nowMs?: number } = {},
+): void {
+  if (!token || !callId) throw new Error("Owner-call lease token and call id are required.");
+  const dir = opts.dir ?? resolveOwnerStateDir();
+  const nowMs = opts.nowMs ?? Date.now();
+  const lease = replayOwnerCallLedger(dir, nowMs).active;
+  if (!lease || lease.token !== token) {
+    throw new Error("Owner-call lease is no longer active.");
   }
+  appendLedgerRow(dir, OWNER_CALL_LEDGER_FILE, {
+    v: 2,
+    id: randomUUID(),
+    type: "bind",
+    lease_id: token,
+    call_id: callId,
+    at_ms: nowMs,
+    hard_until_ms: nowMs + 60 * 60 * 1000,
+  });
+}
+
+export function releaseOwnerCallLease(token: string, opts: { dir?: string; nowMs?: number } = {}): void {
+  if (!token) return;
+  const dir = opts.dir ?? resolveOwnerStateDir();
+  const nowMs = opts.nowMs ?? Date.now();
+  appendLedgerRow(dir, OWNER_CALL_LEDGER_FILE, {
+    v: 2,
+    id: randomUUID(),
+    type: "release",
+    lease_id: token,
+    at_ms: nowMs,
+  });
+}
+
+export function releaseOwnerCallLeaseByCallId(
+  callId: string,
+  opts: { dir?: string; nowMs?: number } = {},
+): void {
+  const dir = opts.dir ?? resolveOwnerStateDir();
+  const nowMs = opts.nowMs ?? Date.now();
+  const active = replayOwnerCallLedger(dir, nowMs).active;
+  if (active?.callId === callId) releaseOwnerCallLease(active.token, { dir, nowMs });
+}
+
+/** Trusted local binding used to decide whether get_call may expose owner-instruction fields. */
+export function readOwnerCallBinding(
+  callId: string,
+  opts: { dir?: string; nowMs?: number } = {},
+): OwnerCallLease | null {
+  const dir = opts.dir ?? resolveOwnerStateDir();
+  const nowMs = opts.nowMs ?? Date.now();
+  return replayOwnerCallLedger(dir, nowMs).leases.find((lease) => lease.callId === callId) ?? null;
 }

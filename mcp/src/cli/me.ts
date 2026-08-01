@@ -3,7 +3,6 @@ import { createInterface } from "node:readline";
 import { loadEnv } from "../lib/env.js";
 
 interface Flags {
-  token?: string;
   phone?: string;
   name?: string;
   yes: boolean;
@@ -28,8 +27,7 @@ function parseFlags(argv: string[]): Flags {
   const flags: Flags = { yes: false };
   for (let i = 0; i < argv.length; i += 1) {
     const arg = argv[i];
-    if (arg === "--token") flags.token = argv[++i];
-    else if (arg === "--phone") flags.phone = argv[++i];
+    if (arg === "--phone") flags.phone = argv[++i];
     else if (arg === "--name") flags.name = argv[++i];
     else if (arg === "--yes" || arg === "-y") flags.yes = true;
   }
@@ -39,7 +37,7 @@ function parseFlags(argv: string[]): Flags {
 function usage(io: MeIo): number {
   io.write(
     "Usage:\n" +
-      "  speko me verify [--phone +1XXXXXXXXXX] [--name NAME] [--token sk_...]\n" +
+      "  speko me verify [--phone +1XXXXXXXXXX] [--name NAME]\n" +
       "  speko me status\n\n" +
       "Verification places one real, disclosed call and asks you to enter its six-digit code.\n",
   );
@@ -54,12 +52,22 @@ type CoreModule = Awaited<ReturnType<typeof coreModule>>;
 
 export interface MeDeps {
   loadCore?: () => Promise<CoreModule>;
+  apiKey?: string;
+  env?: NodeJS.ProcessEnv;
 }
 
 export async function runMe(argv: string[], io: MeIo = defaultIo, deps: MeDeps = {}): Promise<number> {
   const command = argv[0];
   if (command !== "verify" && command !== "status") return usage(io);
   loadEnv();
+  const env = deps.env ?? process.env;
+  if ((env.SPEKO_MCP_SERVER_URL ?? "").trim()) {
+    io.write(
+      "call_me owner state belongs to the configured backing server. Run `speko status` for remote readiness, " +
+        "or run `speko me verify`/`speko me status` on that server host with SPEKO_MCP_SERVER_URL unset.\n",
+    );
+    return 1;
+  }
   const core = await (deps.loadCore ?? coreModule)();
 
   if (command === "status") {
@@ -76,7 +84,7 @@ export async function runMe(argv: string[], io: MeIo = defaultIo, deps: MeDeps =
   }
 
   const flags = parseFlags(argv.slice(1));
-  const key = (flags.token ?? process.env.SPEKO_API_KEY ?? process.env.SPEKOAI_API_KEY ?? "")
+  const key = (deps.apiKey ?? env.SPEKO_API_KEY ?? env.SPEKOAI_API_KEY ?? "")
     .trim()
     .replace(/^Bearer\s+/, "");
   if (!key) {
@@ -107,9 +115,9 @@ export async function runMe(argv: string[], io: MeIo = defaultIo, deps: MeDeps =
     }
   }
 
-  process.env.SPEKO_API_KEY = key;
-  if (!(process.env.SPEKO_DIAL_TOKEN_SECRET ?? "").trim()) {
-    process.env.SPEKO_DIAL_TOKEN_SECRET = randomBytes(32).toString("hex");
+  env.SPEKO_API_KEY = key;
+  if (!(env.SPEKO_DIAL_TOKEN_SECRET ?? "").trim()) {
+    env.SPEKO_DIAL_TOKEN_SECRET = randomBytes(32).toString("hex");
   }
   const cfg = core.loadConfig();
   const ctx = core.buildContext(cfg);

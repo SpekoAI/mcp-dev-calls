@@ -2,7 +2,7 @@ import { MCPTool } from "mcp-framework";
 import { z } from "zod";
 import { getServerClient } from "../http/serverClient.js";
 import { clampCallWait, startCallProgress } from "./_shared/callProgress.js";
-import { summarizeCallResult } from "./_shared/callSummary.js";
+import { summarizeCallResult, summarizeOwnerCallResult } from "./_shared/callSummary.js";
 
 const schema = z.object({
   message: z
@@ -14,6 +14,7 @@ const schema = z.object({
     ),
   mode: z
     .enum(["notify", "converse"])
+    .optional()
     .default("converse")
     .describe(
       "'notify' delivers the message; 'converse' also relays the spoken reply after a mandatory read-back confirmation.",
@@ -35,28 +36,17 @@ const schema = z.object({
     .int()
     .min(30)
     .max(300)
+    .optional()
     .default(180)
     .describe("Maximum call duration. Gemini is server-clamped to 240 seconds; all other profiles to 300."),
   wait: z
     .boolean()
+    .optional()
     .default(true)
     .describe(
       "false returns after placement with a call_id; poll get_call. Cursor, Windsurf, and safe-default profiles force false.",
     ),
 });
-
-function summarizeOwnerCall(result: Record<string, unknown>): string {
-  const ownerReply = typeof result.owner_reply === "string" ? result.owner_reply : null;
-  const confirmation = typeof result.confirmation === "string" ? result.confirmation : null;
-  const nextStep = typeof result.next_step === "string" ? result.next_step : null;
-  if (ownerReply) {
-    return `${confirmation ? `Confirmation: ${confirmation}. ` : ""}${ownerReply}${nextStep ? ` ${nextStep}` : ""}`;
-  }
-  if (result.status === "dialing") {
-    return nextStep ?? "The owner call was placed. Poll get_call until it finishes; do not dial again.";
-  }
-  return summarizeCallResult(result, { retryTool: null });
-}
 
 export default class CallMeTool extends MCPTool {
   name = "call_me";
@@ -96,7 +86,14 @@ export default class CallMeTool extends MCPTool {
         },
         { timeoutMs: (maxWait + 30) * 1000, signal: this.abortSignal },
       )) as Record<string, unknown>;
-      return { summary: summarizeOwnerCall(result), ...result };
+      return {
+        summary:
+          summarizeOwnerCallResult(result) ??
+          (result.status === "dialing"
+            ? "The owner call was placed. Poll get_call until it finishes; do not dial again."
+            : summarizeCallResult(result, { retryTool: null })),
+        ...result,
+      };
     } finally {
       stopProgress();
     }

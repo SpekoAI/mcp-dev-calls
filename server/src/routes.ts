@@ -1,5 +1,6 @@
 import type { NextFunction, Request, RequestHandler, Response, Router } from "express";
 import { z } from "zod";
+import { parseClientProfile, type AppConfig } from "./config.js";
 import { callNumber } from "./calls/callNumber.js";
 import { callMe } from "./calls/callMe.js";
 import { describeCall } from "./calls/getCall.js";
@@ -66,6 +67,12 @@ function parse<S extends z.ZodTypeAny>(schema: S, body: unknown): z.output<S> {
     });
   }
   return r.data;
+}
+
+function requestProfileConfig(req: Request, cfg: AppConfig): AppConfig {
+  const header = req.headers["x-speko-client-profile"];
+  const parsed = parseClientProfile(typeof header === "string" ? header : "");
+  return { ...cfg, clientProfile: parsed.profile, clientProfileConfigured: parsed.configured };
 }
 
 export function registerRoutes(router: Router, ctx: ServerContext): void {
@@ -145,7 +152,7 @@ export function registerRoutes(router: Router, ctx: ServerContext): void {
           maxDurationSeconds: b.max_duration_seconds,
           wait: b.wait,
         },
-        { client: ctx.client, cfg: ctx.cfg, bearerHash: ctx.bearerHash },
+        { client: ctx.client, cfg: requestProfileConfig(req, ctx.cfg), bearerHash: ctx.bearerHash },
       );
       res.json(summary);
     }),
@@ -153,8 +160,8 @@ export function registerRoutes(router: Router, ctx: ServerContext): void {
 
   router.get(
     "/readiness",
-    asyncHandler(async (_req, res) => {
-      const report = await checkReadiness(ctx.client, ctx.cfg);
+    asyncHandler(async (req, res) => {
+      const report = await checkReadiness(ctx.client, requestProfileConfig(req, ctx.cfg));
       res.json(report);
     }),
   );
@@ -167,7 +174,7 @@ export function registerRoutes(router: Router, ctx: ServerContext): void {
       if (!id) {
         throw new AppError("Missing call id.", { statusCode: 400, nextStep: "Call GET /call/<call_id>." });
       }
-      const summary = await describeCall(id, ctx.client, ctx.cfg.dashboardBaseUrl);
+      const summary = await describeCall(id, ctx.client, ctx.cfg.dashboardBaseUrl, ctx.cfg.ownerStateDir);
       res.json(summary);
     }),
   );

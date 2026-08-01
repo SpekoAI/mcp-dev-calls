@@ -4,7 +4,7 @@
  * local owner readiness for call_me. The local profile is a setup/consent artifact;
  * it never relaxes call rails.
  */
-import type { AppConfig, ClientProfile } from "../config.js";
+import { parseClientProfile, type AppConfig, type ClientProfile } from "../config.js";
 import { MIN_CALL_BALANCE_USD } from "../constants.js";
 import { readOwnerProfile } from "../owner/state.js";
 import { isAuthFailure, type SpekoClient } from "../speko/client.js";
@@ -14,22 +14,9 @@ const NOT_CONNECTED_GUIDANCE =
   "If it returns not_connected, follow the returned reason; it distinguishes a dial/setup failure, " +
   "destination no-answer, or an unconfirmed connection.";
 
-const CLIENT_PROFILES = new Set<ClientProfile>([
-  "claude-code",
-  "codex",
-  "cline",
-  "gemini",
-  "cursor",
-  "windsurf",
-  "safe-default",
-]);
-
 function readinessClientProfile(cfg?: AppConfig): { profile: ClientProfile; configured: boolean } {
   if (cfg) return { profile: cfg.clientProfile, configured: cfg.clientProfileConfigured };
-  const raw = (process.env.SPEKO_CLIENT_PROFILE ?? "").trim();
-  return CLIENT_PROFILES.has(raw as ClientProfile)
-    ? { profile: raw as ClientProfile, configured: true }
-    : { profile: "safe-default", configured: false };
+  return parseClientProfile(process.env.SPEKO_CLIENT_PROFILE);
 }
 
 export async function checkReadiness(client: SpekoClient, cfg?: AppConfig): Promise<ReadinessReport> {
@@ -133,7 +120,7 @@ export async function checkReadiness(client: SpekoClient, cfg?: AppConfig): Prom
     ? `call_me is disabled by SPEKO_CALLME_DISABLED.${profileNote}`
     : owner
       ? `call_me is set up for the verified owner ending in ${owner.owner_phone.slice(-4)}. Local verification does not relax DNC, rate caps, or quiet hours.${profileNote}`
-      : `call_me is not set up: run \`speko me verify\` (or \`npx @spekoai/mcp-calls init\`) to verify your number.${profileNote}`;
+      : `call_me is not set up: run \`speko me verify\` on the host running this call backend (or run \`npx @spekoai/mcp-calls init\` there) to verify your number.${profileNote}`;
 
   return {
     auth: { ok: authOk, error: creditsError ?? numbersError },

@@ -20,8 +20,8 @@
       "environmentVariables": [
         {
           "name": "SPEKO_API_KEY",
-          "description": "Your Speko API key (sk_...). Get one at https://platform.speko.dev. The MCP runs single-process and calls api.speko.dev directly. Easiest setup: `npx @spekoai/mcp-calls init`.",
-          "isRequired": true,
+          "description": "Required in default single-process mode. Your Speko API key (sk_...); get one at https://platform.speko.dev. In remote mode this key belongs on the backing server instead.",
+          "isRequired": false,
           "isSecret": true,
           "format": "string"
         },
@@ -34,9 +34,16 @@
         },
         {
           "name": "SPEKO_CLIENT_PROFILE",
-          "description": "Client timeout profile written by the init wizard. Unknown or missing values use a poll-safe default for call_me.",
+          "description": "Client timeout profile written by init. In remote mode the MCP forwards only a known profile; unknown or missing values use poll-safe defaults.",
           "isRequired": false,
           "isSecret": false,
+          "format": "string"
+        },
+        {
+          "name": "MCP_INTERNAL_KEY",
+          "description": "Optional shared secret for remote mode. Set the same value on the MCP client and backing server; required when that server binds a non-loopback address.",
+          "isRequired": false,
+          "isSecret": true,
           "format": "string"
         }
       ]

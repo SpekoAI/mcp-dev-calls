@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  CONFIRMATION_REMINDER,
   READBACK_PREFIX,
   READBACK_SUFFIX,
   buildCallMeFirstMessage,
@@ -63,12 +64,27 @@ describe("deterministic owner read-back classification", () => {
     });
   });
 
+  it("binds confirmation to the last complete read-back heard before the owner replies", () => {
+    const result = classifyCallMeConfirmation({
+      entries: [
+        agent(readback("Deploy production")),
+        agent(readback("Deploy staging instead")),
+        owner("CONFIRMED"),
+      ],
+    });
+    expect(result).toMatchObject({
+      confirmation: "confirmed",
+      finalInstruction: "Deploy staging instead",
+      correctionRounds: 0,
+    });
+  });
+
   it.each(["Yes.", "Correct.", "Sounds good.", "I think so."])(
     "never treats ambiguous owner reply %s as confirmation",
     (reply) => {
       const result = classifyCallMeConfirmation({ entries: [agent(readback("Merge PR 66")), owner(reply)] });
       expect(result.confirmation).toBe("unconfirmed");
-      expect(result.finalInstruction).toBe("Merge PR 66");
+      expect(result.finalInstruction).toBeNull();
     },
   );
 
@@ -108,12 +124,41 @@ describe("deterministic owner read-back classification", () => {
     expect(result.correctionRounds).toBe(1);
   });
 
+  it("accepts confirmation after exactly one recognizable reminder", () => {
+    const result = classifyCallMeConfirmation({
+      entries: [
+        agent(readback("Deploy staging")),
+        owner("Sounds good."),
+        agent(CONFIRMATION_REMINDER),
+        owner("CONFIRMED"),
+      ],
+    });
+    expect(result).toMatchObject({ confirmation: "confirmed", finalInstruction: "Deploy staging" });
+  });
+
+  it("does not accept a second owner turn before the required reminder", () => {
+    const result = classifyCallMeConfirmation({
+      entries: [agent(readback("Deploy staging")), owner("Sounds good."), owner("CONFIRMED")],
+    });
+    expect(result).toMatchObject({ confirmation: "unconfirmed", finalInstruction: null });
+  });
+
+  it.each(["No.", "Nope", "I don't confirm", "Not confirmed", "That's wrong", "Cancel"])(
+    "keeps refusal %s terminal even if CONFIRMED appears later",
+    (refusal) => {
+      const result = classifyCallMeConfirmation({
+        entries: [agent(readback("Deploy production")), owner(refusal), agent(readback("Deploy production")), owner("CONFIRMED")],
+      });
+      expect(result).toMatchObject({ confirmation: "unconfirmed", finalInstruction: null });
+    },
+  );
+
   it("keeps a correction unconfirmed when it was not read back", () => {
     const result = classifyCallMeConfirmation({
       entries: [agent(readback("Retry POST call")), owner("Correction: never retry POST call."), owner("CONFIRMED")],
     });
     expect(result.confirmation).toBe("unconfirmed");
-    expect(result.finalInstruction).toBe("never retry POST call.");
+    expect(result.finalInstruction).toBeNull();
   });
 
   it("invalidates the old read-back when CORRECTION arrives without its payload", () => {
@@ -122,7 +167,7 @@ describe("deterministic owner read-back classification", () => {
     });
     expect(result).toMatchObject({
       confirmation: "unconfirmed",
-      finalInstruction: "Deploy production",
+      finalInstruction: null,
       correctionRounds: 1,
     });
   });
@@ -144,7 +189,7 @@ describe("deterministic owner read-back classification", () => {
     });
   });
 
-  it("enforces the two-correction maximum and retains the third corrected text", () => {
+  it("enforces the two-correction maximum without promoting the third correction", () => {
     const result = classifyCallMeConfirmation({
       entries: [
         agent(readback("one")),
@@ -157,7 +202,14 @@ describe("deterministic owner read-back classification", () => {
         owner("CONFIRMED"),
       ],
     });
-    expect(result).toMatchObject({ confirmation: "unconfirmed", finalInstruction: "four", correctionRounds: 3 });
+    expect(result).toMatchObject({ confirmation: "unconfirmed", finalInstruction: null, correctionRounds: 3 });
+  });
+
+  it("downgrades a confirmed read-back after an explicit owner retraction", () => {
+    const result = classifyCallMeConfirmation({
+      entries: [agent(readback("Deploy production")), owner("CONFIRMED"), owner("No, that's wrong")],
+    });
+    expect(result).toMatchObject({ confirmation: "unconfirmed", finalInstruction: null });
   });
 });
 
@@ -169,7 +221,7 @@ describe("call_me result decoration", () => {
     connected: true,
     answered: true,
     caller_id: "+15550000000",
-    dialed_number: "+13463760044",
+    dialed_number: "+12005550123",
     outcome: null,
     transcript: { entries: [agent(readback("Deploy staging")), owner("CONFIRMED")] },
     ...over,

@@ -275,7 +275,7 @@ async function offerOwnerVerification(key: string, quick: boolean, nonInteractiv
   const answer = (await ask("\n  Verify your phone for call_me now? [y/N] ")).trim().toLowerCase();
   if (answer !== "y" && answer !== "yes") return;
   try {
-    const code = await runMe(["verify", "--token", key, "--yes"]);
+    const code = await runMe(["verify", "--yes"], undefined, { apiKey: key });
     if (code !== 0) console.log(c.yellow("  Owner verification did not complete; run `speko me verify` later."));
   } catch (error) {
     console.log(
@@ -340,10 +340,12 @@ export async function runInit(argv: string[], mode: "init" | "setup" | "login" =
     }
   }
   if (!key) {
-    console.log(`\n  Opening ${c.cyan(DASHBOARD)} — copy your API key (starts with "sk_"; create one if you just signed up).`);
-    console.log(c.dim(`  (If it doesn't open: visit ${DASHBOARD} → API keys.)\n`));
-    if (!f.yes) await ask("  Press Enter to open your browser… ");
-    openBrowser(DASHBOARD);
+    if (!f.paste) {
+      console.log(`\n  Opening ${c.cyan(DASHBOARD)} — copy your API key (starts with "sk_"; create one if you just signed up).`);
+      console.log(c.dim(`  (If it doesn't open: visit ${DASHBOARD} → API keys.)\n`));
+      if (!f.yes) await ask("  Press Enter to open your browser… ");
+      openBrowser(DASHBOARD);
+    }
     key = await askSecret("  Paste your Speko API key: ");
   }
   if (!key) {

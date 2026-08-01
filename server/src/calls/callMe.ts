@@ -1,16 +1,23 @@
 import type { AppConfig, ClientProfile } from "../config.js";
 import { AppError, RejectionError } from "../lib/errors.js";
-import { readOwnerProfile } from "../owner/state.js";
+import {
+  beginOwnerCallLease,
+  bindOwnerCallLease,
+  currentOwnerCallLease,
+  readOwnerProfile,
+  releaseOwnerCallLease,
+  releaseOwnerCallLeaseByCallId,
+  type OwnerCallLease,
+  type OwnerProfile,
+} from "../owner/state.js";
+import { isDisclosureSafeRelay } from "../safety/prompt.js";
 import type { SpekoClient } from "../speko/client.js";
 import type { CallMeInput, CallSummary } from "../types.js";
 import { callNumber } from "./callNumber.js";
 import { buildCallMeFirstMessage, buildCallMeSystemPrompt } from "./callMePrompt.js";
 import {
-  clearOwnerBusy,
   decorateCallMeSummary,
-  getOwnerBusy,
   isCallMeTerminal,
-  setOwnerBusy,
 } from "./callMeResult.js";
 import { describeCall } from "./getCall.js";
 
@@ -45,33 +52,55 @@ export function effectiveCallMePolicy(input: CallMeInput, cfg: AppConfig): Effec
   };
 }
 
-async function rejectIfOwnerBusy(ownerPhone: string, deps: CallMeDeps): Promise<void> {
-  const busy = getOwnerBusy(ownerPhone);
-  if (!busy) return;
-  // The TTL is only an escape hatch for a dial that failed before returning a call ID. Once a
-  // call ID exists, its authoritative terminal state wins even if the nominal duration elapsed:
-  // platform teardown can lag, and expiring a known live call would allow a second ring.
-  if (!busy.callId && busy.expiresAt <= Date.now()) {
-    clearOwnerBusy(ownerPhone);
-    return;
-  }
-  if (busy.callId) {
+function ownerBusy(active: OwnerCallLease): RejectionError {
+  return new RejectionError(
+    "owner_busy: an owner call is already active for this verified owner, so no second call was placed.",
+    active.callId
+      ? `Wait for get_call('${active.callId}') to finish, then invoke call_me again only if a new call is still needed.`
+      : "Wait for the current owner call to finish before invoking call_me again.",
+  );
+}
+
+async function acquireOwnerLease(owner: OwnerProfile, input: CallMeInput, deps: CallMeDeps): Promise<string> {
+  const dir = deps.cfg.ownerStateDir;
+  const leaseInput = {
+    ownerPhone: owner.owner_phone,
+    instanceId: owner.instance_id,
+    mode: input.mode,
+    message: input.message,
+    context: input.context ?? null,
+    ttlMs: BUSY_UNKNOWN_TTL_MS,
+  } as const;
+  const candidate = beginOwnerCallLease(leaseInput, { dir });
+  if (candidate.active.token === candidate.token) return candidate.token;
+
+  const active = candidate.active;
+  let incumbentTerminal = false;
+  if (active.callId) {
     try {
-      const current = await describeCall(busy.callId, deps.client, deps.cfg.dashboardBaseUrl);
+      const current = await describeCall(active.callId, deps.client, deps.cfg.dashboardBaseUrl, dir);
       if (isCallMeTerminal(current.status)) {
-        clearOwnerBusy(ownerPhone);
-        return;
+        releaseOwnerCallLeaseByCallId(active.callId, { dir });
+        incumbentTerminal = true;
       }
     } catch {
       // Fail closed while an existing call's state cannot be read.
     }
   }
-  throw new RejectionError(
-    "owner_busy: an owner call is already active in this MCP process, so no second call was placed.",
-    busy.callId
-      ? `Wait for get_call('${busy.callId}') to finish, then invoke call_me again only if a new call is still needed.`
-      : "Wait for the current owner call to finish before invoking call_me again.",
-  );
+
+  if (incumbentTerminal) {
+    // The first contender was permanently rejected in append order. Append a fresh acquisition
+    // after the incumbent's release; concurrent contenders then elect exactly one new winner.
+    const retry = beginOwnerCallLease(leaseInput, { dir });
+    if (retry.active.token === retry.token) return retry.token;
+    releaseOwnerCallLease(retry.token, { dir });
+    releaseOwnerCallLease(candidate.token, { dir });
+    throw ownerBusy(retry.active);
+  }
+
+  const winner = currentOwnerCallLease(owner.owner_phone, { dir }) ?? active;
+  releaseOwnerCallLease(candidate.token, { dir });
+  throw ownerBusy(winner);
 }
 
 function validateInput(input: CallMeInput): void {
@@ -81,6 +110,12 @@ function validateInput(input: CallMeInput): void {
   }
   if (input.context != null && input.context.length > 500) {
     throw new RejectionError("call_me context must be at most 500 characters.", "Shorten the context and retry.");
+  }
+  if (!isDisclosureSafeRelay(message)) {
+    throw new RejectionError(
+      "call_me message cannot contradict the mandatory AI disclosure.",
+      "Rewrite the message without claiming that the assistant is human or is not an AI.",
+    );
   }
 }
 
@@ -97,12 +132,12 @@ export async function callMe(input: CallMeInput, deps: CallMeDeps): Promise<Call
     throw new RejectionError(
       "call_me is not set up: no verified owner phone.",
       "Run `speko me verify` (or `npx @spekoai/mcp-calls init`) to verify your number, then retry.",
+      "CALL_ME_NOT_CONFIGURED",
     );
   }
 
-  await rejectIfOwnerBusy(owner.owner_phone, deps);
   const policy = effectiveCallMePolicy(input, deps.cfg);
-  setOwnerBusy(owner.owner_phone, { callId: null, expiresAt: Date.now() + BUSY_UNKNOWN_TTL_MS });
+  const leaseToken = await acquireOwnerLease(owner, input, deps);
 
   try {
     const summary = await callNumber(
@@ -148,17 +183,11 @@ export async function callMe(input: CallMeInput, deps: CallMeDeps): Promise<Call
           client_profile: policy.profile,
         },
         returnAfterDial: !policy.wait,
+        onDialAccepted: (callId) => bindOwnerCallLease(leaseToken, callId, { dir: deps.cfg.ownerStateDir }),
       },
     );
 
-    if (summary.call_id && !isCallMeTerminal(summary.status)) {
-      setOwnerBusy(owner.owner_phone, {
-        callId: summary.call_id,
-        expiresAt: Date.now() + BUSY_UNKNOWN_TTL_MS,
-      });
-    } else {
-      clearOwnerBusy(owner.owner_phone);
-    }
+    if (isCallMeTerminal(summary.status)) releaseOwnerCallLease(leaseToken, { dir: deps.cfg.ownerStateDir });
     return decorateCallMeSummary(summary, {
       mode: input.mode,
       message: input.message,
@@ -167,7 +196,9 @@ export async function callMe(input: CallMeInput, deps: CallMeDeps): Promise<Call
     });
   } catch (error) {
     const status = error instanceof AppError ? error.statusCode : 500;
-    if ([400, 401, 402, 403, 404, 422].includes(status)) clearOwnerBusy(owner.owner_phone);
+    if ([400, 401, 402, 403, 404, 422].includes(status)) {
+      releaseOwnerCallLease(leaseToken, { dir: deps.cfg.ownerStateDir });
+    }
     throw error;
   }
 }

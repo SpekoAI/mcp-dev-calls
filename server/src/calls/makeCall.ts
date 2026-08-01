@@ -126,6 +126,8 @@ export interface MakeCallDeps {
   returnAfterDial?: boolean;
   /** Runs once immediately before the first platform dial (used for the OTP-call ledger). */
   beforeDial?: () => void;
+  /** Runs immediately after the platform returns a call id, before polling or returning. */
+  onDialAccepted?: (callId: string) => void;
   /** Internal: set only by makeCall so runPhoneCall unit tests do not write guard state. */
   afterHoursConfirmationForLedger?: string | null;
 }
@@ -363,6 +365,9 @@ export async function makeCall(input: MakeCallInput, deps: MakeCallDeps): Promis
   let beforeDialRecorded = false;
   const beforeDialOnce = (): void => {
     if (beforeDialRecorded) return;
+    // Mark the callback independently so a later ordinary-ledger write failure cannot repeat a
+    // side-effectful OTP reservation during the deleted-agent retry path.
+    beforeDialRecorded = true;
     deps.beforeDial?.();
     appendDialLedger(
       {
@@ -372,7 +377,6 @@ export async function makeCall(input: MakeCallInput, deps: MakeCallDeps): Promis
       },
       deps.cfg.guardStateDir,
     );
-    beforeDialRecorded = true;
   };
 
   const placeCall = async (agentId: string | null): Promise<CallSummary> =>
@@ -606,6 +610,15 @@ async function runPhoneCallInner(
       "Speko returned a dial response with no session id; the call may not have been placed.",
       { statusCode: 502, nextStep: "Do not assume a call is in flight; check recent calls before retrying." },
     );
+  }
+
+  try {
+    deps.onDialAccepted?.(callId);
+  } catch (error) {
+    throw new AppError(`The call was accepted, but its local recovery binding could not be saved: ${(error as Error).message}`, {
+      statusCode: 502,
+      nextStep: `Do not dial again; call '${callId}' may be in progress. Inspect it with get_call('${callId}').`,
+    });
   }
 
   if (deps.returnAfterDial) {

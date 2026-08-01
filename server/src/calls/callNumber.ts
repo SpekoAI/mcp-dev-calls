@@ -47,6 +47,7 @@ export interface CallNumberDeps {
   metadataExtra?: Record<string, string | number | boolean | null>;
   returnAfterDial?: boolean;
   beforeDial?: () => void;
+  onDialAccepted?: (callId: string) => void;
 }
 
 export async function callNumber(input: CallNumberInput, deps: CallNumberDeps): Promise<CallSummary> {
@@ -106,6 +107,7 @@ export async function callNumber(input: CallNumberInput, deps: CallNumberDeps): 
       metadataExtra: deps.metadataExtra,
       returnAfterDial: deps.returnAfterDial,
       beforeDial: deps.beforeDial,
+      onDialAccepted: deps.onDialAccepted,
     },
   );
 }

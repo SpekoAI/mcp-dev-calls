@@ -195,6 +195,18 @@ const DISCLOSURE_UNDERMINING_RE =
   /\b(?:i|you|this)\s*(?:'m|'re|am|are|is)\s+(?:really\s+|actually\s+|totally\s+)?(?:an?\s+)?(?:real\s+|actual\s+|live\s+)?(?:human(?:\s+being)?|person)\b|\b(?:i|you|this)\s*(?:'m|'re|am|are|is)\s+not\s+(?:an?\s+)?(?:ai|a\.i\.|bot|robot|assistant|machine|artificial)\b|\b(?:human|person)\s*,\s*not\s+an?\s+(?:ai|a\.i\.|bot|robot)\b/i;
 
 /**
+ * `call_me` relays the owner's text directly after its AI disclosure. Reject any message
+ * containing a sentence that would contradict that disclosure instead of silently changing the
+ * message. This screen is intentionally narrower than the business-call objective sanitizer:
+ * owner messages such as "Do not deploy" are legitimate content, not speaking directives.
+ */
+export function isDisclosureSafeRelay(message: string): boolean {
+  return splitSentences((message ?? "").trim()).every(
+    (sentence) => !DISCLOSURE_UNDERMINING_RE.test(normalizeApostrophes(sentence)),
+  );
+}
+
+/**
  * Trailing call-management adverbials ("before ending the call", "then hang up") are private
  * execution timing, not the transactional ask, and sound absurd in the spoken opener. Each is
  * anchored at the end only with flat literal alternations, keeping the attacker-influenced

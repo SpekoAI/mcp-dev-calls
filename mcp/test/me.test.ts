@@ -16,10 +16,13 @@ function io(answers: string[] = []) {
 
 const originalApiKey = process.env.SPEKO_API_KEY;
 const originalDialSecret = process.env.SPEKO_DIAL_TOKEN_SECRET;
+const originalServerUrl = process.env.SPEKO_MCP_SERVER_URL;
+const TEST_OWNER = "+12025550144";
 
 beforeEach(() => {
   delete process.env.SPEKO_API_KEY;
   delete process.env.SPEKO_DIAL_TOKEN_SECRET;
+  delete process.env.SPEKO_MCP_SERVER_URL;
 });
 
 afterEach(() => {
@@ -27,6 +30,8 @@ afterEach(() => {
   else process.env.SPEKO_API_KEY = originalApiKey;
   if (originalDialSecret === undefined) delete process.env.SPEKO_DIAL_TOKEN_SECRET;
   else process.env.SPEKO_DIAL_TOKEN_SECRET = originalDialSecret;
+  if (originalServerUrl === undefined) delete process.env.SPEKO_MCP_SERVER_URL;
+  else process.env.SPEKO_MCP_SERVER_URL = originalServerUrl;
 });
 
 function core(overrides: Record<string, unknown> = {}) {
@@ -63,6 +68,7 @@ describe("speko me", () => {
     expect(await runMe(["unknown"], stream.adapter, { loadCore: loadCore as any })).toBe(2);
     expect(loadCore).not.toHaveBeenCalled();
     expect(stream.output.join("")).toContain("speko me verify");
+    expect(stream.output.join("")).not.toContain("--token");
   });
 
   it("reports missing state with the exact verification command", async () => {
@@ -73,15 +79,15 @@ describe("speko me", () => {
 
   it("reports only last four for a verified owner and reiterates retained rails", async () => {
     const stream = io();
-    const owner = { owner_phone: "+13463760044", verify_method: "voice_otp" };
+    const owner = { owner_phone: TEST_OWNER, verify_method: "voice_otp" };
     expect(
       await runMe(["status"], stream.adapter, {
         loadCore: async () => core({ readOwnerProfile: () => owner }) as any,
       }),
     ).toBe(0);
     const output = stream.output.join("");
-    expect(output).toContain("ending 0044");
-    expect(output).not.toContain("+13463760044");
+    expect(output).toContain("ending 0144");
+    expect(output).not.toContain(TEST_OWNER);
     expect(output).toMatch(/never relaxes DNC, rate caps, or quiet hours/i);
   });
 
@@ -90,9 +96,9 @@ describe("speko me", () => {
     const fake = core();
     expect(
       await runMe(
-        ["verify", "--token", "sk_test", "--name", "Bek", "--phone", "+442079460958", "--yes"],
+        ["verify", "--name", "Bek", "--phone", "+442079460958", "--yes"],
         stream.adapter,
-        { loadCore: async () => fake as any },
+        { loadCore: async () => fake as any, apiKey: "sk_test" },
       ),
     ).toBe(1);
     expect(fake.placeOwnerVerificationCall).not.toHaveBeenCalled();
@@ -104,9 +110,9 @@ describe("speko me", () => {
     const fake = core();
     expect(
       await runMe(
-        ["verify", "--token", "sk_test", "--name", "Bek", "--phone", "+13463760044"],
+        ["verify", "--name", "Bek", "--phone", TEST_OWNER],
         stream.adapter,
-        { loadCore: async () => fake as any },
+        { loadCore: async () => fake as any, apiKey: "sk_test" },
       ),
     ).toBe(1);
     expect(fake.placeOwnerVerificationCall).not.toHaveBeenCalled();
@@ -118,25 +124,25 @@ describe("speko me", () => {
     const fake = core();
     expect(
       await runMe(
-        ["verify", "--token", "sk_secret_key", "--name", "Bek", "--phone", "+13463760044", "--yes"],
+        ["verify", "--name", "Bek", "--phone", TEST_OWNER, "--yes"],
         stream.adapter,
-        { loadCore: async () => fake as any },
+        { loadCore: async () => fake as any, apiKey: "sk_secret_key" },
       ),
     ).toBe(0);
     expect(fake.placeOwnerVerificationCall).toHaveBeenCalledWith(
       expect.objectContaining({
-        ownerPhone: "+13463760044",
+        ownerPhone: TEST_OWNER,
         ownerName: "Bek",
         verificationCode: "123456",
       }),
       expect.any(Object),
     );
-    expect(fake.writeOwnerProfile).toHaveBeenCalledWith({ ownerPhone: "+13463760044", ownerName: "Bek" });
+    expect(fake.writeOwnerProfile).toHaveBeenCalledWith({ ownerPhone: TEST_OWNER, ownerName: "Bek" });
     const output = stream.output.join("");
     expect(output).not.toContain("sk_secret_key");
     expect(output).not.toContain("123456");
-    expect(output).not.toContain("+13463760044");
-    expect(output).toContain("ending 0044");
+    expect(output).not.toContain(TEST_OWNER);
+    expect(output).toContain("ending 0144");
   });
 
   it("never writes owner state after three bad code attempts", async () => {
@@ -144,9 +150,9 @@ describe("speko me", () => {
     const fake = core();
     expect(
       await runMe(
-        ["verify", "--token", "sk_test", "--name", "Bek", "--phone", "+13463760044", "--yes"],
+        ["verify", "--name", "Bek", "--phone", TEST_OWNER, "--yes"],
         stream.adapter,
-        { loadCore: async () => fake as any },
+        { loadCore: async () => fake as any, apiKey: "sk_test" },
       ),
     ).toBe(1);
     expect(fake.writeOwnerProfile).not.toHaveBeenCalled();
@@ -160,12 +166,28 @@ describe("speko me", () => {
     });
     expect(
       await runMe(
-        ["verify", "--token", "sk_test", "--name", "Bek", "--phone", "+13463760044", "--yes"],
+        ["verify", "--name", "Bek", "--phone", TEST_OWNER, "--yes"],
         stream.adapter,
-        { loadCore: async () => fake as any },
+        { loadCore: async () => fake as any, apiKey: "sk_test" },
       ),
     ).toBe(1);
     expect(stream.asked).toHaveLength(0);
     expect(fake.writeOwnerProfile).not.toHaveBeenCalled();
+  });
+
+  it.each(["status", "verify"])("rejects remote %s before loading core or prompting", async (command) => {
+    const stream = io(["should not be read"]);
+    const loadCore = vi.fn();
+    const env = { ...process.env, SPEKO_MCP_SERVER_URL: "https://mcp.example.test" };
+    expect(
+      await runMe([command, "--phone", TEST_OWNER, "--yes"], stream.adapter, {
+        loadCore: loadCore as any,
+        apiKey: "sk_test",
+        env,
+      }),
+    ).toBe(1);
+    expect(loadCore).not.toHaveBeenCalled();
+    expect(stream.asked).toHaveLength(0);
+    expect(stream.output.join("")).toContain("backing server");
   });
 });

@@ -15,13 +15,7 @@ export { lookupBusiness } from "./lookup/index.js";
 export { makeCall } from "./calls/makeCall.js";
 export { callNumber } from "./calls/callNumber.js";
 export type { CallNumberInput } from "./calls/callNumber.js";
-export { callMe, effectiveCallMePolicy } from "./calls/callMe.js";
-export { classifyCallMeConfirmation } from "./calls/callMePrompt.js";
-export {
-  callMeMetadata,
-  decorateCallMeSummary,
-  resetCallMeBusyForTests,
-} from "./calls/callMeResult.js";
+export { callMe } from "./calls/callMe.js";
 export { placeOwnerVerificationCall } from "./calls/ownerVerification.js";
 export { checkReadiness } from "./calls/readiness.js";
 export { describeCall } from "./calls/getCall.js";
@@ -33,7 +27,6 @@ export {
   normalizeNanpOwnerPhone,
   readOwnerProfile,
   resolveOwnerStateDir,
-  reserveOwnerVerificationCall,
   writeOwnerProfile,
 } from "./owner/state.js";
 export type { OwnerProfile, OwnerVerificationChallenge } from "./owner/state.js";
