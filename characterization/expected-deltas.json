@@ -190,10 +190,12 @@
   },
   {
     "probeId": "cli.help",
-    "justification": "Cumulative CLI help through 0.7.0, plus portable owner state for headless installs (me export / SPEKO_OWNER_PROFILE): the me command now documents verify|status|export.",
+    "justification": "Cumulative CLI help through 0.7.0, plus portable owner state for headless installs (me export / SPEKO_OWNER_PROFILE): the me command now documents verify|status|export. Then: `speko selftest`, the package-shipped hermetic selftest for agent-platform installs (offline simulation, no key, no real calls), joins the command list.",
     "expectContains": [
       "speko 0.7.0",
       "speko me verify|status|export",
+      "speko selftest",
+      "hermetic self-test of the MCP server",
       "speko dnc",
       "do-not-call",
       "speko usage",

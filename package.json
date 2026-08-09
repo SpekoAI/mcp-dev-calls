@@ -14,7 +14,7 @@
     "build": "npm run build --workspaces",
     "typecheck": "npm run typecheck --workspaces",
     "test": "npm run test --workspaces --if-present",
-    "test:integration": "npm run build && node characterization/coverage-check.mjs && node characterization/run.mjs --target local && node scripts/mcp-e2e.mjs",
+    "test:integration": "npm run build && node characterization/coverage-check.mjs && node characterization/run.mjs --target local && node scripts/mcp-e2e.mjs && node mcp/dist/index.js selftest",
     "dev:server": "npm run dev --workspace server",
     "dev:mcp": "npm run dev --workspace mcp",
     "start:server": "npm run start --workspace server",

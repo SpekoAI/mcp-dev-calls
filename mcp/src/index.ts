@@ -2,6 +2,7 @@
  * Speko Calls entry. One bin, cli + mcp:
  *  • `speko init|setup|login`        → onboarding wizard (may log to stdout).
  *  • `speko status|whoami`           → doctor: key, backend mode, credits, call readiness.
+ *  • `speko selftest`                → hermetic offline self-test (no key, no real calls).
  *  • `speko me verify|status|export` → verify/inspect/export the local call_me owner.
  *  • `speko dnc list|add|remove|check` → local do-not-call guardrail ledger.
  *  • `speko audio speak|transcribe`  → terminal TTS/STT (voice on the CLI).
@@ -22,6 +23,7 @@ import { MCPServer } from "mcp-framework";
 import { runInit } from "./cli/init.js";
 import { runAudio } from "./cli/audio/index.js";
 import { runDnc } from "./cli/dnc.js";
+import { runSelftest } from "./cli/selftest.js";
 import { runStatus } from "./cli/status.js";
 import { runVoices } from "./cli/voices.js";
 import { runUsage } from "./cli/usage.js";
@@ -47,6 +49,7 @@ function printHelp(): number {
       "  speko                          (when launched by an MCP host) the stdio MCP server\n" +
       "  speko init | setup | login     onboarding & auth\n" +
       "  speko status                   health check: key, backend, credits, call readiness (alias: whoami)\n" +
+      "  speko selftest                 hermetic self-test of the MCP server — no key, no network, no real calls\n" +
       "  speko me verify|status|export  verify, inspect, or export the local call_me owner\n" +
       "  speko dnc list|add|remove|check  manage the local do-not-call list\n" +
       '  speko audio speak "<text>"     text-to-speech (TTS)\n' +
@@ -59,7 +62,7 @@ function printHelp(): number {
       "  speko call transcript <id>     the call transcript, one line per turn\n" +
       "  speko call recording <id>      the call's audio recording URL\n" +
       "  speko --help | --version\n\n" +
-      "`status`/`whoami`, `audio speak|transcribe`, `voices`/`models`, `usage`, `credits`, and `call *` accept --json.\n",
+      "`status`/`whoami`, `selftest`, `audio speak|transcribe`, `voices`/`models`, `usage`, `credits`, and `call *` accept --json.\n",
   );
   return 0;
 }
@@ -77,6 +80,7 @@ const CLI: Record<string, () => Promise<number> | number> = {
   login: () => runInit(rest, "login"),
   status: () => runStatus(rest),
   whoami: () => runStatus(rest),
+  selftest: () => runSelftest(rest),
   me: () => runMe(rest),
   dnc: () => runDnc(rest),
   audio: () => runAudio(rest),

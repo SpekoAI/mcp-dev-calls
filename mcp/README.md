@@ -30,6 +30,15 @@ Re-authenticate anytime with `npx @spekoai/mcp-calls login`.
 It runs **single-process**: give it your `SPEKO_API_KEY` and it calls `api.speko.dev`
 directly — no separate server to run.
 
+### Verify the install
+
+```bash
+npx -y @spekoai/mcp-calls selftest
+```
+
+Exercises the whole tool surface against the built-in offline simulation and prints a PASS/FAIL
+verdict per check — no key, no network, no real calls. Exit 0 = green; safe anywhere, including CI.
+
 <details><summary>Manual / CI setup (any MCP client)</summary>
 
 ```bash
@@ -146,6 +155,7 @@ safety rails still run for real.
 Beyond the MCP server, `speko` is also a terminal CLI — run it with a subcommand:
 
 ```bash
+speko selftest                    # hermetic self-test: no key, no network, no real calls
 speko audio speak "<text>"        # text-to-speech (stdin/pipe ok; -o file, --format wav|mp3)
 speko me verify | status | export # verify, inspect, or export the local call_me owner
 speko audio transcribe <file|->   # speech-to-text

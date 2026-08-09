@@ -59,6 +59,8 @@ After a successful connection, the optional final step places one real voice-OTP
 is enabled only if the OTP succeeds. You can run `speko me verify` later. Verification is
 NANP-only in 0.7.0.
 
+`npx -y @spekoai/mcp-calls selftest` verifies any install offline — a hermetic simulation with no key and no real calls.
+
 For headless or ephemeral installs (cloud coding-agent sandboxes), verify once on a machine with
 a terminal, run `speko me export`, and set the printed blob as `SPEKO_OWNER_PROFILE` in the
 sandbox environment (store it like an API key — a secrets manager, not a repo file). The backend
