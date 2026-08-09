@@ -1,6 +1,6 @@
 {
   "name": "@spekoai/mcp-calls",
-  "version": "0.7.0",
+  "version": "0.8.0",
   "description": "Place real, disclosed phone calls to businesses, or call your verified owner when an agent needs input. Single self-contained package: `npx @spekoai/mcp-calls init`.",
   "mcpName": "ai.speko/mcp-calls",
   "type": "module",

@@ -40,7 +40,7 @@ import GetCallTool from "./tools/GetCallTool.js";
 import LookupBusinessTool from "./tools/LookupBusinessTool.js";
 import MakeCallTool from "./tools/MakeCallTool.js";
 
-const VERSION = "0.7.0";
+const VERSION = "0.8.0";
 
 function printHelp(): number {
   process.stderr.write(
