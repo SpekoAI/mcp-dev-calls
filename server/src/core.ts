@@ -7,7 +7,7 @@
  * The MCP's in-process backend builds a context with `buildContext(loadConfig())` and
  * calls these exactly like routes.ts does.
  */
-export { loadConfig, ConfigError, serverBearerHash } from "./config.js";
+export { loadConfig, ConfigError, resetConfigForTests, serverBearerHash } from "./config.js";
 export type { AppConfig, DemoConfig } from "./config.js";
 export { buildContext } from "./http/context.js";
 export type { ServerContext } from "./http/context.js";

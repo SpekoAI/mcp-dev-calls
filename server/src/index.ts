@@ -27,6 +27,16 @@ const LOOPBACK_HOSTS = new Set(["127.0.0.1", "::1", "localhost", "::ffff:127.0.0
 
 function main(): void {
   const cfg = loadConfigOrExit();
+  // Hermetic test mode is single-process (in-process MCP) ONLY. Serving simulated results over
+  // HTTP would let a remote real-mode client mistake fake calls for real ones, so refuse to boot.
+  if (cfg.testMode) {
+    process.stderr.write(
+      "[speko-demo-server] SPEKO_TEST_MODE is an in-process simulation mode; the HTTP server refuses " +
+        "to start under it so simulated results can never be served to a remote client as real. " +
+        "Unset SPEKO_TEST_MODE to run the server.\n",
+    );
+    process.exit(1);
+  }
   // The endpoints place real, credit-debiting calls. Binding a routable interface without the
   // shared-secret gate would expose unauthenticated call placement, so refuse it. (The default
   // is 127.0.0.1, and the npx single-process path never opens this server at all.)

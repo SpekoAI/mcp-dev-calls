@@ -15,7 +15,7 @@
  */
 import { randomBytes } from "node:crypto";
 import type * as Core from "@spekoai/mcp-calls-demo-server/core";
-import { loadEnv, serverEndpoint } from "../lib/env.js";
+import { loadEnv, serverEndpoint, testModeEnabled } from "../lib/env.js";
 
 export class DemoServerError extends Error {
   override name = "DemoServerError";
@@ -230,8 +230,42 @@ export class InProcessBackend implements Backend {
     return this.ready;
   }
 
+  /**
+   * Hermetic test-mode marking (SPEKO_TEST_MODE): every successful tool result carries
+   * `test_mode: true`, and every backend error is prefixed `[SIMULATED]`, so an agent can
+   * never mistake a simulated call — or a simulated rejection — for a real one. A strict
+   * no-op in real mode.
+   */
+  private async withTestModeMarking(work: () => Promise<unknown>): Promise<unknown> {
+    try {
+      const result = await work();
+      if ((await this.isTestMode()) && result && typeof result === "object" && !Array.isArray(result)) {
+        return { ...(result as Record<string, unknown>), test_mode: true };
+      }
+      return result;
+    } catch (e) {
+      if (e instanceof Error && !e.message.startsWith("[SIMULATED]") && (await this.isTestMode())) {
+        e.message = `[SIMULATED] ${e.message}`;
+      }
+      throw e;
+    }
+  }
+
+  private async isTestMode(): Promise<boolean> {
+    try {
+      const { ctx } = await this.init();
+      return ctx.cfg.testMode === true;
+    } catch {
+      // init itself failed (e.g. the test-mode live-key refusal) — that error already
+      // self-describes; surface it untouched.
+      return false;
+    }
+  }
+
   async post(path: string, body: unknown, opts: RequestOptions = {}): Promise<unknown> {
-    return withOpts(opts, { method: "POST", path }, () => this.dispatchPost(path, body));
+    return withOpts(opts, { method: "POST", path }, () =>
+      this.withTestModeMarking(() => this.dispatchPost(path, body)),
+    );
   }
 
   private async dispatchPost(path: string, body: unknown): Promise<unknown> {
@@ -261,7 +295,7 @@ export class InProcessBackend implements Backend {
             afterHoursConfirmation: typeof b.after_hours_confirmation === "string" ? b.after_hours_confirmation : null,
             maxDurationSeconds: typeof b.max_duration_seconds === "number" ? b.max_duration_seconds : undefined,
           },
-          { client: ctx.client, cfg: ctx.cfg, bearerHash: ctx.bearerHash },
+          { client: ctx.client, cfg: ctx.cfg, bearerHash: ctx.bearerHash, ...(ctx.sleep ? { sleep: ctx.sleep } : {}) },
         );
       }
       if (path === "/call-number") {
@@ -278,7 +312,7 @@ export class InProcessBackend implements Backend {
             utcOffsetMinutes: typeof b.utc_offset_minutes === "number" ? b.utc_offset_minutes : undefined,
             maxDurationSeconds: typeof b.max_duration_seconds === "number" ? b.max_duration_seconds : undefined,
           },
-          { client: ctx.client, cfg: ctx.cfg, bearerHash: ctx.bearerHash },
+          { client: ctx.client, cfg: ctx.cfg, bearerHash: ctx.bearerHash, ...(ctx.sleep ? { sleep: ctx.sleep } : {}) },
         );
       }
       if (path === "/call-me") {
@@ -292,7 +326,7 @@ export class InProcessBackend implements Backend {
             maxDurationSeconds: typeof b.max_duration_seconds === "number" ? b.max_duration_seconds : undefined,
             wait: typeof b.wait === "boolean" ? b.wait : true,
           },
-          { client: ctx.client, cfg: ctx.cfg, bearerHash: ctx.bearerHash },
+          { client: ctx.client, cfg: ctx.cfg, bearerHash: ctx.bearerHash, ...(ctx.sleep ? { sleep: ctx.sleep } : {}) },
         );
       }
       throw new DemoServerError(`Unknown backend path: POST ${path}`);
@@ -302,7 +336,9 @@ export class InProcessBackend implements Backend {
   }
 
   async get(path: string, opts: RequestOptions = {}): Promise<unknown> {
-    return withOpts(opts, { method: "GET", path }, () => this.dispatchGet(path));
+    return withOpts(opts, { method: "GET", path }, () =>
+      this.withTestModeMarking(() => this.dispatchGet(path)),
+    );
   }
 
   private async dispatchGet(path: string): Promise<unknown> {
@@ -434,14 +470,28 @@ let cached: Backend | undefined;
 /**
  * Pick the backend: single-process (InProcessBackend) when a SPEKO_API_KEY is present and
  * no explicit remote server is set; otherwise HTTP (ServerClient) to SPEKO_MCP_SERVER_URL.
+ *
+ * SPEKO_TEST_MODE always selects the in-process backend (no key needed — the core self-supplies
+ * a fixture key) and REFUSES to coexist with a configured remote server: hermetic simulation and
+ * a backend that can place real calls must never share a process. The matching live-key refusal
+ * lives in the core's loadConfig, so it also guards direct embedders.
  */
 export function getServerClient(): Backend {
   if (cached) return cached;
   loadEnv();
   const explicitRemote = (process.env.SPEKO_MCP_SERVER_URL ?? "").trim();
   const apiKey = (process.env.SPEKO_API_KEY ?? process.env.SPEKOAI_API_KEY ?? "").trim();
+  const testMode = testModeEnabled(process.env);
 
-  if (apiKey && !explicitRemote) {
+  if (testMode && explicitRemote) {
+    throw new DemoServerError(
+      "SPEKO_TEST_MODE is enabled but SPEKO_MCP_SERVER_URL is set — remote mode and test mode cannot mix " +
+        "in one process; next_step=Unset SPEKO_MCP_SERVER_URL to run the hermetic simulation in-process, " +
+        "or unset SPEKO_TEST_MODE to use the remote server.",
+    );
+  }
+
+  if (testMode || (apiKey && !explicitRemote)) {
     cached = new InProcessBackend();
   } else {
     const endpoint = serverEndpoint();

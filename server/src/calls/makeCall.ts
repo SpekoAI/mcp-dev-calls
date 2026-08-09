@@ -6,7 +6,7 @@
  */
 import { createHash } from "node:crypto";
 import type { VoiceDialParams } from "@spekoai/sdk";
-import { allowedProvidersFromPins, type AppConfig } from "../config.js";
+import { afterHoursTestClock, allowedProvidersFromPins, type AppConfig } from "../config.js";
 import {
   DIAL_TOKEN_DEFAULT_TTL_SECONDS,
   AUTH_NEXT_STEP,
@@ -216,10 +216,15 @@ export async function makeCall(input: MakeCallInput, deps: MakeCallDeps): Promis
 
     if (!deps.skipAfterHoursGate) {
       const collectionMatched = collectionMatch([input.objective, input.behavior, input.context]);
+      // Test mode reads a frozen clock (14:00 destination-local by default; SPEKO_FAKE_NOW
+      // overrides it, test mode only) so the gate is deterministic in CI. Real mode: identity —
+      // real offset, real clock.
+      const gateClock = afterHoursTestClock(deps.cfg, offset);
       const afterHoursReason = afterHoursGateReason(
-        offset,
+        gateClock.utcOffsetMinutes,
         input.afterHoursConfirmation,
         collectionMatched,
+        gateClock.nowSeconds,
       );
       if (afterHoursReason) {
         throw new RejectionError(

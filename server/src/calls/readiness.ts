@@ -106,6 +106,7 @@ export async function checkReadiness(client: SpekoClient, cfg?: AppConfig): Prom
   let headline: string;
   if (!authOk) headline = "Not connected: your Speko key was rejected. Sign in again to continue.";
   else if (!creditsSufficient) headline = "Almost ready: add credits and you can start placing calls.";
+  else if (cfg?.testMode) headline = "Simulated test mode: ready to place simulated calls. No real phone call is ever dialed.";
   else headline = "Ready to place calls.";
 
   const owner = readOwnerProfile(cfg?.ownerStateDir);

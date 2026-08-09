@@ -13,7 +13,7 @@ export interface BusinessCandidate {
 
 export interface LookupResult {
   candidates: BusinessCandidate[];
-  source: "google_places" | "demo" | "agent_provided";
+  source: "google_places" | "demo" | "agent_provided" | "simulated";
 }
 
 export interface CallSummary {

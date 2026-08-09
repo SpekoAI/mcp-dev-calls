@@ -16,6 +16,7 @@ import type { AppConfig } from "../config.js";
 import { RejectionError } from "../lib/errors.js";
 import { dialBlockedReason, lineTypeBlockedReason, mintDialToken } from "../safety/dialToken.js";
 import { offsetFromE164 } from "../safety/timezone.js";
+import { simulatedLookup } from "../speko/fakeClient.js";
 import type { BusinessCandidate, LookupResult } from "../types.js";
 import { demoEnabled, demoLookupCandidate } from "./demo.js";
 import { searchPlaces } from "./places.js";
@@ -78,6 +79,12 @@ export async function lookupBusiness(
   input: { name: string; location?: string | null; phoneNumber?: string | null; utcOffsetMinutes?: number | null },
   deps: LookupDeps,
 ): Promise<LookupResult> {
+  // Hermetic test mode answers first — never Places, Twilio, or the demo env. The minted
+  // dial_token is still real (signed + verified with this process's secret).
+  if (deps.cfg.testMode) {
+    return simulatedLookup(input, deps);
+  }
+
   if (demoEnabled()) {
     return { candidates: [demoLookupCandidate(input, deps.bearerHash)], source: "demo" };
   }

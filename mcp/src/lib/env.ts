@@ -30,6 +30,14 @@ export function loadEnv(): void {
   }
 }
 
+/**
+ * True when SPEKO_TEST_MODE selects the hermetic in-process simulation mode (same accepted
+ * values as the server core's parser: 1/true/yes/on).
+ */
+export function testModeEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
+  return ["1", "true", "yes", "on"].includes((env.SPEKO_TEST_MODE ?? "").trim().toLowerCase());
+}
+
 export interface ServerEndpoint {
   baseUrl: string;
   internalKey: string | undefined;

@@ -108,6 +108,26 @@ and consent artifact, not a privileged trust boundary: owner calls still honor D
 `after_hours_confirmation`. A host-local, cross-process lease makes a second live owner call
 return `owner_busy` without dialing.
 
+## Hermetic test mode
+
+`SPEKO_TEST_MODE=1` runs every tool as a deterministic in-process simulation — no API key, no
+network, no telephony — so any agent platform can exercise all 6 tools offline. Every result
+carries `test_mode: true` and simulated transcripts/outcomes are labeled `[SIMULATED]`; all
+safety rails still run for real.
+
+- `lookup_business` resolves any name to one candidate — "Test Bistro" at `+15005550001` — with
+  a real signed `dial_token`.
+- Magic numbers: `+15005550001` connected + answered (with an OUTCOME line); `+15005550002`
+  `not_connected` (no answer); `+15005550003` connected but nobody responded; any other number
+  behaves like `+15005550001`.
+- `call_me` works out of the box against a pre-seeded fixture owner ("Test Owner",
+  `+1 500 555 0100`); converse mode returns a deterministic confirmed read-back.
+- `SPEKO_FAKE_NOW=<ISO timestamp>` overrides test mode's frozen mid-day clock so the after-hours
+  gate can be tested. It is ignored entirely outside test mode.
+- Refusal invariant: test mode refuses to start tools if a live-looking `SPEKO_API_KEY` (`sk_*`
+  that is not `sk_test_*`) or `SPEKO_MCP_SERVER_URL` is configured — one process can simulate
+  calls or place real ones, never both.
+
 ## CLI
 
 Beyond the MCP server, `speko` is also a terminal CLI — run it with a subcommand:
