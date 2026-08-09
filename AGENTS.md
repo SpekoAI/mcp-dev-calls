@@ -54,7 +54,7 @@ read out to the callee.
 
 ```
 speko init | setup | login        onboarding & auth (browser OAuth; may print to stdout)
-speko me verify | status          verify or inspect the local call_me owner
+speko me verify | status | export verify, inspect, or export the local call_me owner
 speko audio speak "<text>"        text-to-speech (stdin/pipe ok; -o file, --format wav|mp3, --no-play, --json)
 speko audio transcribe <file|url|->  speech-to-text (--lang, --keywords a,b,c, --format txt|md, --json)
 speko voices [--provider <p>]     list voices/providers the router can pick (--json)
@@ -183,6 +183,8 @@ Owner remote-control flow:
 ```
 1. check_call_readiness()
    -> if call_me.available is false, ask the human to run `speko me verify`.
+   -> on a headless install, the human instead runs `speko me export` on a verified
+      machine and sets SPEKO_OWNER_PROFILE (a secret) in this environment.
 
 2. call_me(message: "The task is blocked. Should I deploy staging or stop?", mode: "converse")
    -> act only on a confirmed/corrected owner instruction.

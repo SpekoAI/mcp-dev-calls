@@ -59,6 +59,12 @@ After a successful connection, the optional final step places one real voice-OTP
 is enabled only if the OTP succeeds. You can run `speko me verify` later. Verification is
 NANP-only in 0.7.0.
 
+For headless or ephemeral installs (cloud coding-agent sandboxes), verify once on a machine with
+a terminal, run `speko me export`, and set the printed blob as `SPEKO_OWNER_PROFILE` in the
+sandbox environment (store it like an API key — a secrets manager, not a repo file). The backend
+seeds its owner state from it at startup; an existing owner state always wins over the env value.
+The blob is credential-equivalent for ringing that one number and adds no new trust boundary.
+
 Then, in your agent:
 
 ```
@@ -120,7 +126,7 @@ The same binary is a terminal CLI (`npx @spekoai/mcp-calls <command>`, or `speko
 ```
 speko init | setup | login     onboarding & auth
 speko status                   health check: key, backend, credits, call readiness (alias: whoami)
-speko me verify|status         verify or inspect the local call_me owner
+speko me verify|status|export  verify, inspect, or export the local call_me owner
 speko dnc list|add|remove|check  manage the local do-not-call list
 speko audio speak "<text>"     text-to-speech (TTS)
 speko audio transcribe <f|->   speech-to-text (STT)

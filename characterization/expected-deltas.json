@@ -187,10 +187,10 @@
   },
   {
     "probeId": "cli.help",
-    "justification": "Cumulative CLI help through 0.7.0: version banner is 0.7.0 and the local owner verification/status command is documented alongside existing inspection commands.",
+    "justification": "Cumulative CLI help through 0.7.0, plus portable owner state for headless installs (me export / SPEKO_OWNER_PROFILE): the me command now documents verify|status|export.",
     "expectContains": [
       "speko 0.7.0",
-      "speko me verify|status",
+      "speko me verify|status|export",
       "speko dnc",
       "do-not-call",
       "speko usage",
@@ -249,11 +249,12 @@
   },
   {
     "probeId": "tool.readiness",
-    "justification": "Cumulative through 0.7.0: readiness keeps the plain-language status and now reports local call_me owner availability plus the enforced client profile. With no owner profile, it returns the exact speko me verify setup path and safe-default poll behavior.",
+    "justification": "Cumulative through 0.7.0: readiness keeps the plain-language status and now reports local call_me owner availability plus the enforced client profile. With no owner profile, it returns the exact speko me verify setup path and safe-default poll behavior, and adds the headless path: portable owner state for headless installs (me export / SPEKO_OWNER_PROFILE).",
     "expectContains": [
       "Almost ready",
       "call_me is not set up",
       "speko me verify",
+      "SPEKO_OWNER_PROFILE from `speko me export`",
       "safe-default"
     ]
   }

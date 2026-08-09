@@ -116,11 +116,14 @@ export async function checkReadiness(client: SpekoClient, cfg?: AppConfig): Prom
   const profileNote = profile.configured
     ? ""
     : " Re-run `npx @spekoai/mcp-calls@latest init` to write a client profile; until then call_me uses poll-safe mode.";
+  const ownerEnvSeedSet = Boolean((process.env.SPEKO_OWNER_PROFILE ?? "").trim());
   const callMeNote = disabled
     ? `call_me is disabled by SPEKO_CALLME_DISABLED.${profileNote}`
     : owner
       ? `call_me is set up for the verified owner ending in ${owner.owner_phone.slice(-4)}. Local verification does not relax DNC, rate caps, or quiet hours.${profileNote}`
-      : `call_me is not set up: run \`speko me verify\` on the host running this call backend (or run \`npx @spekoai/mcp-calls init\` there) to verify your number.${profileNote}`;
+      : ownerEnvSeedSet
+        ? `call_me is not set up: SPEKO_OWNER_PROFILE is set but did not yield a verified owner (see server logs). Regenerate it with \`speko me export\` on a host with a verified owner.${profileNote}`
+        : `call_me is not set up: run \`speko me verify\` on the host running this call backend (or run \`npx @spekoai/mcp-calls init\` there) to verify your number. On headless installs, set SPEKO_OWNER_PROFILE from \`speko me export\`.${profileNote}`;
 
   return {
     auth: { ok: authOk, error: creditsError ?? numbersError },
