@@ -10,12 +10,17 @@ permissions:
 jobs:
   quality:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      # Node floor (engines >=20) + the version version-drift/publish already run on.
+      matrix:
+        node: [20, 24]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: ${{ matrix.node }}
           cache: npm
       - name: Install
         run: npm ci
@@ -25,5 +30,7 @@ jobs:
         run: npm run typecheck
       - name: Test
         run: npm test
-      - name: Check characterization coverage
-        run: node characterization/coverage-check.mjs
+      # Hermetic black-box gate on the BUILT bundle: characterization coverage + parity
+      # vs the frozen 0.4.9 baseline + the MCP stdio protocol smoke. Zero egress.
+      - name: Integration (characterization + MCP e2e)
+        run: npm run test:integration
