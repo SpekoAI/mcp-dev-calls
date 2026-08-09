@@ -16,8 +16,15 @@ export class ConfigError extends Error {
   override name = "ConfigError";
 }
 
-/** Load the first `.env` found among repo-root candidates. Missing file is fine. */
+/**
+ * Load the first `.env` found among repo-root candidates. Missing file is fine.
+ * Gated exactly like the MCP tier's loader: SPEKO_NO_DOTENV=1 disables discovery
+ * here too. This matters because the core loads lazily at the first tool call —
+ * in single-process MCP-server mode the MCP tier sets SPEKO_NO_DOTENV before the
+ * core can run, so a `.env` planted in an untrusted spawn cwd never reaches it.
+ */
 function loadDotenv(): void {
+  if (["1", "true", "yes", "on"].includes((process.env.SPEKO_NO_DOTENV ?? "").trim().toLowerCase())) return;
   const load = (process as unknown as { loadEnvFile?: (path?: string) => void }).loadEnvFile;
   if (!load) return;
   const here = dirname(fileURLToPath(import.meta.url));
@@ -34,7 +41,11 @@ function loadDotenv(): void {
         load(path);
       } catch {
         // Ignore a malformed/locked .env — fall back to the process environment.
+        return;
       }
+      process.stderr.write(
+        `speko: loaded .env from ${path} (set SPEKO_NO_DOTENV=1 to disable .env discovery)\n`,
+      );
       return;
     }
   }

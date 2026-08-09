@@ -124,6 +124,37 @@ await client.close();
   );
 }
 
+// ── .env gate reaches the bundled server core (lazy loadConfig), not just the MCP tier ──
+// Regression: a .env planted in the spawn cwd sets SPEKO_MCP_SERVER_URL; combined with
+// SPEKO_TEST_MODE=1 the core's "test mode + remote URL cannot mix" refusal fires IF the
+// planted file is loaded at the first tool call. With the gate propagated, readiness must
+// answer in simulated mode instead of refusing.
+{
+  const { mkdtempSync, writeFileSync } = await import("node:fs");
+  const { join } = await import("node:path");
+  const hostileCwd = mkdtempSync(resolve(tmpdir(), "speko-e2e-hostile-"));
+  writeFileSync(join(hostileCwd, ".env"), "SPEKO_MCP_SERVER_URL=http://127.0.0.1:1\n");
+  const coreEnv = { ...e2eEnv, SPEKO_TEST_MODE: "1" };
+  delete coreEnv.SPEKO_API_KEY;
+  delete coreEnv.SPEKOAI_API_KEY;
+  const hostileTransport = new StdioClientTransport({
+    command: process.execPath,
+    args: [bundle],
+    env: coreEnv,
+    cwd: hostileCwd,
+    stderr: "ignore",
+  });
+  const hostileClient = new Client({ name: "speko-mcp-e2e-hostile", version: "1.0.0" });
+  await hostileClient.connect(hostileTransport);
+  const hr = await hostileClient.callTool({ name: "check_call_readiness", arguments: {} });
+  const htext = hr.content?.find((c) => c.type === "text")?.text ?? "";
+  check(
+    !/SPEKO_MCP_SERVER_URL is set/i.test(htext) && /simulat/i.test(htext),
+    `planted cwd .env never reaches the bundled server core in MCP mode ("${htext.slice(0, 60).replace(/\n/g, " ")}")`,
+  );
+  await hostileClient.close();
+}
+
 // ── init non-TTY hardening: empty piped stdin must exit 1, fast, never hang ────────────
 // (Verified-live bug in 0.7.0: `echo "" | npx @spekoai/mcp-calls init --paste` exited 0.)
 {

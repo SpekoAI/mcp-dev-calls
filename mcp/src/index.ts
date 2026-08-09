@@ -122,6 +122,11 @@ if (mode.kind === "usage-error") {
 // Server mode: the cwd is an untrusted user repo, so .env discovery is OFF here (a planted
 // .env could repoint the backing server). SPEKO_ALLOW_DOTENV=1 opts back in.
 setDotenvMode("mcp-server");
+if (!["1", "true", "yes", "on"].includes((process.env.SPEKO_ALLOW_DOTENV ?? "").trim().toLowerCase())) {
+  // The bundled server core has its own lazy .env loader (server config, first tool call).
+  // Propagate the server-mode gate so the whole process honors it, not just this tier.
+  process.env.SPEKO_NO_DOTENV = "1";
+}
 loadEnv();
 
 const server = new MCPServer({
