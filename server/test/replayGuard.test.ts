@@ -97,6 +97,25 @@ describe("dial replay guard (M3)", () => {
     expect(dialed).toHaveLength(1); // the second attempt never reached the platform
   });
 
+  it("wait:false registers the REAL call_id before returning — an immediate identical retry is rejected pointing at it", async () => {
+    // The anti-double-dial property the wait flag exists for: a platform that timed out the
+    // blocking tool call and retries make_call must hit the guard, not ring the person twice.
+    const { client, dialed } = connectedClient("bg");
+    const first = await makeCall({ dialToken: mint(), ...INPUT, wait: false }, deps(client));
+    expect(first.status).toBe("dialing");
+    expect(first.call_id).toBe("bg-1");
+
+    const duplicateRejection = {
+      message: expect.stringContaining("call_id 'bg-1'"),
+      nextStep: expect.stringContaining("get_call('bg-1')"),
+    };
+    await expect(makeCall({ dialToken: mint(), ...INPUT, wait: false }, deps(client))).rejects.toMatchObject(
+      duplicateRejection,
+    );
+    await expect(makeCall({ dialToken: mint(), ...INPUT }, deps(client))).rejects.toMatchObject(duplicateRejection);
+    expect(dialed).toHaveLength(1); // neither retry (nonblocking or blocking) reached the platform
+  });
+
   it("allows the same number with a DIFFERENT objective", async () => {
     const { client, dialed } = connectedClient("obj");
     await makeCall({ dialToken: mint(), ...INPUT }, deps(client));

@@ -391,6 +391,11 @@ export async function makeCall(input: MakeCallInput, deps: MakeCallDeps): Promis
         durationCap,
         {
           ...deps,
+          // wait:false is the agent-facing form of returnAfterDial: hand back the call_id the
+          // moment the platform accepts the dial (every pre-dial rail above has already run, and
+          // the replay guard below still registers the real call_id before this function returns)
+          // so an MCP host with a short tool-call timeout never has to retry a live dial.
+          returnAfterDial: deps.returnAfterDial === true || input.wait === false,
           // `placeCall` can run twice only when a deleted persisted agent makes the first
           // platform request fail before a phone leg exists. Guard both local ledgers so one
           // invocation still consumes exactly one ordinary attempt and one OTP attempt.

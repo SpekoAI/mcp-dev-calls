@@ -111,6 +111,12 @@ export interface MakeCallInput {
   greetFirst?: boolean | null;
   afterHoursConfirmation?: string | null;
   maxDurationSeconds?: number;
+  /**
+   * false returns immediately after the dial is placed (with a call_id to poll via get_call)
+   * instead of blocking until the call ends. Every pre-dial rail still runs; only the wait
+   * for the call's outcome is skipped. Default/omitted = true (blocking).
+   */
+  wait?: boolean | null;
 }
 
 export interface CallMeInput {

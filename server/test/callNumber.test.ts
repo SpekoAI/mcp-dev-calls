@@ -1,8 +1,9 @@
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { callNumber } from "../src/calls/callNumber.js";
+import { describeCall } from "../src/calls/getCall.js";
 import type { AppConfig } from "../src/config.js";
 import type { SpekoClient } from "../src/speko/client.js";
 
@@ -110,6 +111,108 @@ describe("callNumber (the npx hero path)", () => {
       deps(connectedClient(cap)),
     );
     expect(cap.to).toBe("+14152857117");
+  });
+
+  it("wait:false returns right after the dial with a pollable call_id, appends the ledger row, and never polls", async () => {
+    let dials = 0;
+    const client: Partial<SpekoClient> = {
+      dial: async (body) => {
+        dials += 1;
+        return { sessionId: "bg1", callControlId: "phone-bg1", roomName: "r", status: "dialing", to: body.to!, from: body.from! } as any;
+      },
+      // Any poll after the dial would defeat the bounded return — fail loudly.
+      getEvents: async () => {
+        throw new Error("wait:false must not poll events");
+      },
+      getCall: async () => {
+        throw new Error("wait:false must not poll the call");
+      },
+      getSession: async () => {
+        throw new Error("wait:false must not poll the session");
+      },
+    };
+    const s = await callNumber(
+      { phoneNumber: "+14152857117", objective: "ask if they are open on sunday", callerName: "Amir", utcOffsetMinutes: NOON_OFFSET, wait: false },
+      deps(client),
+    );
+    expect(dials).toBe(1);
+    expect(s.status).toBe("dialing");
+    expect(s.call_id).toBe("bg1");
+    expect(s.connected).toBe(false); // nothing is claimed connected/answered yet
+    expect(s.answered).toBe(false);
+    expect(s.reason).toContain("continuing in the background");
+    expect(s.next_step).toContain("get_call('bg1')");
+    expect(s.next_step).toContain("Do not place another call");
+    // The rate-cap ledger row is appended pre-dial, exactly as for a blocking dial.
+    const line = readFileSync(join(guardDir, "ledger.jsonl"), "utf-8").trim();
+    expect(JSON.parse(line).e164).toBe("+14152857117");
+  });
+
+  it("wait:false still runs every pre-dial rail — a screened objective is rejected 422 and never dials", async () => {
+    let dials = 0;
+    const client: Partial<SpekoClient> = {
+      dial: async () => {
+        dials += 1;
+        throw new Error("a rejected call must never reach the dial layer");
+      },
+    };
+    await expect(
+      callNumber(
+        { phoneNumber: "+14152857117", objective: "Sell them our new subscription plan", callerName: "Amir", utcOffsetMinutes: NOON_OFFSET, wait: false },
+        deps(client),
+      ),
+    ).rejects.toMatchObject({ statusCode: 422 });
+    expect(dials).toBe(0);
+    // No dial → no ledger row and no replay fingerprint (a corrected retry stays allowed).
+    expect(existsSync(join(guardDir, "ledger.jsonl"))).toBe(false);
+  });
+
+  it("wait:false registers the dial before returning — an identical follow-up call is rejected with the first call_id", async () => {
+    const cap: { to?: string } = {};
+    const client = connectedClient(cap);
+    const first = await callNumber(
+      { phoneNumber: "+14152857117", objective: "ask if they are open on sunday", callerName: "Amir", utcOffsetMinutes: NOON_OFFSET, wait: false },
+      deps(client),
+    );
+    expect(first.status).toBe("dialing");
+    expect(first.call_id).toBe("t1");
+    await expect(
+      callNumber(
+        { phoneNumber: "+14152857117", objective: "ask if they are open on sunday", callerName: "Amir", utcOffsetMinutes: NOON_OFFSET, wait: false },
+        deps(client),
+      ),
+    ).rejects.toMatchObject({
+      message: expect.stringContaining("call_id 't1'"),
+      nextStep: expect.stringContaining("get_call('t1')"),
+    });
+  });
+
+  it("get_call works on the call_id a wait:false dial returned (live call → in_progress, never a re-dial)", async () => {
+    let dials = 0;
+    const client: Partial<SpekoClient> = {
+      dial: async (body) => {
+        dials += 1;
+        return { sessionId: "bg2", callControlId: "phone-bg2", roomName: "r", status: "dialing", to: body.to!, from: body.from! } as any;
+      },
+      getEvents: async () => [{ event_type: "sip.dial_started" }] as any,
+      getCall: async () =>
+        ({
+          status: "active",
+          transcript: null,
+          metadata: { to: "+14152857117", from: "+15312160099" },
+          created_at: new Date().toISOString(),
+        }) as any,
+      getSession: async () => ({ status: "active", endedAt: null, phoneCall: { callControlId: "phone-bg2" }, usage: [] }) as any,
+    };
+    const placed = await callNumber(
+      { phoneNumber: "+14152857117", objective: "ask if they are open on sunday", callerName: "Amir", utcOffsetMinutes: NOON_OFFSET, wait: false },
+      deps(client),
+    );
+    const checked = await describeCall(placed.call_id!, client as unknown as SpekoClient);
+    expect(checked.call_id).toBe("bg2");
+    expect(checked.status).toBe("in_progress"); // honest live status, not force-completed
+    expect(checked.dialed_number).toBe("+14152857117");
+    expect(dials).toBe(1); // get_call never dials
   });
 
   it("threads greetFirst into the dial body and preserves the env default when omitted", async () => {

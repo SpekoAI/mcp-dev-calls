@@ -26,6 +26,7 @@ export const callSchema = z.object({
   greet_first: z.boolean().optional(),
   after_hours_confirmation: z.string().optional(),
   max_duration_seconds: z.number().int().optional(),
+  wait: z.boolean().default(true),
 });
 
 export const callNumberSchema = z.object({
@@ -39,6 +40,7 @@ export const callNumberSchema = z.object({
   recipient_name: z.string().optional(),
   utc_offset_minutes: z.number().int().optional(),
   max_duration_seconds: z.number().int().optional(),
+  wait: z.boolean().default(true),
 });
 
 export const callMeSchema = z.object({
@@ -107,6 +109,7 @@ export function registerRoutes(router: Router, ctx: ServerContext): void {
           greetFirst: b.greet_first ?? null,
           afterHoursConfirmation: b.after_hours_confirmation ?? null,
           maxDurationSeconds: b.max_duration_seconds,
+          wait: b.wait,
         },
         { client: ctx.client, cfg: ctx.cfg, bearerHash: ctx.bearerHash },
       );
@@ -132,6 +135,7 @@ export function registerRoutes(router: Router, ctx: ServerContext): void {
           recipientName: b.recipient_name ?? null,
           utcOffsetMinutes: b.utc_offset_minutes,
           maxDurationSeconds: b.max_duration_seconds,
+          wait: b.wait,
         },
         { client: ctx.client, cfg: ctx.cfg, bearerHash: ctx.bearerHash },
       );
