@@ -77,7 +77,8 @@ function validIsoTimestamp(raw: unknown): raw is string {
   return typeof raw === "string" && Number.isFinite(Date.parse(raw));
 }
 
-function parseOwnerProfile(value: unknown): OwnerProfile | null {
+/** The single strict validator for owner-profile shaped data. Anything else is rejected. */
+export function parseOwnerProfile(value: unknown): OwnerProfile | null {
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;
   const row = value as Record<string, unknown>;
   const phone = typeof row.owner_phone === "string" ? normalizeNanpOwnerPhone(row.owner_phone) : null;
@@ -100,6 +101,11 @@ function parseOwnerProfile(value: unknown): OwnerProfile | null {
     verify_method: "voice_otp",
     instance_id: row.instance_id,
   };
+}
+
+/** True when an owner.json file is present, even a corrupt one (corrupt state still fails closed). */
+export function ownerProfileFileExists(dir = resolveOwnerStateDir()): boolean {
+  return existsSync(join(dir, OWNER_FILE));
 }
 
 /** Missing or corrupt owner state fails closed: call_me remains unavailable. */

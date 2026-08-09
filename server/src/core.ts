@@ -29,5 +29,6 @@ export {
   resolveOwnerStateDir,
   writeOwnerProfile,
 } from "./owner/state.js";
+export { decodeOwnerProfileBlob, encodeOwnerProfileBlob, seedOwnerProfileFromEnv } from "./owner/portable.js";
 export type { OwnerProfile, OwnerVerificationChallenge } from "./owner/state.js";
 export type { CallMeInput, CallSummary, SessionDetail, MakeCallInput } from "./types.js";

@@ -108,6 +108,11 @@ and consent artifact, not a privileged trust boundary: owner calls still honor D
 `after_hours_confirmation`. A host-local, cross-process lease makes a second live owner call
 return `owner_busy` without dialing.
 
+On headless installs (no TTY, ephemeral filesystem): verify once on a laptop, run
+`speko me export`, and set the printed blob as `SPEKO_OWNER_PROFILE` in the sandbox environment
+(store it like an API key). The backend seeds owner state from it at startup; an existing owner
+state always wins. The blob is credential-equivalent for ringing that owner number.
+
 ## Hermetic test mode
 
 `SPEKO_TEST_MODE=1` runs every tool as a deterministic in-process simulation — no API key, no
@@ -134,7 +139,7 @@ Beyond the MCP server, `speko` is also a terminal CLI — run it with a subcomma
 
 ```bash
 speko audio speak "<text>"        # text-to-speech (stdin/pipe ok; -o file, --format wav|mp3)
-speko me verify | status          # verify or inspect the local call_me owner
+speko me verify | status | export # verify, inspect, or export the local call_me owner
 speko audio transcribe <file|->   # speech-to-text
 speko voices [--provider <p>]     # list the voices the router can pick
 speko usage                       # account usage this period: sessions, minutes, spend, balance

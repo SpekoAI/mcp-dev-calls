@@ -2,7 +2,7 @@
  * Speko Calls entry. One bin, cli + mcp:
  *  • `speko init|setup|login`        → onboarding wizard (may log to stdout).
  *  • `speko status|whoami`           → doctor: key, backend mode, credits, call readiness.
- *  • `speko me verify|status`        → verify/inspect the local call_me owner.
+ *  • `speko me verify|status|export` → verify/inspect/export the local call_me owner.
  *  • `speko dnc list|add|remove|check` → local do-not-call guardrail ledger.
  *  • `speko audio speak|transcribe`  → terminal TTS/STT (voice on the CLI).
  *  • `speko voices|models`           → list voices the router can pick.
@@ -46,7 +46,7 @@ function printHelp(): number {
       "  speko                          (when launched by an MCP host) the stdio MCP server\n" +
       "  speko init | setup | login     onboarding & auth\n" +
       "  speko status                   health check: key, backend, credits, call readiness (alias: whoami)\n" +
-      "  speko me verify|status         verify or inspect the local call_me owner\n" +
+      "  speko me verify|status|export  verify, inspect, or export the local call_me owner\n" +
       "  speko dnc list|add|remove|check  manage the local do-not-call list\n" +
       '  speko audio speak "<text>"     text-to-speech (TTS)\n' +
       "  speko audio transcribe <f|->   speech-to-text (STT)\n" +
