@@ -7,7 +7,8 @@
 import { AUTH_NEXT_STEP, HARD_FAILURE_EVENTS, ROOM_END_EVENTS } from "../constants.js";
 import { AppError } from "../lib/errors.js";
 import { eventType } from "../lib/events.js";
-import { bestOutcome, extractEndCallReason } from "../lib/transcript.js";
+import { bestOutcome, calleeTurns, extractEndCallReason } from "../lib/transcript.js";
+import { dncAdd, dncReason, scanCalleeTurnsForOptOut } from "../safety/guard.js";
 import {
   readOwnerCallBinding,
   readOwnerProfile,
@@ -36,6 +37,7 @@ export async function describeCall(
   client: SpekoClient,
   dashboardBaseUrl?: string,
   ownerStateDir?: string,
+  guardStateDir?: string,
 ): Promise<CallSummary> {
   let detail;
   try {
@@ -107,6 +109,26 @@ export async function describeCall(
     }),
     dashboardBaseUrl,
   );
+  // Auto-DNC on callee opt-out. make_call's finalize() runs this scan on blocking calls, but a
+  // wait:false dial returns before finalize, so the poll (get_call) is the ONLY place a poll-mode
+  // call ever inspects the callee's speech. Without this, a callee who said "stop calling me" on a
+  // wait:false call would still pass the DNC rail on the next call. Idempotent (dnc.jsonl dedups),
+  // terminal-only, and best-effort — a corrupt ledger must never break a get_call read.
+  if (isTerminal && to && guardStateDir !== undefined && dncReason(to, guardStateDir) === null) {
+    // Skip when the number is already DNC-listed so repeat polls don't append duplicate rows.
+    try {
+      const turns = calleeTurns(transcript);
+      if (turns) {
+        const optOut = scanCalleeTurnsForOptOut(turns);
+        if (optOut.matched) {
+          dncAdd(to, { source: "auto", call_id: callId, ...(optOut.phrase ? { phrase: optOut.phrase } : {}) }, guardStateDir);
+        }
+      }
+    } catch {
+      // Opt-out detection is best-effort and must never break a recovery read.
+    }
+  }
+
   const ownerMetadata = callMeMetadata(detail.metadata as Record<string, unknown> | undefined);
   if (isCallMeTerminal(summary.status)) {
     try {

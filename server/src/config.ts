@@ -264,14 +264,23 @@ export function loadConfig(): AppConfig {
     );
   }
 
-  // Test mode isolates guard/owner state in a fresh per-process temp dir unless explicitly
-  // overridden, so simulated runs never read or pollute the host's real ledgers.
-  const guardStateDirEnv = (process.env.SPEKO_GUARD_STATE_DIR ?? "").trim();
-  const ownerStateDirEnv = (process.env.SPEKO_OWNER_STATE_DIR ?? "").trim();
-  const testStateDir =
-    testMode && (!guardStateDirEnv || !ownerStateDirEnv)
-      ? mkdtempSync(join(tmpdir(), "speko-test-mode-"))
-      : undefined;
+  // Test mode ALWAYS isolates guard/owner state in a fresh per-process temp dir, ignoring any
+  // explicit SPEKO_GUARD_STATE_DIR / SPEKO_OWNER_STATE_DIR. This is a safety invariant, not a
+  // convenience: test mode seeds an un-OTP'd fixture owner (+15005550100) at init, and if that
+  // landed in the host's real owner dir, a later REAL-mode process reading the same dir would
+  // trust the fixture owner and place un-consented owner calls. A simulation has no reason to
+  // touch the host's real ledgers, so the temp dir is unconditional in test mode.
+  let guardStateDirEnv = (process.env.SPEKO_GUARD_STATE_DIR ?? "").trim();
+  let ownerStateDirEnv = (process.env.SPEKO_OWNER_STATE_DIR ?? "").trim();
+  const testStateDir = testMode ? mkdtempSync(join(tmpdir(), "speko-test-mode-")) : undefined;
+  if (testMode && (guardStateDirEnv || ownerStateDirEnv)) {
+    process.stderr.write(
+      "speko: test mode ignores SPEKO_GUARD_STATE_DIR / SPEKO_OWNER_STATE_DIR and uses an isolated " +
+        "temp dir, so the simulated fixture owner never reaches your real owner state.\n",
+    );
+    guardStateDirEnv = "";
+    ownerStateDirEnv = "";
+  }
 
   const fakeNowMs = ((): number | undefined => {
     if (!testMode) return undefined; // real mode NEVER reads SPEKO_FAKE_NOW

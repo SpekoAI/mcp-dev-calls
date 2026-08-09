@@ -353,6 +353,7 @@ export class InProcessBackend implements Backend {
           ctx.client,
           ctx.cfg.dashboardBaseUrl,
           ctx.cfg.ownerStateDir,
+          ctx.cfg.guardStateDir,
         );
       }
       throw new DemoServerError(`Unknown backend path: GET ${path}`);

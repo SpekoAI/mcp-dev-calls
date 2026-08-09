@@ -178,7 +178,7 @@ export function registerRoutes(router: Router, ctx: ServerContext): void {
       if (!id) {
         throw new AppError("Missing call id.", { statusCode: 400, nextStep: "Call GET /call/<call_id>." });
       }
-      const summary = await describeCall(id, ctx.client, ctx.cfg.dashboardBaseUrl, ctx.cfg.ownerStateDir);
+      const summary = await describeCall(id, ctx.client, ctx.cfg.dashboardBaseUrl, ctx.cfg.ownerStateDir, ctx.cfg.guardStateDir);
       res.json(summary);
     }),
   );

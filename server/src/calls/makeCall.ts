@@ -167,6 +167,19 @@ function afterHoursNextStep(opts: {
 export async function makeCall(input: MakeCallInput, deps: MakeCallDeps): Promise<CallSummary> {
   const sleep = deps.sleep ?? defaultSleep;
 
+  // SPEKO_SERIALIZE_CALLS wants at most one LIVE call at a time, but wait:false returns while the
+  // call keeps running on the platform — the in-process guard releases at return, so a second
+  // wait:false dial would start a concurrent live call and silently defeat the serialize
+  // guarantee. Refuse the combination rather than break the invariant the operator opted into.
+  if (deps.cfg.serializeCalls === true && input.wait === false) {
+    throw new RejectionError(
+      "wait:false cannot be used while SPEKO_SERIALIZE_CALLS=1: a backgrounded call would run " +
+        "concurrently with the next one, which is exactly what serialized calls forbid.",
+      "Place this call with wait:true (blocking) so only one call runs at a time, or unset " +
+        "SPEKO_SERIALIZE_CALLS to allow concurrent calls (each gets an isolated per-call room).",
+    );
+  }
+
   let payload;
   try {
     payload = verifyDialToken(input.dialToken, {

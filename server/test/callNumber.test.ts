@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { callNumber } from "../src/calls/callNumber.js";
 import { describeCall } from "../src/calls/getCall.js";
+import { dncReason } from "../src/safety/guard.js";
 import type { AppConfig } from "../src/config.js";
 import type { SpekoClient } from "../src/speko/client.js";
 
@@ -213,6 +214,60 @@ describe("callNumber (the npx hero path)", () => {
     expect(checked.status).toBe("in_progress"); // honest live status, not force-completed
     expect(checked.dialed_number).toBe("+14152857117");
     expect(dials).toBe(1); // get_call never dials
+  });
+
+  it("refuses wait:false under SPEKO_SERIALIZE_CALLS (would defeat one-call-at-a-time)", async () => {
+    let dials = 0;
+    const client: Partial<SpekoClient> = {
+      dial: async (body) => {
+        dials += 1;
+        return { sessionId: "s", callControlId: "p", roomName: "r", status: "dialing", to: body.to!, from: body.from! } as any;
+      },
+    };
+    await expect(
+      callNumber(
+        { phoneNumber: "+14152857117", objective: "ask if they are open on sunday", callerName: "Amir", utcOffsetMinutes: NOON_OFFSET, wait: false },
+        deps(client, cfg({ serializeCalls: true })),
+      ),
+    ).rejects.toThrow(/SPEKO_SERIALIZE_CALLS/);
+    expect(dials).toBe(0); // refused before dialing
+  });
+
+  it("get_call runs the opt-out DNC scan a wait:false dial skipped (finalize never ran)", async () => {
+    const target = "+14152857117";
+    const client: Partial<SpekoClient> = {
+      dial: async (body) =>
+        ({ sessionId: "bgdnc", callControlId: "phone-bgdnc", roomName: "r", status: "dialing", to: body.to!, from: body.from! }) as any,
+      // Terminal call whose transcript carries a callee opt-out phrase.
+      getEvents: async () => [{ event_type: "room_finished" }] as any,
+      getCall: async () =>
+        ({
+          status: "completed",
+          transcript: [
+            { role: "agent", text: "Hi, I'm calling on behalf of Amir." },
+            { role: "user", source: "callee", text: "Please stop calling me, take me off your list." },
+          ],
+          metadata: { to: target, from: "+15312160099" },
+          created_at: new Date().toISOString(),
+          ended_at: new Date().toISOString(),
+        }) as any,
+      getSession: async () => ({ endedAt: new Date().toISOString(), phoneCall: { callControlId: "phone-bgdnc" }, usage: [] }) as any,
+    };
+    const placed = await callNumber(
+      { phoneNumber: target, objective: "ask if they are open on sunday", callerName: "Amir", utcOffsetMinutes: NOON_OFFSET, wait: false },
+      deps(client),
+    );
+    expect(placed.status).toBe("dialing");
+    // Before the poll, the DNC ledger is empty (wait:false returned before finalize).
+    expect(dncReason(target, guardDir)).toBeNull();
+    // The poll is the only place a wait:false call inspects callee speech; it must persist the opt-out.
+    await describeCall(placed.call_id!, client as unknown as SpekoClient, undefined, undefined, guardDir);
+    expect(dncReason(target, guardDir)).not.toBeNull();
+    // Idempotent: a second poll must not append a duplicate row (guarded by the existing-DNC check).
+    const before = readFileSync(join(guardDir, "dnc.jsonl"), "utf8").trim().split("\n").length;
+    await describeCall(placed.call_id!, client as unknown as SpekoClient, undefined, undefined, guardDir);
+    const after = readFileSync(join(guardDir, "dnc.jsonl"), "utf8").trim().split("\n").length;
+    expect(after).toBe(before);
   });
 
   it("threads greetFirst into the dial body and preserves the env default when omitted", async () => {

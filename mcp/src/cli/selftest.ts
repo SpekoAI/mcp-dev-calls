@@ -52,6 +52,12 @@ export function checkToolInventory(tools: ToolSchemaLike[], toolSpec: string | u
   const expected = [...selected].sort();
   const actual = tools.map((t) => t.name).sort();
   const filtered = expected.length !== ALL_TOOL_NAMES.length;
+  // A filter that matches NO known tool (e.g. SPEKO_TOOLS=bogus) leaves nothing to verify — that
+  // is a failed selftest, not a green run with zero tools. (Selftest strips SPEKO_TOOLS from the
+  // child anyway, so this only fires if a caller forces an empty toolSpec in-process.)
+  if (expected.length === 0) {
+    return fail("tools/list inventory", `SPEKO_TOOLS matched no known tool; nothing to verify (got [${actual.join(", ")}])`);
+  }
   if (JSON.stringify(actual) !== JSON.stringify(expected)) {
     return fail(
       "tools/list inventory",
@@ -270,7 +276,13 @@ export async function runChecks(caller: ToolCaller, opts: RunChecksOptions = {})
     if (r.isError) return fail("get_call resolves the backgrounded call", r.text.slice(0, 200));
     if (r.structured?.test_mode !== true) return fail("get_call resolves the backgrounded call", "result is missing test_mode: true");
     const status = str(r.structured?.status) ?? "?";
-    return pass("get_call resolves the backgrounded call", `call '${backgroundCallId}' reports status '${status}'`);
+    // The wait:false dial targeted the connected-success fixture, so a resolved poll MUST reach
+    // "completed" — asserting the value (not just that get_call answered) catches a describeCall
+    // regression that returned a garbage/unknown status for a backgrounded call.
+    if (status !== "completed") {
+      return fail("get_call resolves the backgrounded call", `expected terminal status 'completed', got '${status}'`);
+    }
+    return pass("get_call resolves the backgrounded call", `call '${backgroundCallId}' resolved to 'completed'`);
   });
 
   await run("call_me notify reaches the fixture owner", ["call_me"], async () => {
@@ -335,7 +347,9 @@ export function summarize(results: CheckResult[]): { passed: number; failed: num
   const passed = results.filter((r) => r.status === "pass").length;
   const failed = results.filter((r) => r.status === "fail").length;
   const skipped = results.filter((r) => r.status === "skip").length;
-  return { passed, failed, skipped, code: failed > 0 ? 1 : 0 };
+  // Green requires zero failures AND at least one real PASS: a run where every check skipped or
+  // errored verified nothing and must not exit 0 (defense against a false-green selftest).
+  return { passed, failed, skipped, code: failed > 0 || passed === 0 ? 1 : 0 };
 }
 
 // ── The hermetic child environment ───────────────────────────────────────────
@@ -348,6 +362,8 @@ export const STRIPPED_ENV_KEYS = [
   "SPEKO_OWNER_PROFILE", // test mode's fixture owner must win — the real blob stays out
   "SPEKO_FAKE_NOW", // a shell-configured clock would move the after-hours gate mid-selftest
   "SPEKO_ALLOW_DOTENV", // no cwd .env may repoint the child
+  "SPEKO_TOOLS", // selftest is a wiring test: always exercise the full 6-tool surface, so a
+  // shell filter (esp. a typo'd one) can't yield a green run with every check skipped
 ] as const;
 
 export function buildChildEnv(
@@ -420,12 +436,13 @@ export async function runSelftest(argv: string[], deps: SelftestDeps = {}): Prom
   const stateDir = mkdtempSync(join(tmpdir(), "speko-selftest-"));
   const { env: childEnv, stripped } = buildChildEnv(env, stateDir);
   const entry = deps.entryPath ?? resolveServerEntry();
-  const toolSpec = env.SPEKO_TOOLS;
+  // selftest always exercises the full 6-tool surface: SPEKO_TOOLS is stripped from the child
+  // (above), so the inventory assertion must expect all 6 too — never the caller's filter.
+  const toolSpec = undefined;
 
   if (!json) {
     stdout.write(`speko selftest — ${HERMETIC_NOTE} (spawns this install's MCP server with SPEKO_TEST_MODE=1, temp state)\n`);
     if (stripped.length > 0) stdout.write(`note: stripped ${stripped.join(", ")} from the child environment — the selftest never uses live credentials\n`);
-    if ((toolSpec ?? "").trim()) stdout.write(`note: SPEKO_TOOLS is set — asserting the filtered tool subset\n`);
   }
 
   const transport = new StdioClientTransport({

@@ -159,18 +159,22 @@ describe("test mode — activation and structural refusals", () => {
     expect(() => loadConfig()).toThrow(/SPEKO_API_KEY is required/);
   });
 
-  it("defaults guard/owner state to a fresh temp dir; explicit dirs are respected", () => {
+  it("always isolates guard/owner state in a fresh temp dir, IGNORING explicit dirs", () => {
     const h = testHarness();
     expect(h.cfg.guardStateDir).toMatch(/speko-test-mode-/);
     expect(h.cfg.guardStateDir?.startsWith(tmpdir())).toBe(true);
     expect(h.cfg.ownerStateDir).toBe(h.cfg.guardStateDir);
 
+    // Safety invariant: explicit dirs are ignored in test mode so the un-OTP'd fixture owner
+    // can never be seeded into a host's REAL owner dir and later trusted by a real-mode process.
     process.env.SPEKO_GUARD_STATE_DIR = "/tmp/explicit-guard-dir";
     process.env.SPEKO_OWNER_STATE_DIR = "/tmp/explicit-owner-dir";
     resetConfigForTests();
     const cfg = loadConfig();
-    expect(cfg.guardStateDir).toBe("/tmp/explicit-guard-dir");
-    expect(cfg.ownerStateDir).toBe("/tmp/explicit-owner-dir");
+    expect(cfg.guardStateDir).toMatch(/speko-test-mode-/);
+    expect(cfg.guardStateDir).not.toBe("/tmp/explicit-guard-dir");
+    expect(cfg.ownerStateDir).not.toBe("/tmp/explicit-owner-dir");
+    expect(cfg.ownerStateDir).toBe(cfg.guardStateDir);
   });
 });
 

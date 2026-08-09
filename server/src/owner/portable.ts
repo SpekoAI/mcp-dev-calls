@@ -84,6 +84,16 @@ export function seedOwnerProfileFromEnv(
       { nextStep: "Re-run `speko me export` on a host with a verified owner and set SPEKO_OWNER_PROFILE to that exact single-line value." },
     );
   }
+  // Re-check immediately before the write: decode did I/O-free work, but on a fresh SHARED state
+  // dir two processes could both pass the first existence check. Re-checking here narrows that
+  // window so a concurrent OTP verify or a prior seed still wins. This is best-effort, not a lock;
+  // the durable fix is server-side owner binding (an existing owner.json can never be clobbered by
+  // an env blob), tracked as a platform ask. Kept proportionate: full FS locking in a public
+  // client package is the wrong trade for a race a server-side check will obviate.
+  if (ownerProfileFileExists(dir)) {
+    log("SPEKO_OWNER_PROFILE ignored: owner state was written concurrently and always wins.");
+    return "kept_existing";
+  }
   writeOwnerProfile(
     {
       ownerPhone: profile.owner_phone,

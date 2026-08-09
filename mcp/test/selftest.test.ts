@@ -166,6 +166,12 @@ describe("checkToolInventory", () => {
     // ...and still FAILS when the wire list does not match the declared filter.
     expect(checkToolInventory(goodTools(), spec).status).toBe("fail");
   });
+
+  it("FAILS when a filter matches no known tool (no false-green with zero checks)", () => {
+    // SPEKO_TOOLS=bogus → zero selected → previously passed expecting zero tools and skipped
+    // everything. Now it is a hard fail: a selftest that verifies nothing is not green.
+    expect(checkToolInventory([], "bogus_tool").status).toBe("fail");
+  });
 });
 
 describe("checkSchemaInvariants", () => {
@@ -235,13 +241,15 @@ describe("buildChildEnv — the hermetic child", () => {
       "SPEKO_MCP_SERVER_URL",
       "SPEKO_OWNER_PROFILE",
       "SPEKO_FAKE_NOW",
+      "SPEKO_TOOLS",
     ]);
     expect(env.SPEKO_TEST_MODE).toBe("1");
     expect(env.SPEKO_NO_DOTENV).toBe("1");
     expect(env.SPEKO_OWNER_STATE_DIR).toBe("/tmp/state-x");
     expect(env.SPEKO_GUARD_STATE_DIR).toBe("/tmp/state-x");
-    // SPEKO_TOOLS and ordinary env pass through: the filter is respected, not erased.
-    expect(env.SPEKO_TOOLS).toBe("call_me,get_call");
+    // SPEKO_TOOLS is stripped: selftest always exercises the full 6-tool surface, so a shell
+    // filter (esp. a typo) can't produce a green run with every substantive check skipped.
+    expect(env.SPEKO_TOOLS).toBeUndefined();
     expect(env.PATH).toBe("/usr/bin");
     // Deterministic blocking call_me round-trip whatever profile the shell is configured for.
     expect(env.SPEKO_CLIENT_PROFILE).toBe("claude-code");
@@ -356,6 +364,18 @@ describe("runChecks — doctored servers FAIL and keep going", () => {
     expect(r.status).toBe("fail");
     expect(r.detail).toContain("wire exploded");
     expect(byName(results, "call_me converse round-trip").status).toBe("pass");
+  });
+});
+
+describe("summarize — a run that verifies nothing is not green", () => {
+  it("exit code 1 when zero checks passed (all skipped or failed)", () => {
+    const allSkipped = [
+      { name: "a", status: "skip", detail: "" },
+      { name: "b", status: "skip", detail: "" },
+    ] as const;
+    const s = summarize([...allSkipped]);
+    expect(s.passed).toBe(0);
+    expect(s.code).toBe(1);
   });
 });
 
