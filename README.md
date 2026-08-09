@@ -183,6 +183,7 @@ mcp-dev-calls/
 │   │   ├── owner/            # private local owner profile + voice-OTP state
 │   │   └── calls/            # make_call · call_me · readiness · get_call · connection assessment
 │   └── test/                 # unit tests for the safety-critical logic
+├── docs/             # guides — agent-platforms.md: running on cloud agent platforms
 ├── scripts/          # place-call.mjs (one-shot demo runner) · inspect-call.mjs (diagnostics)
 ├── .env.example      # both tiers
 └── package.json      # npm workspaces root

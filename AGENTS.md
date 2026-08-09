@@ -3,6 +3,7 @@
 Agent-oriented guide for using this package correctly. It places **real, disclosed
 phone calls to real people and businesses**, and it does terminal speech (TTS/STT).
 Calls cost money. Read the Safety section before you dial.
+Running in a headless cloud agent sandbox? See [docs/agent-platforms.md](docs/agent-platforms.md).
 
 ---
 
