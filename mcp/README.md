@@ -167,5 +167,6 @@ for the full agent-oriented guide.
 
 - Dashboard / API keys — [platform.speko.dev](https://platform.speko.dev)
 - Source & issues — [github.com/SpekoAI/mcp-dev-calls](https://github.com/SpekoAI/mcp-dev-calls)
+- Running on cloud agent platforms — [docs/agent-platforms.md](https://github.com/SpekoAI/mcp-dev-calls/blob/main/docs/agent-platforms.md)
 
 MIT © SpekoAI
