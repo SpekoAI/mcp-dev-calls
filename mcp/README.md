@@ -76,6 +76,10 @@ when configured, `MCP_INTERNAL_KEY`. Run `speko me` and `speko dnc` on the backi
 with `SPEKO_MCP_SERVER_URL` unset; they modify only local host state. Other account/audio CLI
 commands still require a local API key. Non-loopback server binding requires `MCP_INTERNAL_KEY`.
 The default wizard install is in-process.
+
+In MCP-server mode the process never reads a `.env` from its working directory (that's an
+untrusted user repo) unless `SPEKO_ALLOW_DOTENV=1`. `SPEKO_NO_DOTENV=1` disables `.env`
+discovery in every mode. Whenever a `.env` is loaded, its absolute path is printed to stderr.
 </details>
 
 ## Tools
@@ -91,6 +95,10 @@ The default wizard install is in-process.
 
 The wizard installs no Google or Twilio credentials. Name search requires Google Places, and every
 real `lookup_business` dial token requires Twilio carrier credentials. `call_number` needs neither.
+
+| Env | Effect |
+| --- | --- |
+| `SPEKO_TOOLS=call_me,get_call,check_call_readiness` | Comma list: register only these tools in MCP-server mode — shrink the dialing surface on hosts that don't approval-gate tool calls. Unset/empty = all 6; unknown names are ignored with a stderr warning. |
 
 ## Safety
 

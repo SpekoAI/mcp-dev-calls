@@ -29,7 +29,8 @@ import { runCredits } from "./cli/credits.js";
 import { runCall } from "./cli/call.js";
 import { runMe } from "./cli/me.js";
 import { resolveMode } from "./cli/router.js";
-import { loadEnv } from "./lib/env.js";
+import { loadEnv, setDotenvMode } from "./lib/env.js";
+import { selectTools, unknownToolsWarning } from "./lib/toolFilter.js";
 import CallNumberTool from "./tools/CallNumberTool.js";
 import CallMeTool from "./tools/CallMeTool.js";
 import CheckCallReadinessTool from "./tools/CheckCallReadinessTool.js";
@@ -71,9 +72,9 @@ function printVersion(): number {
 const rest = process.argv.slice(3);
 
 const CLI: Record<string, () => Promise<number> | number> = {
-  init: async () => (await runInit(rest, "init"), 0),
-  setup: async () => (await runInit(rest, "setup"), 0),
-  login: async () => (await runInit(rest, "login"), 0),
+  init: () => runInit(rest, "init"),
+  setup: () => runInit(rest, "setup"),
+  login: () => runInit(rest, "login"),
   status: () => runStatus(rest),
   whoami: () => runStatus(rest),
   me: () => runMe(rest),
@@ -118,6 +119,9 @@ if (mode.kind === "usage-error") {
 }
 
 // Piped / non-TTY invocation (an MCP host spawning us over stdio) → the stdio MCP server.
+// Server mode: the cwd is an untrusted user repo, so .env discovery is OFF here (a planted
+// .env could repoint the backing server). SPEKO_ALLOW_DOTENV=1 opts back in.
+setDotenvMode("mcp-server");
 loadEnv();
 
 const server = new MCPServer({
@@ -126,11 +130,23 @@ const server = new MCPServer({
   transport: { type: "stdio" },
 });
 
-server.addTool(LookupBusinessTool);
-server.addTool(MakeCallTool);
-server.addTool(CallNumberTool);
-server.addTool(CheckCallReadinessTool);
-server.addTool(GetCallTool);
-server.addTool(CallMeTool);
+// Registration order is the wire order in tools/list; SPEKO_TOOLS filters it (unset = all).
+const TOOL_REGISTRY = [
+  ["lookup_business", LookupBusinessTool],
+  ["make_call", MakeCallTool],
+  ["call_number", CallNumberTool],
+  ["check_call_readiness", CheckCallReadinessTool],
+  ["get_call", GetCallTool],
+  ["call_me", CallMeTool],
+] as const;
+
+const validNames = TOOL_REGISTRY.map(([name]) => name);
+const { selected, unknown } = selectTools(process.env.SPEKO_TOOLS, validNames);
+if (unknown.length > 0) {
+  process.stderr.write(`${unknownToolsWarning(unknown, validNames)}\n`);
+}
+for (const [name, Tool] of TOOL_REGISTRY) {
+  if (selected.includes(name)) server.addTool(Tool);
+}
 
 await server.start();
