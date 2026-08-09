@@ -34,7 +34,7 @@ afterEach(() => {
 });
 
 describe("InProcessBackend input mapping", () => {
-  it("threads after_hours_confirmation and greet_first through /call to makeCall", async () => {
+  it("threads after_hours_confirmation, greet_first, and wait through /call to makeCall", async () => {
     const backend = new InProcessBackend();
     await backend.post("/call", {
       dial_token: "tok",
@@ -42,15 +42,25 @@ describe("InProcessBackend input mapping", () => {
       caller_name: "Bek",
       greet_first: false,
       after_hours_confirmation: "yes, it's my own number, call now",
+      wait: false,
     });
     expect(makeCall).toHaveBeenCalledTimes(1);
     expect(makeCall.mock.calls[0][0]).toMatchObject({
       greetFirst: false,
       afterHoursConfirmation: "yes, it's my own number, call now",
+      wait: false,
     });
+
+    // Omitted wait keeps the blocking default (true) — old clients are unchanged.
+    await backend.post("/call", {
+      dial_token: "tok",
+      objective: "Do you have a table for four?",
+      caller_name: "Bek",
+    });
+    expect(makeCall.mock.calls[1][0]).toMatchObject({ wait: true });
   });
 
-  it("threads after_hours_confirmation and greet_first through /call-number to callNumber, null when absent", async () => {
+  it("threads after_hours_confirmation, greet_first, and wait through /call-number to callNumber, defaults when absent", async () => {
     const backend = new InProcessBackend();
     await backend.post("/call-number", {
       phone_number: "+14155550142",
@@ -58,10 +68,12 @@ describe("InProcessBackend input mapping", () => {
       caller_name: "Bek",
       greet_first: false,
       after_hours_confirmation: "go ahead, they are expecting the call",
+      wait: false,
     });
     expect(callNumber.mock.calls[0][0]).toMatchObject({
       greetFirst: false,
       afterHoursConfirmation: "go ahead, they are expecting the call",
+      wait: false,
     });
 
     await backend.post("/call-number", {
@@ -69,7 +81,7 @@ describe("InProcessBackend input mapping", () => {
       objective: "Do you have a table for four?",
       caller_name: "Bek",
     });
-    expect(callNumber.mock.calls[1][0]).toMatchObject({ afterHoursConfirmation: null, greetFirst: null });
+    expect(callNumber.mock.calls[1][0]).toMatchObject({ afterHoursConfirmation: null, greetFirst: null, wait: true });
   });
 
   it("maps the owner-only /call-me contract without a destination field", async () => {

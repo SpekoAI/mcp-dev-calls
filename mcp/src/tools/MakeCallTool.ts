@@ -50,13 +50,23 @@ const schema = z.object({
     .int()
     .optional()
     .describe("Max seconds to wait for the call to finish; clamped to 30-300."),
+  wait: z
+    .boolean()
+    .optional()
+    .default(true)
+    .describe(
+      "false returns immediately after the dial is placed, with a call_id to poll via get_call; set it when " +
+        "your tool-call timeout is shorter than a phone call. The call keeps running in the background; " +
+        "never re-invoke make_call for the same ask - poll get_call instead. Default true blocks until the call finishes.",
+    ),
 });
 
 export default class MakeCallTool extends MCPTool {
   name = "make_call";
   description =
     "Place a disclosed, objective-scoped phone call authorized by a dial_token from lookup_business. " +
-    "Stays open until the call finishes and returns the OUTCOME line plus the transcript. Every call " +
+    "Stays open until the call finishes and returns the OUTCOME line plus the transcript " +
+    "(wait:false instead returns at once with a call_id to poll via get_call). Every call " +
     "opens with the non-removable AI disclosure; the no-sell/no-spam + harassment + impersonation screens, " +
     "per-number rate caps, the local do-not-call list, and an after-hours confirmation gate " +
     "(08:00-21:00 destination local; late calls need your human's explicit OK) all apply server-side. " +
@@ -90,6 +100,7 @@ export default class MakeCallTool extends MCPTool {
           greet_first: input.greet_first,
           after_hours_confirmation: input.after_hours_confirmation,
           max_duration_seconds: input.max_duration_seconds,
+          wait: input.wait,
         },
         { timeoutMs: (maxWait + 30) * 1000, signal: this.abortSignal },
       )) as Record<string, unknown>;

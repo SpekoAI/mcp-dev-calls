@@ -40,6 +40,29 @@ describe("summarizeCallResult — the shared plain-language summary", () => {
     expect(s).toContain("in progress");
   });
 
+  it("dialing (wait:false) leads with the server reason + no-redial next_step", () => {
+    const s = summarizeCallResult(
+      {
+        status: "dialing",
+        call_id: "c-bg",
+        reason: "The call was placed and is continuing in the background.",
+        next_step: "Poll get_call('c-bg') until it reaches a terminal status. Do not place another call.",
+      },
+      { retryTool: "make_call" },
+    );
+    expect(s).toContain("continuing in the background");
+    expect(s).toContain("get_call('c-bg')");
+    expect(s).toContain("Do not place another call");
+    expect(s).not.toContain("finished");
+  });
+
+  it("dialing without server prose still points at get_call and forbids another dial", () => {
+    const s = summarizeCallResult({ status: "dialing", call_id: "c-bg2" }, { retryTool: "call_number" });
+    expect(s).toContain("call_id 'c-bg2'");
+    expect(s).toContain("get_call");
+    expect(s).toContain("Do not place another call");
+  });
+
   it("connected but unanswered → the no-response line (or the server reason)", () => {
     const s = summarizeCallResult({ status: "no_answer", connected: true, answered: false, call_id: "c-3" }, { retryTool: "make_call" });
     expect(s).toContain("no one responded");

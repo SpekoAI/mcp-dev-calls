@@ -260,6 +260,7 @@ export class InProcessBackend implements Backend {
             greetFirst: typeof b.greet_first === "boolean" ? b.greet_first : null,
             afterHoursConfirmation: typeof b.after_hours_confirmation === "string" ? b.after_hours_confirmation : null,
             maxDurationSeconds: typeof b.max_duration_seconds === "number" ? b.max_duration_seconds : undefined,
+            wait: typeof b.wait === "boolean" ? b.wait : true,
           },
           { client: ctx.client, cfg: ctx.cfg, bearerHash: ctx.bearerHash },
         );
@@ -277,6 +278,7 @@ export class InProcessBackend implements Backend {
             recipientName: (b.recipient_name as string | undefined) ?? null,
             utcOffsetMinutes: typeof b.utc_offset_minutes === "number" ? b.utc_offset_minutes : undefined,
             maxDurationSeconds: typeof b.max_duration_seconds === "number" ? b.max_duration_seconds : undefined,
+            wait: typeof b.wait === "boolean" ? b.wait : true,
           },
           { client: ctx.client, cfg: ctx.cfg, bearerHash: ctx.bearerHash },
         );
