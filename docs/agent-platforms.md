@@ -11,23 +11,17 @@ Three steps, in order. Each isolates a different failure class.
 
 **1. Prove the install and the tool surface, offline.**
 
-No API key, no network, no real call. `SPEKO_TEST_MODE=1` runs every tool as a
-deterministic in-process simulation (see "Hermetic CI" below). Spawn the server piped
-and drive it with raw JSON-RPC; the process exits when stdin closes:
-
-<!-- TODO: swap in selftest when merged -->
+No API key, no network, no real call:
 
 ```bash
-printf '%s\n' \
-  '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"smoke","version":"0"}}}' \
-  '{"jsonrpc":"2.0","method":"notifications/initialized"}' \
-  '{"jsonrpc":"2.0","id":2,"method":"tools/list"}' \
-  | SPEKO_TEST_MODE=1 npx -y @spekoai/mcp-calls@<version>
+npx -y @spekoai/mcp-calls@<version> selftest
 ```
 
-Expected: a `tools/list` result naming all 6 tools (`lookup_business`, `make_call`,
-`call_number`, `check_call_readiness`, `get_call`, `call_me`) - proof the package
-installs, spawns, and speaks MCP in your sandbox before any credential exists.
+`selftest` spawns the package's own MCP server in hermetic simulation mode and runs
+14 checks against it over stdio: the 6-tool inventory, schema invariants, a simulated
+lookup-to-call happy path, an owner-call round trip, and safety-rail probes. Exit 0
+means the package installs, spawns, and speaks MCP in your sandbox before any
+credential exists. `--json` emits one machine-readable object for CI.
 
 **2. Prove the key and the account, with one command.**
 
@@ -107,11 +101,11 @@ platform's secret store, and inject it as `SPEKO_API_KEY`. In the sandbox you sk
 
 Never commit a key. In MCP-server mode the MCP layer skips `.env` discovery from the
 working directory (an untrusted user repo); `SPEKO_ALLOW_DOTENV=1` opts back in, and
-`SPEKO_NO_DOTENV=1` disables that layer's `.env` discovery in every mode. Whenever a
-`.env` is loaded, its absolute path is printed to stderr. Do not treat `.env` exclusion
-as a security boundary, though: the embedded call core still auto-loads a repo-style
-`.env` for its own server-side settings (values already set in the environment always
-win). Supply configuration only through the environment, and keep `.env` files out of
+`SPEKO_NO_DOTENV=1` disables `.env` discovery in every mode, and MCP-server mode
+propagates the gate to the embedded call core as well, so a `.env` planted in the
+spawn directory is never read in server mode. Whenever a `.env` is loaded (CLI mode),
+its absolute path is printed to stderr, and values already set in the environment
+always win. Supply configuration only through the environment, and keep `.env` files out of
 repos the agent works on.
 
 ## The owner call (call_me) headless
