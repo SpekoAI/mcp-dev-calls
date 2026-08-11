@@ -118,7 +118,7 @@ per-number rate caps, a local do-not-call list (`speko dnc`), and an after-hours
 gate for late or unknown-timezone calls. `make_call` is authorized only by a fresh, short-lived,
 signed `dial_token` from `lookup_business` — a raw phone number can never dial.
 
-`call_me` is NANP-only in 0.7.0 and requires `speko me verify`. The local voice OTP is a setup
+`call_me` is NANP-only and requires `speko me verify`. The local voice OTP is a setup
 and consent artifact, not a privileged trust boundary: owner calls still honor DNC, the ordinary
 3/hour and 8/day per-number caps, content screens, and the 08:00-21:00 destination-local gate.
 `SPEKO_TRUSTED_NUMBERS` never exempts `call_me`; late calls require the human's own words in

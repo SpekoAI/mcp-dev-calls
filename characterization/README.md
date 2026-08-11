@@ -1,6 +1,6 @@
 # Characterization suite
 
-Black-box behavioral lock for `@spekoai/mcp-calls`. Freezes published **0.4.9** and requires every cumulative local change through 0.7.0 to be either byte-parity or an explicit justified delta.
+Black-box behavioral lock for `@spekoai/mcp-calls`. Freezes published **0.4.9** and requires every cumulative local change through 0.8.0 to be either byte-parity or an explicit justified delta.
 
 ```bash
 export PATH="$HOME/.nvm/versions/node/v24.16.0/bin:$PATH"

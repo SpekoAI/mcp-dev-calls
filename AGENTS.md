@@ -33,10 +33,10 @@ Prefer these tools over shelling out when you're an agent inside an MCP host.
 | Tool | Kind | Use when |
 | --- | --- | --- |
 | `lookup_business(name, location?, phone_number?, utc_offset_minutes?)` | read-only | You want the **verified-directory** path for a business. Resolves to dialable candidates and mints a short-lived signed `dial_token` per callable one. This is the **only** path that can authorize `make_call`. If you already found the official number via web search, pass `phone_number` (E.164) to skip the directory lookup — it's still carrier-verified as a business line. |
-| `make_call(dial_token, objective, caller_name, context?, behavior?, after_hours_confirmation?, max_duration_seconds?, wait?)` | mutating | Place the disclosed, objective-scoped call authorized by a `dial_token`. Blocks until the call finishes, returns the `OUTCOME` + transcript with honest `connected`/`answered`/`not_connected`. `wait:false` returns a call ID to poll with `get_call`. |
-| `call_number(phone_number, objective, caller_name, recipient_name?, context?, behavior?, utc_offset_minutes?, after_hours_confirmation?, max_duration_seconds?, wait?)` | mutating | **The default path once you have a number** — business *or* personal, mobiles allowed. Works with just the user's Speko key, no directory/carrier keys. Only dial a number the user gave you or you found — never one you invented. `wait:false` returns a call ID to poll with `get_call`. |
+| `make_call(dial_token, objective, caller_name, context?, behavior?, greet_first?, after_hours_confirmation?, max_duration_seconds?, wait?)` | mutating | Place the disclosed, objective-scoped call authorized by a `dial_token`. Blocks until the call finishes, returns the `OUTCOME` + transcript with honest `connected`/`answered`/`not_connected`. `wait:false` returns a call ID to poll with `get_call`. |
+| `call_number(phone_number, objective, caller_name, recipient_name?, context?, behavior?, greet_first?, utc_offset_minutes?, after_hours_confirmation?, max_duration_seconds?, wait?)` | mutating | **The default path once you have a number** — business *or* personal, mobiles allowed. Works with just the user's Speko key, no directory/carrier keys. Only dial a number the user gave you or you found — never one you invented. `wait:false` returns a call ID to poll with `get_call`. |
 | `call_me(message, mode?, context?, after_hours_confirmation?, max_duration_seconds?, wait?)` | mutating | Ring this install's locally verified owner. There is no destination field. Use `notify` for one-way delivery and `converse` for a reply. A converse instruction is usable only when the result says `confirmation: confirmed|corrected`; unconfirmed speech is advisory. |
-| `check_call_readiness()` | read-only | Preflight before the first call, or when calling doesn't work. Reports auth, prepaid credit balance, and outbound caller-ID readiness, each with a concrete next step. Never dials. |
+| `check_call_readiness()` | read-only | Preflight before the first call, or when calling doesn't work. Reports auth, prepaid credit balance, outbound caller-ID readiness, owner verification (`call_me.available`), and the enforced client profile, each with a concrete next step. Never dials. |
 | `get_call(call_id)` | read-only | Re-check a call's status, `connected`/`answered`, `OUTCOME`, and transcript. Use after a `timeout`, or to inspect a finished call. Never dials. |
 
 **Choosing a path:**
@@ -94,7 +94,7 @@ route around it.
   is unverified) require `after_hours_confirmation` — pass the **human's own explicit words**.
   Never set it yourself. Setting it asserts the callee consented to be called.
 - **Owner calls do not bypass rails.** The local voice OTP is a setup/consent artifact only.
-  `call_me` is NANP-only in 0.7.0, uses the ordinary 3/hour and 8/day caps, honors DNC and content
+  `call_me` is NANP-only, uses the ordinary 3/hour and 8/day caps, honors DNC and content
   screens, and never consults `SPEKO_TRUSTED_NUMBERS`. A second live owner call returns
   `owner_busy` without dialing. `SPEKO_CALLME_DISABLED=1` disables the tool locally.
 
@@ -147,7 +147,7 @@ stripped). Provide it via:
 
 - the MCP host config `env` block (see `mcp/README.md`), or
 - an environment variable, or
-- a project/repo `.env` (auto-loaded), or
+- a project/repo `.env` (auto-loaded in CLI mode; in MCP-server mode only with `SPEKO_ALLOW_DOTENV=1`), or
 - `speko login` — browser OAuth that fetches and writes the key for you.
 
 Get a key at [platform.speko.dev](https://platform.speko.dev). If it's missing, tools/CLI

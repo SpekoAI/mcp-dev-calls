@@ -104,14 +104,15 @@ working directory (an untrusted user repo); `SPEKO_ALLOW_DOTENV=1` opts back in,
 `SPEKO_NO_DOTENV=1` disables `.env` discovery in every mode, and MCP-server mode
 propagates the gate to the embedded call core as well, so a `.env` planted in the
 spawn directory is never read in server mode. Whenever a `.env` is loaded (CLI mode),
-its absolute path is printed to stderr, and values already set in the environment
+its absolute path is printed to stderr (this fires in CLI mode, or in MCP-server mode
+only when `SPEKO_ALLOW_DOTENV=1` lets a `.env` load), and values already set in the environment
 always win. Supply configuration only through the environment, and keep `.env` files out of
 repos the agent works on.
 
 ## The owner call (call_me) headless
 
 Verify once on a machine with a terminal: `speko me verify` places one real, disclosed
-call to your phone and asks for its six-digit code (NANP numbers only in 0.7.0). Then
+call to your phone and asks for its six-digit code (NANP numbers only). Then
 `speko me export` prints a single-line `spkow1.` blob on stdout (the warning goes to
 stderr, so `> blob.txt` captures only the blob). Store the blob as the secret env var
 `SPEKO_OWNER_PROFILE` in the sandbox - it is credential-equivalent for ringing that one

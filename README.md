@@ -57,7 +57,7 @@ your key calls `api.speko.dev` directly (no separate server to boot).
 
 After a successful connection, the optional final step places one real voice-OTP call; `call_me`
 is enabled only if the OTP succeeds. You can run `speko me verify` later. Verification is
-NANP-only in 0.7.0.
+NANP-only.
 
 `npx -y @spekoai/mcp-calls selftest` verifies any install offline — a hermetic simulation with no key and no real calls.
 
@@ -128,6 +128,7 @@ The same binary is a terminal CLI (`npx @spekoai/mcp-calls <command>`, or `speko
 ```
 speko init | setup | login     onboarding & auth
 speko status                   health check: key, backend, credits, call readiness (alias: whoami)
+speko selftest                 hermetic offline self-test of the MCP server (no key, no network, no real calls)
 speko me verify|status|export  verify, inspect, or export the local call_me owner
 speko dnc list|add|remove|check  manage the local do-not-call list
 speko audio speak "<text>"     text-to-speech (TTS)
@@ -170,7 +171,7 @@ mcp-dev-calls/
 ├── mcp/              # stdio MCP + CLI; embeds the core by default
 │   ├── src/
 │   │   ├── index.ts          # MCPServer bootstrap (stdio)
-│   │   ├── tools/            # LookupBusiness · MakeCall · CheckCallReadiness · CallMe
+│   │   ├── tools/            # LookupBusiness · MakeCall · CallNumber · CheckCallReadiness · GetCall · CallMe
 │   │   └── http/             # client to the backing server
 │   └── server.json           # MCP registry metadata
 ├── server/           # reusable trusted core + optional Express wrapper
@@ -181,7 +182,7 @@ mcp-dev-calls/
 │   │   ├── safety/           # dial tokens · objective screen · disclosure prompt
 │   │   ├── speko/            # @spekoai/sdk wrapper (+ raw session read)
 │   │   ├── owner/            # private local owner profile + voice-OTP state
-│   │   └── calls/            # make_call · call_me · readiness · get_call · connection assessment
+│   │   └── calls/            # make_call · call_number · call_me · readiness · get_call · connection assessment
 │   └── test/                 # unit tests for the safety-critical logic
 ├── docs/             # guides — agent-platforms.md: running on cloud agent platforms
 ├── scripts/          # place-call.mjs (one-shot demo runner) · inspect-call.mjs (diagnostics)
