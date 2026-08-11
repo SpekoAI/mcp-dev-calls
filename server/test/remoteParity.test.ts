@@ -2,13 +2,18 @@ import type { Server } from "node:http";
 import { once } from "node:events";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const { callMeMock, readinessMock } = vi.hoisted(() => ({
+const { callMeMock, readinessMock, makeCallMock, callNumberMock } = vi.hoisted(() => ({
   callMeMock: vi.fn(async () => ({ status: "completed", call_id: "call_1" })),
   readinessMock: vi.fn(async (_client: unknown, cfg: unknown) => ({ ok: true, cfg })),
+  makeCallMock: vi.fn(async () => ({ status: "completed", call_id: "call_2" })),
+  callNumberMock: vi.fn(async () => ({ status: "completed", call_id: "call_3" })),
 }));
 
 vi.mock("../src/calls/callMe.js", () => ({ callMe: callMeMock }));
 vi.mock("../src/calls/readiness.js", () => ({ checkReadiness: readinessMock }));
+// test/setup.ts imports resetDialReplayGuard from this module, so the mock must export it too.
+vi.mock("../src/calls/makeCall.js", () => ({ makeCall: makeCallMock, resetDialReplayGuard: vi.fn() }));
+vi.mock("../src/calls/callNumber.js", () => ({ callNumber: callNumberMock }));
 
 import { buildApp } from "../src/app.js";
 import type { AppConfig } from "../src/config.js";
@@ -23,6 +28,8 @@ beforeEach(async () => {
   callMeMock.mockReset();
   callMeMock.mockResolvedValue({ status: "completed", call_id: "call_1" });
   readinessMock.mockClear();
+  makeCallMock.mockClear();
+  callNumberMock.mockClear();
   cfg = {
     internalKey: "remote-test-key",
     clientProfile: "claude-code",
@@ -103,6 +110,40 @@ describe("remote request contract", () => {
       "gemini",
     ]);
     expect(cfg.clientProfile).toBe("claude-code");
+  });
+
+  it("threads wait:false from POST /call and /call-number to the core inputs", async () => {
+    const call = await fetch(`${baseUrl}/call`, {
+      method: "POST",
+      headers: headers(),
+      body: JSON.stringify({ dial_token: "tok", objective: "Ask about a table for four.", caller_name: "Bek", wait: false }),
+    });
+    expect(call.status).toBe(200);
+    expect(makeCallMock.mock.calls[0][0]).toMatchObject({ wait: false });
+
+    const callNumber = await fetch(`${baseUrl}/call-number`, {
+      method: "POST",
+      headers: headers(),
+      body: JSON.stringify({ phone_number: "+14155550142", objective: "Ask about a table for four.", caller_name: "Bek", wait: false }),
+    });
+    expect(callNumber.status).toBe(200);
+    expect(callNumberMock.mock.calls[0][0]).toMatchObject({ wait: false });
+  });
+
+  it("defaults wait to true (blocking) when omitted on /call and /call-number", async () => {
+    await fetch(`${baseUrl}/call`, {
+      method: "POST",
+      headers: headers(),
+      body: JSON.stringify({ dial_token: "tok", objective: "Ask about a table for four.", caller_name: "Bek" }),
+    });
+    expect(makeCallMock.mock.calls[0][0]).toMatchObject({ wait: true });
+
+    await fetch(`${baseUrl}/call-number`, {
+      method: "POST",
+      headers: headers(),
+      body: JSON.stringify({ phone_number: "+14155550142", objective: "Ask about a table for four.", caller_name: "Bek" }),
+    });
+    expect(callNumberMock.mock.calls[0][0]).toMatchObject({ wait: true });
   });
 
   it("publishes only the allowlisted setup error code", async () => {

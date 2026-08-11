@@ -30,6 +30,15 @@ Re-authenticate anytime with `npx @spekoai/mcp-calls login`.
 It runs **single-process**: give it your `SPEKO_API_KEY` and it calls `api.speko.dev`
 directly — no separate server to run.
 
+### Verify the install
+
+```bash
+npx -y @spekoai/mcp-calls selftest
+```
+
+Exercises the whole tool surface against the built-in offline simulation and prints a PASS/FAIL
+verdict per check — no key, no network, no real calls. Exit 0 = green; safe anywhere, including CI.
+
 <details><summary>Manual / CI setup (any MCP client)</summary>
 
 ```bash
@@ -76,6 +85,10 @@ when configured, `MCP_INTERNAL_KEY`. Run `speko me` and `speko dnc` on the backi
 with `SPEKO_MCP_SERVER_URL` unset; they modify only local host state. Other account/audio CLI
 commands still require a local API key. Non-loopback server binding requires `MCP_INTERNAL_KEY`.
 The default wizard install is in-process.
+
+In MCP-server mode the process never reads a `.env` from its working directory (that's an
+untrusted user repo) unless `SPEKO_ALLOW_DOTENV=1`. `SPEKO_NO_DOTENV=1` disables `.env`
+discovery in every mode. Whenever a `.env` is loaded, its absolute path is printed to stderr.
 </details>
 
 ## Tools
@@ -83,14 +96,18 @@ The default wizard install is in-process.
 | Tool | What it does |
 | --- | --- |
 | `lookup_business(name, location?, phone_number?, utc_offset_minutes?)` | Resolve a business → dialable candidates + a signed `dial_token` per callable one. Pass `phone_number` to skip directory search; it is still carrier-verified as a business line. |
-| `make_call(dial_token, objective, caller_name, context?, behavior?, greet_first?, after_hours_confirmation?, max_duration_seconds?)` | Place the disclosed, objective-scoped call; wait for it to finish; return the `OUTCOME` + transcript. Honest `connected`/`answered`/`not_connected`. |
-| `call_number(phone_number, objective, caller_name, recipient_name?, context?, behavior?, greet_first?, utc_offset_minutes?, after_hours_confirmation?, max_duration_seconds?)` | Disclosed call to a number you have or found from an official source. Business or personal; mobiles allowed. |
+| `make_call(dial_token, objective, caller_name, context?, behavior?, greet_first?, after_hours_confirmation?, max_duration_seconds?, wait?)` | Place the disclosed, objective-scoped call; wait for it to finish; return the `OUTCOME` + transcript. Honest `connected`/`answered`/`not_connected`. `wait:false` returns a call ID for `get_call` polling. |
+| `call_number(phone_number, objective, caller_name, recipient_name?, context?, behavior?, greet_first?, utc_offset_minutes?, after_hours_confirmation?, max_duration_seconds?, wait?)` | Disclosed call to a number you have or found from an official source. Business or personal; mobiles allowed. `wait:false` returns a call ID for `get_call` polling. |
 | `call_me(message, mode?, context?, after_hours_confirmation?, max_duration_seconds?, wait?)` | Call this install's locally verified owner; there is no destination input. `notify` delivers a message. `converse` returns the owner's read-back-confirmed reply as explicitly untrusted transcript data. `wait:false` returns a call ID for `get_call` polling. |
 | `get_call(call_id)` | Read-only: re-check a call, including a call ID returned by `call_me`. Never dials. |
 | `check_call_readiness()` | Read-only preflight: auth, credit balance, outbound caller-ID, owner verification, and client profile. Never dials. |
 
 The wizard installs no Google or Twilio credentials. Name search requires Google Places, and every
 real `lookup_business` dial token requires Twilio carrier credentials. `call_number` needs neither.
+
+| Env | Effect |
+| --- | --- |
+| `SPEKO_TOOLS=call_me,get_call,check_call_readiness` | Comma list: register only these tools in MCP-server mode — shrink the dialing surface on hosts that don't approval-gate tool calls. Unset/empty = all 6; unknown names are ignored with a stderr warning. |
 
 ## Safety
 
@@ -101,20 +118,46 @@ per-number rate caps, a local do-not-call list (`speko dnc`), and an after-hours
 gate for late or unknown-timezone calls. `make_call` is authorized only by a fresh, short-lived,
 signed `dial_token` from `lookup_business` — a raw phone number can never dial.
 
-`call_me` is NANP-only in 0.7.0 and requires `speko me verify`. The local voice OTP is a setup
+`call_me` is NANP-only and requires `speko me verify`. The local voice OTP is a setup
 and consent artifact, not a privileged trust boundary: owner calls still honor DNC, the ordinary
 3/hour and 8/day per-number caps, content screens, and the 08:00-21:00 destination-local gate.
 `SPEKO_TRUSTED_NUMBERS` never exempts `call_me`; late calls require the human's own words in
 `after_hours_confirmation`. A host-local, cross-process lease makes a second live owner call
 return `owner_busy` without dialing.
 
+On headless installs (no TTY, ephemeral filesystem): verify once on a laptop, run
+`speko me export`, and set the printed blob as `SPEKO_OWNER_PROFILE` in the sandbox environment
+(store it like an API key). The backend seeds owner state from it at startup; an existing owner
+state always wins. The blob is credential-equivalent for ringing that owner number.
+
+## Hermetic test mode
+
+`SPEKO_TEST_MODE=1` runs every tool as a deterministic in-process simulation — no API key, no
+network, no telephony — so any agent platform can exercise all 6 tools offline. Every result
+carries `test_mode: true` and simulated transcripts/outcomes are labeled `[SIMULATED]`; all
+safety rails still run for real.
+
+- `lookup_business` resolves any name to one candidate — "Test Bistro" at `+15005550001` — with
+  a real signed `dial_token`.
+- Magic numbers: `+15005550001` connected + answered (with an OUTCOME line); `+15005550002`
+  `not_connected` (no answer); `+15005550003` connected but nobody responded; any other number
+  behaves like `+15005550001`.
+- `call_me` works out of the box against a pre-seeded fixture owner ("Test Owner",
+  `+1 500 555 0100`); converse mode returns a deterministic confirmed read-back.
+- `SPEKO_FAKE_NOW=<ISO timestamp>` overrides test mode's frozen mid-day clock so the after-hours
+  gate can be tested. It is ignored entirely outside test mode.
+- Refusal invariant: test mode refuses to start tools if a live-looking `SPEKO_API_KEY` (`sk_*`
+  that is not `sk_test_*`) or `SPEKO_MCP_SERVER_URL` is configured — one process can simulate
+  calls or place real ones, never both.
+
 ## CLI
 
 Beyond the MCP server, `speko` is also a terminal CLI — run it with a subcommand:
 
 ```bash
+speko selftest                    # hermetic self-test: no key, no network, no real calls
 speko audio speak "<text>"        # text-to-speech (stdin/pipe ok; -o file, --format wav|mp3)
-speko me verify | status          # verify or inspect the local call_me owner
+speko me verify | status | export # verify, inspect, or export the local call_me owner
 speko audio transcribe <file|->   # speech-to-text
 speko voices [--provider <p>]     # list the voices the router can pick
 speko usage                       # account usage this period: sessions, minutes, spend, balance
@@ -134,5 +177,6 @@ for the full agent-oriented guide.
 
 - Dashboard / API keys — [platform.speko.dev](https://platform.speko.dev)
 - Source & issues — [github.com/SpekoAI/mcp-dev-calls](https://github.com/SpekoAI/mcp-dev-calls)
+- Running on cloud agent platforms — [docs/agent-platforms.md](https://github.com/SpekoAI/mcp-dev-calls/blob/main/docs/agent-platforms.md)
 
 MIT © SpekoAI

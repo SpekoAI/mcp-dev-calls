@@ -36,5 +36,9 @@ export function baseEnv() {
   for (const k of keep) if (process.env[k]) env[k] = process.env[k];
   env.NO_COLOR = "1";
   env.FORCE_COLOR = "0";
+  // .env discovery is also BUNDLE-relative, so an isolated cwd alone doesn't stop a
+  // developer's repo-root .env from leaking into probes. 0.4.9 ignores this knob;
+  // current bundles honor it — probe output is identical on a clean machine either way.
+  env.SPEKO_NO_DOTENV = "1";
   return env;
 }

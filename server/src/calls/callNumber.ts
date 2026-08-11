@@ -30,6 +30,8 @@ export interface CallNumberInput {
   recipientName?: string | null;
   utcOffsetMinutes?: number | null;
   maxDurationSeconds?: number;
+  /** false returns right after the dial is placed (poll get_call); default/omitted blocks until the call ends. */
+  wait?: boolean | null;
 }
 
 export interface CallNumberDeps {
@@ -92,6 +94,7 @@ export async function callNumber(input: CallNumberInput, deps: CallNumberDeps): 
       greetFirst: input.greetFirst ?? null,
       afterHoursConfirmation: input.afterHoursConfirmation ?? null,
       maxDurationSeconds: input.maxDurationSeconds,
+      wait: input.wait ?? null,
     },
     {
       client: deps.client,

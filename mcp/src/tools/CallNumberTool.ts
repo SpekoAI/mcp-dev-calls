@@ -58,6 +58,15 @@ const schema = z.object({
         "By setting it you confirm the callee has consented to be called.",
     ),
   max_duration_seconds: z.number().int().optional().describe("Max seconds to wait for the call to finish; clamped 30-300."),
+  wait: z
+    .boolean()
+    .optional()
+    .default(true)
+    .describe(
+      "false returns immediately after the dial is placed, with a call_id to poll via get_call; set it when " +
+        "your tool-call timeout is shorter than a phone call. The call keeps running in the background; " +
+        "never re-invoke call_number for the same ask - poll get_call instead. Default true blocks until the call finishes.",
+    ),
 });
 
 export default class CallNumberTool extends MCPTool {
@@ -103,6 +112,7 @@ export default class CallNumberTool extends MCPTool {
           utc_offset_minutes: input.utc_offset_minutes,
           after_hours_confirmation: input.after_hours_confirmation,
           max_duration_seconds: input.max_duration_seconds,
+          wait: input.wait,
         },
         { timeoutMs: (maxWait + 30) * 1000, signal: this.abortSignal },
       )) as Record<string, unknown>;

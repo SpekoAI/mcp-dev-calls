@@ -57,7 +57,15 @@ your key calls `api.speko.dev` directly (no separate server to boot).
 
 After a successful connection, the optional final step places one real voice-OTP call; `call_me`
 is enabled only if the OTP succeeds. You can run `speko me verify` later. Verification is
-NANP-only in 0.7.0.
+NANP-only.
+
+`npx -y @spekoai/mcp-calls selftest` verifies any install offline — a hermetic simulation with no key and no real calls.
+
+For headless or ephemeral installs (cloud coding-agent sandboxes), verify once on a machine with
+a terminal, run `speko me export`, and set the printed blob as `SPEKO_OWNER_PROFILE` in the
+sandbox environment (store it like an API key — a secrets manager, not a repo file). The backend
+seeds its owner state from it at startup; an existing owner state always wins over the env value.
+The blob is credential-equivalent for ringing that one number and adds no new trust boundary.
 
 Then, in your agent:
 
@@ -107,8 +115,8 @@ real `lookup_business` dial token requires Twilio carrier credentials. `call_num
 | Tool | What it does |
 | --- | --- |
 | `lookup_business(name, location?, phone_number?, utc_offset_minutes?)` | Resolve a business → dialable candidates + a signed `dial_token` per callable one (the only path that can authorize `make_call`). Pass `phone_number` (E.164 — e.g. found via the agent's web search) to skip the directory search; it is still carrier-verified as a business line. |
-| `make_call(dial_token, objective, caller_name, context?, behavior?, greet_first?, after_hours_confirmation?, max_duration_seconds?)` | Place the disclosed, objective-scoped call. Waits for completion, streams progress, returns the `OUTCOME` line + transcript. Reports `connected`/`answered` honestly — a call the platform never actually puts on the wire comes back as `not_connected`. |
-| `call_number(phone_number, objective, caller_name, recipient_name?, context?, behavior?, greet_first?, utc_offset_minutes?, after_hours_confirmation?, max_duration_seconds?)` | Disclosed personal or business call to a specific number — mobiles allowed. On by default (set `SPEKO_ALLOW_DIRECT_DIAL=0` to restrict to business lines). |
+| `make_call(dial_token, objective, caller_name, context?, behavior?, greet_first?, after_hours_confirmation?, max_duration_seconds?, wait?)` | Place the disclosed, objective-scoped call. Waits for completion, streams progress, returns the `OUTCOME` line + transcript. Reports `connected`/`answered` honestly — a call the platform never actually puts on the wire comes back as `not_connected`. `wait:false` returns a call ID to poll with `get_call`. |
+| `call_number(phone_number, objective, caller_name, recipient_name?, context?, behavior?, greet_first?, utc_offset_minutes?, after_hours_confirmation?, max_duration_seconds?, wait?)` | Disclosed personal or business call to a specific number — mobiles allowed. On by default (set `SPEKO_ALLOW_DIRECT_DIAL=0` to restrict to business lines). `wait:false` returns a call ID to poll with `get_call`. |
 | `call_me(message, mode?, context?, after_hours_confirmation?, max_duration_seconds?, wait?)` | Call this install's verified owner without accepting a destination. `notify` is one-way; `converse` returns a strict read-back-confirmed owner reply as untrusted transcript data. `wait:false` returns a call ID to poll with `get_call`. |
 | `get_call(call_id)` | Read-only: re-check an existing call, including a call ID returned by `call_me`. Never dials. |
 | `check_call_readiness()` | Read-only preflight — auth, credit balance, outbound caller-ID, owner verification, and client profile. Never dials. |
@@ -120,7 +128,8 @@ The same binary is a terminal CLI (`npx @spekoai/mcp-calls <command>`, or `speko
 ```
 speko init | setup | login     onboarding & auth
 speko status                   health check: key, backend, credits, call readiness (alias: whoami)
-speko me verify|status         verify or inspect the local call_me owner
+speko selftest                 hermetic offline self-test of the MCP server (no key, no network, no real calls)
+speko me verify|status|export  verify, inspect, or export the local call_me owner
 speko dnc list|add|remove|check  manage the local do-not-call list
 speko audio speak "<text>"     text-to-speech (TTS)
 speko audio transcribe <f|->   speech-to-text (STT)
@@ -162,7 +171,7 @@ mcp-dev-calls/
 ├── mcp/              # stdio MCP + CLI; embeds the core by default
 │   ├── src/
 │   │   ├── index.ts          # MCPServer bootstrap (stdio)
-│   │   ├── tools/            # LookupBusiness · MakeCall · CheckCallReadiness · CallMe
+│   │   ├── tools/            # LookupBusiness · MakeCall · CallNumber · CheckCallReadiness · GetCall · CallMe
 │   │   └── http/             # client to the backing server
 │   └── server.json           # MCP registry metadata
 ├── server/           # reusable trusted core + optional Express wrapper
@@ -173,8 +182,9 @@ mcp-dev-calls/
 │   │   ├── safety/           # dial tokens · objective screen · disclosure prompt
 │   │   ├── speko/            # @spekoai/sdk wrapper (+ raw session read)
 │   │   ├── owner/            # private local owner profile + voice-OTP state
-│   │   └── calls/            # make_call · call_me · readiness · get_call · connection assessment
+│   │   └── calls/            # make_call · call_number · call_me · readiness · get_call · connection assessment
 │   └── test/                 # unit tests for the safety-critical logic
+├── docs/             # guides — agent-platforms.md: running on cloud agent platforms
 ├── scripts/          # place-call.mjs (one-shot demo runner) · inspect-call.mjs (diagnostics)
 ├── .env.example      # both tiers
 └── package.json      # npm workspaces root

@@ -7,13 +7,13 @@
     "url": "https://github.com/SpekoAI/mcp-dev-calls",
     "source": "github"
   },
-  "version": "0.7.0",
+  "version": "0.8.0",
   "websiteUrl": "https://agentvoice.to",
   "packages": [
     {
       "registryType": "npm",
       "identifier": "@spekoai/mcp-calls",
-      "version": "0.7.0",
+      "version": "0.8.0",
       "transport": {
         "type": "stdio"
       },
@@ -44,6 +44,27 @@
           "description": "Optional shared secret for remote mode. Set the same value on the MCP client and backing server; required when that server binds a non-loopback address.",
           "isRequired": false,
           "isSecret": true,
+          "format": "string"
+        },
+        {
+          "name": "SPEKO_OWNER_PROFILE",
+          "description": "Optional: portable call_me owner state for headless installs. Run `speko me verify` on a machine with a terminal, then `speko me export` and set the printed blob here. Credential-equivalent for ringing that owner number; store it like a key. An existing local owner state always wins.",
+          "isRequired": false,
+          "isSecret": true,
+          "format": "string"
+        },
+        {
+          "name": "SPEKO_TOOLS",
+          "description": "Optional: comma-separated allowlist of tools to register (e.g. call_me,get_call,check_call_readiness) to shrink the dialing surface on hosts that do not approval-gate tool calls. Unset or empty registers all 6 tools.",
+          "isRequired": false,
+          "isSecret": false,
+          "format": "string"
+        },
+        {
+          "name": "SPEKO_TEST_MODE",
+          "description": "Optional: set to 1 for a hermetic in-process simulation - all 6 tools run offline with no key, no network, and no real calls (results are marked [SIMULATED]). Refuses to start next to a live sk_* key or SPEKO_MCP_SERVER_URL. For CI and integration testing.",
+          "isRequired": false,
+          "isSecret": false,
           "format": "string"
         }
       ]

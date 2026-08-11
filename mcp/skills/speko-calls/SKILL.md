@@ -100,7 +100,7 @@ donate, fundraise, vote, campaign, debt, warranty, crypto, investment.* Just say
 - **Trusted numbers** — numbers in `SPEKO_TRUSTED_NUMBERS` skip time and volume friction only;
   DNC, disclosure, emergency/premium blocks, and abuse screens still apply.
 - **Owner calls retain full rails** — local voice-OTP verification is a setup/consent artifact,
-  not a privileged trust boundary. `call_me` is NANP-only in 0.7.0, always uses the ordinary
+  not a privileged trust boundary. `call_me` is NANP-only, always uses the ordinary
   3/hour and 8/day caps, and never consults `SPEKO_TRUSTED_NUMBERS`. Late owner calls still need
   the human's own words in `after_hours_confirmation`.
 - **Business-line verification** applies on the `lookup_business` path (mobiles blocked there).

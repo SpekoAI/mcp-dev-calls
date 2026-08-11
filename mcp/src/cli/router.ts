@@ -12,6 +12,7 @@ export const CLI_COMMANDS = [
   "login",
   "status",
   "whoami",
+  "selftest",
   "me",
   "audio",
   "dnc",

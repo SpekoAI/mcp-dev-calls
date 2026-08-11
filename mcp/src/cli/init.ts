@@ -60,7 +60,38 @@ function parseFlags(argv: string[]): Flags {
 
 function ask(query: string): Promise<string> {
   const rl = createInterface({ input: process.stdin, output: process.stdout });
-  return new Promise((res) => rl.question(query, (a) => { rl.close(); res(a.trim()); }));
+  return new Promise((res) => {
+    rl.question(query, (a) => { rl.close(); res(a.trim()); });
+    // EOF (e.g. piped stdin already consumed): resolve empty instead of hanging forever.
+    rl.once("close", () => res(""));
+  });
+}
+
+// Non-TTY reads must NEVER hang: inside a cloud sandbox a wizard stuck on a held-open
+// empty stdin burns the host's whole idle timeout. 30s is generous for a pipe.
+const NON_TTY_READ_TIMEOUT_MS = 30_000;
+
+/**
+ * Non-TTY line read for the documented `echo $KEY | speko init --paste` path: resolves the
+ * first line, or "" on EOF / a held-open silent stdin (timeout). The caller treats "" as a
+ * hard failure (exit 1). Exported for tests.
+ */
+export function readSecretLineNonTTY(input: NodeJS.ReadableStream, timeoutMs = NON_TTY_READ_TIMEOUT_MS): Promise<string> {
+  return new Promise((res) => {
+    const rl = createInterface({ input });
+    let settled = false;
+    const finish = (value: string) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      rl.close();
+      res(value.trim());
+    };
+    const timer = setTimeout(() => finish(""), timeoutMs);
+    timer.unref?.();
+    rl.once("line", finish);
+    rl.once("close", () => finish(""));
+  });
 }
 
 /** Masked secret entry. Raw-mode echo of '*'; falls back to a plain line on non-TTY. */
@@ -69,8 +100,7 @@ function askSecret(query: string): Promise<string> {
     const stdin = process.stdin;
     process.stdout.write(query);
     if (!stdin.isTTY) {
-      const rl = createInterface({ input: stdin });
-      rl.question("", (a) => { rl.close(); resolve_(a.trim()); });
+      readSecretLineNonTTY(stdin).then(resolve_, reject);
       return;
     }
     stdin.setRawMode(true);
@@ -293,7 +323,19 @@ async function offerOwnerVerification(key: string, quick: boolean, nonInteractiv
   }
 }
 
-export async function runInit(argv: string[], mode: "init" | "setup" | "login" = "init"): Promise<void> {
+/** Injectable seams for tests (the wizard is otherwise interactive + network-bound). */
+export interface InitDeps {
+  readSecret?: (query: string) => Promise<string>;
+}
+
+/**
+ * Returns the process exit code: 0 on success, 1 when onboarding failed (no key
+ * provided, key verification failed, or nothing valid to configure) — so scripted
+ * runs (`echo $KEY | speko init --paste`) can detect failure. Per-agent config-write
+ * failures stay exit 0: the wizard already prints the manual fallback for those.
+ */
+export async function runInit(argv: string[], mode: "init" | "setup" | "login" = "init", deps: InitDeps = {}): Promise<number> {
+  const readSecret = deps.readSecret ?? askSecret;
   const f = parseFlags(argv);
   const quick = mode === "login"; // `login` = focused re-auth: skip intro + demo prompts
   console.log(c.bold(quick ? "\n  Speko Calls — sign in\n" : "\n  Speko Calls — setup\n"));
@@ -321,7 +363,7 @@ export async function runInit(argv: string[], mode: "init" | "setup" | "login" =
   }
   if (sel.invalid.length > 0 && sel.ids.length === 0) {
     console.log(c.red("\n  Nothing to configure — no valid --client values.\n"));
-    return;
+    return 1;
   }
   if (sel.ids.length > 0) {
     console.log("  Found: " + c.bold(sel.ids.map((id) => TARGET_LABELS[id]).join(", ")));
@@ -355,11 +397,11 @@ export async function runInit(argv: string[], mode: "init" | "setup" | "login" =
       if (!f.yes) await ask("  Press Enter to open your browser… ");
       openBrowser(DASHBOARD);
     }
-    key = await askSecret("  Paste your Speko API key: ");
+    key = await readSecret("  Paste your Speko API key: ");
   }
   if (!key) {
     console.log(c.red("\n  No key provided. Re-run when you have one.\n"));
-    return;
+    return 1;
   }
   if (!/^(Bearer\s+)?sk_/.test(key)) {
     console.log(c.yellow("  • That doesn't look like an sk_… key, but I'll verify it anyway."));
@@ -372,13 +414,13 @@ export async function runInit(argv: string[], mode: "init" | "setup" | "login" =
   if (!v.ok) {
     console.log(c.red(`failed (${v.detail}).`));
     console.log("  Double-check the key at " + c.cyan(DASHBOARD) + " and re-run.\n");
-    return;
+    return 1;
   }
   console.log(c.green("ok ✓"));
 
   if (f.printConfig) {
     printManualConfigs(f.scope);
-    return;
+    return 0;
   }
 
   // 4) Write config + guidance into each — one agent failing never stops the rest.
@@ -387,7 +429,7 @@ export async function runInit(argv: string[], mode: "init" | "setup" | "login" =
     console.log(c.yellow("  • No coding agents detected — manual setup below (or force one with --client <name>):"));
     printManualConfigs(f.scope);
     await offerOwnerVerification(key, quick, f.yes);
-    return;
+    return 0;
   }
   for (const id of sel.ids) {
     if (id === "code") {
@@ -433,4 +475,5 @@ export async function runInit(argv: string[], mode: "init" | "setup" | "login" =
   console.log("    " + c.cyan('"call <a business> and ask if they have a table for 4 at 8pm — my name is <you>"'));
   console.log(c.dim("\n  First run downloads the package — if the agent reports an MCP startup timeout,"));
   console.log(c.dim("  set MCP_TIMEOUT=60000 and retry. Re-run this wizard anytime to reconfigure.\n"));
+  return 0;
 }

@@ -6,7 +6,7 @@
  */
 import { createHash } from "node:crypto";
 import type { VoiceDialParams } from "@spekoai/sdk";
-import { allowedProvidersFromPins, type AppConfig } from "../config.js";
+import { afterHoursTestClock, allowedProvidersFromPins, type AppConfig } from "../config.js";
 import {
   DIAL_TOKEN_DEFAULT_TTL_SECONDS,
   AUTH_NEXT_STEP,
@@ -167,6 +167,19 @@ function afterHoursNextStep(opts: {
 export async function makeCall(input: MakeCallInput, deps: MakeCallDeps): Promise<CallSummary> {
   const sleep = deps.sleep ?? defaultSleep;
 
+  // SPEKO_SERIALIZE_CALLS wants at most one LIVE call at a time, but wait:false returns while the
+  // call keeps running on the platform — the in-process guard releases at return, so a second
+  // wait:false dial would start a concurrent live call and silently defeat the serialize
+  // guarantee. Refuse the combination rather than break the invariant the operator opted into.
+  if (deps.cfg.serializeCalls === true && input.wait === false) {
+    throw new RejectionError(
+      "wait:false cannot be used while SPEKO_SERIALIZE_CALLS=1: a backgrounded call would run " +
+        "concurrently with the next one, which is exactly what serialized calls forbid.",
+      "Place this call with wait:true (blocking) so only one call runs at a time, or unset " +
+        "SPEKO_SERIALIZE_CALLS to allow concurrent calls (each gets an isolated per-call room).",
+    );
+  }
+
   let payload;
   try {
     payload = verifyDialToken(input.dialToken, {
@@ -216,10 +229,15 @@ export async function makeCall(input: MakeCallInput, deps: MakeCallDeps): Promis
 
     if (!deps.skipAfterHoursGate) {
       const collectionMatched = collectionMatch([input.objective, input.behavior, input.context]);
+      // Test mode reads a frozen clock (14:00 destination-local by default; SPEKO_FAKE_NOW
+      // overrides it, test mode only) so the gate is deterministic in CI. Real mode: identity —
+      // real offset, real clock.
+      const gateClock = afterHoursTestClock(deps.cfg, offset);
       const afterHoursReason = afterHoursGateReason(
-        offset,
+        gateClock.utcOffsetMinutes,
         input.afterHoursConfirmation,
         collectionMatched,
+        gateClock.nowSeconds,
       );
       if (afterHoursReason) {
         throw new RejectionError(
@@ -386,6 +404,11 @@ export async function makeCall(input: MakeCallInput, deps: MakeCallDeps): Promis
         durationCap,
         {
           ...deps,
+          // wait:false is the agent-facing form of returnAfterDial: hand back the call_id the
+          // moment the platform accepts the dial (every pre-dial rail above has already run, and
+          // the replay guard below still registers the real call_id before this function returns)
+          // so an MCP host with a short tool-call timeout never has to retry a live dial.
+          returnAfterDial: deps.returnAfterDial === true || input.wait === false,
           // `placeCall` can run twice only when a deleted persisted agent makes the first
           // platform request fail before a phone leg exists. Guard both local ledgers so one
           // invocation still consumes exactly one ordinary attempt and one OTP attempt.

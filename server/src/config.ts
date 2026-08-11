@@ -5,8 +5,9 @@
  * optional Google Places / Twilio carrier-check keys.
  */
 import { createHash } from "node:crypto";
-import { existsSync } from "node:fs";
-import { dirname, resolve } from "node:path";
+import { existsSync, mkdtempSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { RATE_CAP_PER_NUMBER_DAY, RATE_CAP_PER_NUMBER_HOUR } from "./constants.js";
 import { normalizeE164 } from "./safety/guard.js";
@@ -15,8 +16,15 @@ export class ConfigError extends Error {
   override name = "ConfigError";
 }
 
-/** Load the first `.env` found among repo-root candidates. Missing file is fine. */
+/**
+ * Load the first `.env` found among repo-root candidates. Missing file is fine.
+ * Gated exactly like the MCP tier's loader: SPEKO_NO_DOTENV=1 disables discovery
+ * here too. This matters because the core loads lazily at the first tool call —
+ * in single-process MCP-server mode the MCP tier sets SPEKO_NO_DOTENV before the
+ * core can run, so a `.env` planted in an untrusted spawn cwd never reaches it.
+ */
 function loadDotenv(): void {
+  if (["1", "true", "yes", "on"].includes((process.env.SPEKO_NO_DOTENV ?? "").trim().toLowerCase())) return;
   const load = (process as unknown as { loadEnvFile?: (path?: string) => void }).loadEnvFile;
   if (!load) return;
   const here = dirname(fileURLToPath(import.meta.url));
@@ -33,7 +41,11 @@ function loadDotenv(): void {
         load(path);
       } catch {
         // Ignore a malformed/locked .env — fall back to the process environment.
+        return;
       }
+      process.stderr.write(
+        `speko: loaded .env from ${path} (set SPEKO_NO_DOTENV=1 to disable .env discovery)\n`,
+      );
       return;
     }
   }
@@ -41,6 +53,43 @@ function loadDotenv(): void {
 
 function bearer(raw: string): string {
   return raw.startsWith("Bearer ") ? raw.slice(7) : raw;
+}
+
+// ── Hermetic test mode (SPEKO_TEST_MODE) ─────────────────────────────────────
+// An in-process simulation mode: a fake platform client, no network, no telephony,
+// no secrets. Every safety rail still runs for real against isolated temp state.
+
+/** True when SPEKO_TEST_MODE selects the hermetic in-process simulation mode. */
+export function testModeRequested(env: NodeJS.ProcessEnv = process.env): boolean {
+  return ["1", "true", "yes", "on"].includes((env.SPEKO_TEST_MODE ?? "").trim().toLowerCase());
+}
+
+// Self-supplied fixtures so test mode needs zero configuration. The key is shaped like a
+// Speko test key (never a live sk_ prefix); the dial-token secret only ever signs tokens
+// that are minted AND verified inside this same simulated process.
+const TEST_MODE_FIXTURE_API_KEY = "sk_test_speko_hermetic_fixture";
+const TEST_MODE_FIXTURE_DIAL_SECRET = "speko-test-mode-fixture-dial-token-secret";
+
+// Frozen wall-clock anchor for test mode's after-hours gate: 14:00 destination-local,
+// deterministic at any CI hour/timezone. The date itself is arbitrary but fixed.
+const TEST_MODE_FROZEN_ANCHOR_SECONDS = Date.UTC(2026, 0, 15, 14, 0, 0) / 1000;
+
+/**
+ * The clock (and offset) the after-hours gate reads. Real mode: identity — real offset, real
+ * clock, and SPEKO_FAKE_NOW is structurally invisible (loadConfig never parses it outside test
+ * mode, so cfg.fakeNowMs is always undefined there). Test mode: a frozen clock reading 14:00
+ * destination-local (an unknown offset is simulated as UTC) so CI is deterministic at any hour;
+ * SPEKO_FAKE_NOW overrides the frozen clock with real gate semantics — including the
+ * unknown-offset confirmation branch — so the gate itself stays testable.
+ */
+export function afterHoursTestClock(
+  cfg: Pick<AppConfig, "testMode" | "fakeNowMs">,
+  utcOffsetMinutes: number | null,
+): { utcOffsetMinutes: number | null; nowSeconds: number | undefined } {
+  if (cfg.testMode !== true) return { utcOffsetMinutes, nowSeconds: undefined };
+  if (typeof cfg.fakeNowMs === "number") return { utcOffsetMinutes, nowSeconds: cfg.fakeNowMs / 1000 };
+  const offset = utcOffsetMinutes ?? 0;
+  return { utcOffsetMinutes: offset, nowSeconds: TEST_MODE_FROZEN_ANCHOR_SECONDS - offset * 60 };
 }
 
 function positiveIntEnv(name: string, fallback: number): number {
@@ -154,6 +203,19 @@ export interface AppConfig {
   googlePlacesApiKey: string | undefined;
   twilio: { sid: string; token: string } | undefined;
   demo: DemoConfig;
+  /**
+   * Hermetic test mode (SPEKO_TEST_MODE=1/true/yes/on): the in-process backend runs a fake
+   * platform client — no network, no telephony, fixture credentials, fresh temp state dirs —
+   * while every safety rail still runs for real. Structurally exclusive with real dialing:
+   * loadConfig refuses a live-looking sk_ key and refuses SPEKO_MCP_SERVER_URL under it.
+   */
+  testMode: boolean;
+  /**
+   * SPEKO_FAKE_NOW as epoch ms — parsed ONLY when testMode is on. In real mode this is ALWAYS
+   * undefined (the env var is never even read), so a stray SPEKO_FAKE_NOW can never move the
+   * after-hours gate on a real deployment.
+   */
+  fakeNowMs: number | undefined;
 }
 
 let cached: AppConfig | undefined;
@@ -162,19 +224,76 @@ export function loadConfig(): AppConfig {
   if (cached) return cached;
   loadDotenv();
 
-  const apiKeyRaw = (process.env.SPEKO_API_KEY ?? process.env.SPEKOAI_API_KEY ?? "").trim();
+  const testMode = testModeRequested(process.env);
+  let apiKeyRaw = (process.env.SPEKO_API_KEY ?? process.env.SPEKOAI_API_KEY ?? "").trim();
+  if (testMode) {
+    // STRUCTURAL SAFETY INVARIANT: one process can simulate calls or place real ones — never
+    // both. Test mode therefore refuses to start alongside anything that could reach a real
+    // backend, instead of silently ignoring it.
+    const remoteUrl = (process.env.SPEKO_MCP_SERVER_URL ?? "").trim();
+    if (remoteUrl) {
+      throw new ConfigError(
+        "SPEKO_TEST_MODE is enabled but SPEKO_MCP_SERVER_URL is set — remote mode and test mode " +
+          "cannot mix in one process. Unset SPEKO_MCP_SERVER_URL to run the hermetic simulation " +
+          "in-process, or unset SPEKO_TEST_MODE to use the remote server.",
+      );
+    }
+    const strippedKey = bearer(apiKeyRaw);
+    if (strippedKey.startsWith("sk_") && !strippedKey.startsWith("sk_test_")) {
+      throw new ConfigError(
+        "SPEKO_TEST_MODE is enabled but a live-looking SPEKO_API_KEY (sk_*) is configured — test " +
+          "mode refuses a live API key; unset SPEKO_API_KEY or use an sk_test_ fixture key. " +
+          "(No key is needed at all in test mode.)",
+      );
+    }
+    if (!apiKeyRaw) apiKeyRaw = TEST_MODE_FIXTURE_API_KEY;
+  }
   if (!apiKeyRaw) {
     throw new ConfigError(
       "SPEKO_API_KEY is required. Run `npx @spekoai/mcp-calls init` to set up, or set SPEKO_API_KEY " +
         "in your MCP client config (get a key at https://platform.speko.dev).",
     );
   }
-  const dialTokenSecret = (process.env.SPEKO_DIAL_TOKEN_SECRET ?? "").trim();
+  let dialTokenSecret = (process.env.SPEKO_DIAL_TOKEN_SECRET ?? "").trim();
+  // In test mode tokens are minted and verified inside this same simulated process, so a fixture
+  // secret keeps the REAL token/HMAC rails exercised with zero configuration.
+  if (!dialTokenSecret && testMode) dialTokenSecret = TEST_MODE_FIXTURE_DIAL_SECRET;
   if (!dialTokenSecret) {
     throw new ConfigError(
       "SPEKO_DIAL_TOKEN_SECRET is required (any long random string). Set it in the repo-root .env.",
     );
   }
+
+  // Test mode ALWAYS isolates guard/owner state in a fresh per-process temp dir, ignoring any
+  // explicit SPEKO_GUARD_STATE_DIR / SPEKO_OWNER_STATE_DIR. This is a safety invariant, not a
+  // convenience: test mode seeds an un-OTP'd fixture owner (+15005550100) at init, and if that
+  // landed in the host's real owner dir, a later REAL-mode process reading the same dir would
+  // trust the fixture owner and place un-consented owner calls. A simulation has no reason to
+  // touch the host's real ledgers, so the temp dir is unconditional in test mode.
+  let guardStateDirEnv = (process.env.SPEKO_GUARD_STATE_DIR ?? "").trim();
+  let ownerStateDirEnv = (process.env.SPEKO_OWNER_STATE_DIR ?? "").trim();
+  const testStateDir = testMode ? mkdtempSync(join(tmpdir(), "speko-test-mode-")) : undefined;
+  if (testMode && (guardStateDirEnv || ownerStateDirEnv)) {
+    process.stderr.write(
+      "speko: test mode ignores SPEKO_GUARD_STATE_DIR / SPEKO_OWNER_STATE_DIR and uses an isolated " +
+        "temp dir, so the simulated fixture owner never reaches your real owner state.\n",
+    );
+    guardStateDirEnv = "";
+    ownerStateDirEnv = "";
+  }
+
+  const fakeNowMs = ((): number | undefined => {
+    if (!testMode) return undefined; // real mode NEVER reads SPEKO_FAKE_NOW
+    const raw = (process.env.SPEKO_FAKE_NOW ?? "").trim();
+    if (!raw) return undefined;
+    const parsed = Date.parse(raw);
+    if (!Number.isFinite(parsed)) {
+      throw new ConfigError(
+        "SPEKO_FAKE_NOW must be an ISO-8601 timestamp (test-mode only), e.g. 2026-01-15T21:30:00Z.",
+      );
+    }
+    return parsed;
+  })();
 
   const twilioSid = (process.env.TWILIO_LOOKUP_SID ?? "").trim();
   const twilioToken = (process.env.TWILIO_LOOKUP_TOKEN ?? "").trim();
@@ -218,9 +337,8 @@ export function loadConfig(): AppConfig {
       .split(",")
       .map((number) => normalizeE164(number.trim()))
       .filter(Boolean),
-    guardStateDir: (process.env.SPEKO_GUARD_STATE_DIR ?? "").trim() || undefined,
-    ownerStateDir:
-      (process.env.SPEKO_OWNER_STATE_DIR ?? process.env.SPEKO_GUARD_STATE_DIR ?? "").trim() || undefined,
+    guardStateDir: guardStateDirEnv || testStateDir || undefined,
+    ownerStateDir: ownerStateDirEnv || guardStateDirEnv || testStateDir || undefined,
     rateCapPerNumberHour: positiveIntEnv("SPEKO_MAX_CALLS_PER_NUMBER_HOUR", RATE_CAP_PER_NUMBER_HOUR),
     rateCapPerNumberDay: positiveIntEnv("SPEKO_MAX_CALLS_PER_NUMBER_DAY", RATE_CAP_PER_NUMBER_DAY),
     clientProfile: parsedClientProfile.profile,
@@ -236,6 +354,8 @@ export function loadConfig(): AppConfig {
     dialTokenSecret,
     googlePlacesApiKey: (process.env.GOOGLE_PLACES_API_KEY ?? "").trim() || undefined,
     twilio: twilioSid && twilioToken ? { sid: twilioSid, token: twilioToken } : undefined,
+    testMode,
+    fakeNowMs,
     demo: {
       enabled: process.env.SPEKO_DEMO === "1" || Boolean((process.env.SPEKO_DEMO_E164 ?? "").trim()),
       e164: (process.env.SPEKO_DEMO_E164 ?? "").trim(),
@@ -246,6 +366,11 @@ export function loadConfig(): AppConfig {
     },
   };
   return cached;
+}
+
+/** Test-only: drop the cached config so environment changes take effect on the next loadConfig. */
+export function resetConfigForTests(): void {
+  cached = undefined;
 }
 
 /**

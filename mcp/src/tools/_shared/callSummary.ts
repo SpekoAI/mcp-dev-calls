@@ -66,6 +66,13 @@ export function summarizeCallResult(s: Record<string, unknown>, opts: SummarizeO
     // get_call on a live call — never describe it as finished.
     return reason ?? `The call is still in progress${id} — check again with get_call in a few seconds.`;
   }
+  if (status === "dialing") {
+    // wait:false — the dial was placed and the call continues in the background. Lead with the
+    // server's no-redial next_step so the agent polls get_call instead of retrying the dial tool.
+    const nextStep = typeof s.next_step === "string" ? s.next_step : null;
+    const placed = reason ?? `The call was placed and is continuing in the background${id}.`;
+    return `${placed} ${nextStep ?? "Poll get_call until it reaches a terminal status. Do not place another call."}`;
+  }
   if (connected && !answered) {
     return reason ?? `The call connected but no one responded${id}.`;
   }

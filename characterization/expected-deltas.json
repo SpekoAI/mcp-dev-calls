@@ -1,15 +1,15 @@
 [
   {
     "probeId": "mcp.initialize",
-    "justification": "Cumulative release delta through 0.7.0. The new owner-call surface ships as package/server version 0.7.0, and serverInfo.version follows the VERSION const.",
+    "justification": "Cumulative release delta through 0.8.0 (agent-platform readiness). serverInfo.version follows the VERSION const.",
     "expectContains": [
-      "\"version\":\"0.7.0\"",
+      "\"version\":\"0.8.0\"",
       "\"name\":\"speko-calls\""
     ]
   },
   {
     "probeId": "mcp.tools-list",
-    "justification": "Cumulative through 0.7.0: after_hours_confirmation remains on business/direct calls, and call_me is now registered with a real owner-only message/mode/wait schema. It has no destination field and keeps the full rail contract in its description.",
+    "justification": "Cumulative through 0.7.0: after_hours_confirmation remains on business/direct calls, and call_me is now registered with a real owner-only message/mode/wait schema. It has no destination field and keeps the full rail contract in its description. Then: bounded dial tools (wait:false + get_call polling) for MCP hosts with short tool-call timeouts — make_call and call_number gain an optional wait property (default true = unchanged blocking behavior) whose description forbids re-dialing and points at get_call.",
     "expectContains": [
       "after_hours_confirmation",
       "call_me",
@@ -17,7 +17,10 @@
       "wait",
       "call_number",
       "make_call",
-      "lookup_business"
+      "lookup_business",
+      "false returns immediately after the dial is placed, with a call_id to poll via get_call",
+      "never re-invoke make_call for the same ask",
+      "never re-invoke call_number for the same ask"
     ]
   },
   {
@@ -180,17 +183,19 @@
   },
   {
     "probeId": "cli.version",
-    "justification": "Version bump to 0.7.0 for the call_me owner-control release. --version prints the VERSION const to stdout.",
+    "justification": "Version bump to 0.8.0 for the agent-platform-readiness release. --version prints the VERSION const to stdout.",
     "expectContains": [
-      "0.7.0"
+      "0.8.0"
     ]
   },
   {
     "probeId": "cli.help",
-    "justification": "Cumulative CLI help through 0.7.0: version banner is 0.7.0 and the local owner verification/status command is documented alongside existing inspection commands.",
+    "justification": "Cumulative CLI help through 0.7.0, plus portable owner state for headless installs (me export / SPEKO_OWNER_PROFILE): the me command now documents verify|status|export. Then: `speko selftest`, the package-shipped hermetic selftest for agent-platform installs (offline simulation, no key, no real calls), joins the command list.",
     "expectContains": [
-      "speko 0.7.0",
-      "speko me verify|status",
+      "speko 0.8.0",
+      "speko me verify|status|export",
+      "speko selftest",
+      "hermetic self-test of the MCP server",
       "speko dnc",
       "do-not-call",
       "speko usage",
@@ -249,11 +254,12 @@
   },
   {
     "probeId": "tool.readiness",
-    "justification": "Cumulative through 0.7.0: readiness keeps the plain-language status and now reports local call_me owner availability plus the enforced client profile. With no owner profile, it returns the exact speko me verify setup path and safe-default poll behavior.",
+    "justification": "Cumulative through 0.7.0: readiness keeps the plain-language status and now reports local call_me owner availability plus the enforced client profile. With no owner profile, it returns the exact speko me verify setup path and safe-default poll behavior, and adds the headless path: portable owner state for headless installs (me export / SPEKO_OWNER_PROFILE).",
     "expectContains": [
       "Almost ready",
       "call_me is not set up",
       "speko me verify",
+      "SPEKO_OWNER_PROFILE from `speko me export`",
       "safe-default"
     ]
   }
