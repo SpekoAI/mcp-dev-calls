@@ -1,9 +1,9 @@
 [
   {
     "probeId": "mcp.initialize",
-    "justification": "Cumulative release delta through 0.7.0. The new owner-call surface ships as package/server version 0.7.0, and serverInfo.version follows the VERSION const.",
+    "justification": "Cumulative release delta through 0.8.0 (agent-platform readiness). serverInfo.version follows the VERSION const.",
     "expectContains": [
-      "\"version\":\"0.7.0\"",
+      "\"version\":\"0.8.0\"",
       "\"name\":\"speko-calls\""
     ]
   },
@@ -183,16 +183,16 @@
   },
   {
     "probeId": "cli.version",
-    "justification": "Version bump to 0.7.0 for the call_me owner-control release. --version prints the VERSION const to stdout.",
+    "justification": "Version bump to 0.8.0 for the agent-platform-readiness release. --version prints the VERSION const to stdout.",
     "expectContains": [
-      "0.7.0"
+      "0.8.0"
     ]
   },
   {
     "probeId": "cli.help",
     "justification": "Cumulative CLI help through 0.7.0, plus portable owner state for headless installs (me export / SPEKO_OWNER_PROFILE): the me command now documents verify|status|export. Then: `speko selftest`, the package-shipped hermetic selftest for agent-platform installs (offline simulation, no key, no real calls), joins the command list.",
     "expectContains": [
-      "speko 0.7.0",
+      "speko 0.8.0",
       "speko me verify|status|export",
       "speko selftest",
       "hermetic self-test of the MCP server",
