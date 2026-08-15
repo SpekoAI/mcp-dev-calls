@@ -2,7 +2,7 @@
   "name": "mcp-dev-calls",
   "private": true,
   "version": "0.1.0",
-  "description": "Speko \"AI calls for devs\" demo — a Claude Code MCP (mcp/) that finds businesses and places real, disclosed phone calls via a backing demo server (server/) using SPEKO_API_KEY + @spekoai/sdk.",
+  "description": "agentvoice (@spekoai/mcp-calls) - an MCP (mcp/) that places real, disclosed phone calls, including owner call_me, via a backing server (server/) the MCP runs in-process by default, using SPEKO_API_KEY + @spekoai/sdk.",
   "type": "module",
   "license": "MIT",
   "author": "SpekoAI",

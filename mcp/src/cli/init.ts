@@ -311,8 +311,8 @@ export function printManualConfigs(scope: string): void {
 
 async function offerOwnerVerification(key: string, quick: boolean, nonInteractive: boolean): Promise<void> {
   if (quick || nonInteractive || !process.stdin.isTTY) return;
-  const answer = (await ask("\n  Verify your phone for call_me now? [y/N] ")).trim().toLowerCase();
-  if (answer !== "y" && answer !== "yes") return;
+  const answer = (await ask("\n  Verify your phone for call_me now? [Y/n] ")).trim().toLowerCase();
+  if (answer === "n" || answer === "no") return;
   try {
     const code = await runMe(["verify", "--yes"], undefined, { apiKey: key });
     if (code !== 0) console.log(c.yellow("  Owner verification did not complete; run `speko me verify` later."));
@@ -472,7 +472,7 @@ export async function runInit(argv: string[], mode: "init" | "setup" | "login" =
   // 6) Next steps.
   console.log(c.bold("\n  ✅ Done.\n"));
   console.log("  Try it: open your agent and say");
-  console.log("    " + c.cyan('"call <a business> and ask if they have a table for 4 at 8pm — my name is <you>"'));
+  console.log("    " + c.cyan('"work on <task> and call me when you are done or stuck"'));
   console.log(c.dim("\n  First run downloads the package — if the agent reports an MCP startup timeout,"));
   console.log(c.dim("  set MCP_TIMEOUT=60000 and retry. Re-run this wizard anytime to reconfigure.\n"));
   return 0;

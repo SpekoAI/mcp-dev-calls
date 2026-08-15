@@ -344,8 +344,8 @@ export async function makeCall(input: MakeCallInput, deps: MakeCallDeps): Promis
       // (cfg.llmPin / cfg.ttsPin / cfg.sttPin), not left to the selector.
       intent: { language: DIAL_INTENT_LANGUAGE, optimizeFor: deps.cfg.optimizeFor },
       // A specific `voice` (cfg.voice) is safe ONLY because it's an ElevenLabs voice matching the
-      // ElevenLabs TTS pin below — always verify a voice with scripts/verify-tts.mjs first. A voice
-      // id from a different provider (Cartesia/OpenAI) routes wrong and produces SILENT audio.
+      // ElevenLabs TTS pin below — always confirm a new id against `speko voices --provider elevenlabs`
+      // first. A voice id from a different provider (Cartesia/OpenAI) routes wrong and produces SILENT audio.
       ...(deps.cfg.voice ? { voice: deps.cfg.voice } : {}),
       constraints: { allowedProviders: allowedProvidersFromPins(deps.cfg) },
       sttOptions: { keywords: [caller, businessName, ...DIAL_STT_KEYWORDS] },
