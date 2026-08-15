@@ -1,6 +1,6 @@
 # Spec: Replace the quiet-hours hard block with real abuse guardrails
 
-Status: PROPOSED (2026-07-01). Verified against HEAD `0c45830`. Adversarially reviewed by 3 lenses (legal w/ web-verified cites, abuse red-team, implementation sweep) before filing.
+Status: SHIPPED (implemented across 0.6.x-0.8.0; kept as design history). Verified against HEAD `0c45830`. Adversarially reviewed by 3 lenses (legal w/ web-verified cites, abuse red-team, implementation sweep) before filing.
 
 Repo: `SpekoAI/mcp-dev-calls` (`@spekoai/mcp-calls` 0.4.9, in-process server). **NOT a platform change** — zero quiet-hours code exists in `spekoai/platform`; everything ships via `npm publish`.
 

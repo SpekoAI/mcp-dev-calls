@@ -1,7 +1,7 @@
 /**
  * Audio helpers for the voice CLI: content-type → file extension, PCM → WAV wrapping
- * (ported verbatim from scripts/english-voices.mjs so playback matches the proven path),
- * and a best-guess content-type for a local audio file.
+ * (ported verbatim from the since-removed scripts/english-voices.mjs so playback matches
+ * the proven path), and a best-guess content-type for a local audio file.
  */
 
 /** Parse the sample rate from a content-type like "audio/pcm;rate=24000". Defaults to 24000. */
