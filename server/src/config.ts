@@ -147,8 +147,9 @@ export interface AppConfig {
    * on the same date (the live TTS path differs from /synthesize) — do NOT default to it until
    * re-verified on a real call. Override with SPEKO_TTS_PIN. */
   ttsPin: string;
-  /** provider pin for STT. Default = deepgram:nova-3 — clean win across every source.
-   * (Streaming first-partial ≈ 1.3s; the ~366ms figure is the serial p50, not first-partial.) */
+  /** provider pin for STT. Default = soniox:stt-rt-v5, the newest Soniox realtime model in
+   * the platform catalog (Bek, 2026-08-22 — replaced deepgram:nova-3 after repeated STT
+   * misses on live calls). Override with SPEKO_STT_PIN. */
   sttPin: string;
   /**
    * Comma-separated provider:model LLM FAILOVER CHAIN. Default =
@@ -322,7 +323,7 @@ export function loadConfig(): AppConfig {
       return Number.isFinite(n) && n > 0 ? n : undefined;
     })(),
     ttsPin: (process.env.SPEKO_TTS_PIN ?? "").trim() || "elevenlabs:eleven_flash_v2_5",
-    sttPin: (process.env.SPEKO_STT_PIN ?? "").trim() || "deepgram:nova-3",
+    sttPin: (process.env.SPEKO_STT_PIN ?? "").trim() || "soniox:stt-rt-v5",
     llmPin: (process.env.SPEKO_LLM_PIN ?? "").trim() || "cerebras:gemma-4-31b,openai:gpt-4.1-mini",
     optimizeFor: (() => {
       const v = (process.env.SPEKO_OPTIMIZE_FOR ?? "").trim();
