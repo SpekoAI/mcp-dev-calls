@@ -55,7 +55,7 @@ const COUNTRY_TZ: Readonly<Record<string, string>> = {
   "7": "Asia/Almaty", "20": "Africa/Cairo", "27": "Africa/Johannesburg",
   "30": "Europe/Athens", "31": "Europe/Amsterdam", "32": "Europe/Brussels", "33": "Europe/Paris",
   "34": "Europe/Madrid", "39": "Europe/Rome", "44": "Europe/London", "49": "Europe/Berlin",
-  "52": "America/Mexico_City", "55": "America/Sao_Paulo", "61": "Australia/Sydney", "62": "Asia/Jakarta",
+  "52": "America/Mexico_City", "55": "America/Sao_Paulo", "57": "America/Bogota", "61": "Australia/Sydney", "62": "Asia/Jakarta",
   "63": "Asia/Manila", "65": "Asia/Singapore", "81": "Asia/Tokyo", "82": "Asia/Seoul",
   "84": "Asia/Ho_Chi_Minh", "86": "Asia/Shanghai", "90": "Europe/Istanbul", "91": "Asia/Kolkata",
   "92": "Asia/Karachi", "971": "Asia/Dubai", "972": "Asia/Jerusalem",

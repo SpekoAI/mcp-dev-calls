@@ -11,6 +11,7 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { RATE_CAP_PER_NUMBER_DAY, RATE_CAP_PER_NUMBER_HOUR } from "./constants.js";
 import { normalizeE164 } from "./safety/guard.js";
+import { DEFAULT_CALL_LANGUAGE, normalizeCallLanguage, unsupportedLanguageMessage } from "./safety/language.js";
 
 export class ConfigError extends Error {
   override name = "ConfigError";
@@ -183,6 +184,11 @@ export interface AppConfig {
   clientProfileConfigured: boolean;
   /** Emergency local kill switch. It prevents call_me before any dial attempt. */
   callMeDisabled: boolean;
+  /**
+   * Default language for make_call / call_number when the call names none (SPEKO_CALL_LANGUAGE,
+   * default "en"). Owner calls (call_me, verification) always run in English.
+   */
+  callLanguage: string;
   /** Base URL of the Speko dashboard; call summaries expose `${base}/sessions/{call_id}`. */
   dashboardBaseUrl: string;
   /**
@@ -298,6 +304,12 @@ export function loadConfig(): AppConfig {
   const twilioSid = (process.env.TWILIO_LOOKUP_SID ?? "").trim();
   const twilioToken = (process.env.TWILIO_LOOKUP_TOKEN ?? "").trim();
 
+  const rawCallLanguage = (process.env.SPEKO_CALL_LANGUAGE ?? "").trim();
+  const callLanguage = rawCallLanguage ? normalizeCallLanguage(rawCallLanguage) : DEFAULT_CALL_LANGUAGE;
+  if (!callLanguage) {
+    throw new ConfigError(`SPEKO_CALL_LANGUAGE: ${unsupportedLanguageMessage(rawCallLanguage)}`);
+  }
+
   const rawClientProfile = (process.env.SPEKO_CLIENT_PROFILE ?? "").trim();
   const parsedClientProfile = parseClientProfile(rawClientProfile);
 
@@ -346,6 +358,7 @@ export function loadConfig(): AppConfig {
     callMeDisabled: ["1", "true", "yes", "on"].includes(
       (process.env.SPEKO_CALLME_DISABLED ?? "").trim().toLowerCase(),
     ),
+    callLanguage,
     dashboardBaseUrl:
       ((process.env.SPEKO_DASHBOARD_URL ?? process.env.SPEKO_PLATFORM_URL ?? "").trim() || "https://platform.speko.dev").replace(/\/+$/, ""),
     // OFF unless explicitly opted in (kill switch); #903 per-call rooms made the guard redundant (#37 M4).

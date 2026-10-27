@@ -112,6 +112,11 @@ export interface MakeCallInput {
   afterHoursConfirmation?: string | null;
   maxDurationSeconds?: number;
   /**
+   * Language the whole call is conducted in (BCP-47, e.g. "es" or "es-CO"). Omitted/null uses
+   * the server default (SPEKO_CALL_LANGUAGE, else "en"). See safety/language.ts.
+   */
+  language?: string | null;
+  /**
    * false returns immediately after the dial is placed (with a call_id to poll via get_call)
    * instead of blocking until the call ends. Every pre-dial rail still runs; only the wait
    * for the call's outcome is skipped. Default/omitted = true (blocking).

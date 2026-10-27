@@ -267,6 +267,16 @@ describe("tamperDialToken", () => {
     expect(t).not.toBe(FIXTURE_TOKEN);
     expect(t.length).toBe(FIXTURE_TOKEN.length);
   });
+
+  it("changes the decoded signature even when it ends in a padding-bit char", () => {
+    // 43-char base64url HMAC: the last char's low 2 bits are unused, so flipping "A" <-> "B"
+    // there would decode to the same bytes and the token would still verify.
+    for (const last of ["A", "B"]) {
+      const token = `cGF5bG9hZA.${"x".repeat(42)}${last}`;
+      const sig = (tok: string) => Buffer.from(tok.split(".")[1]!, "base64url");
+      expect(sig(tamperDialToken(token)).equals(sig(token))).toBe(false);
+    }
+  });
 });
 
 // ── runChecks orchestration against fakes ────────────────────────────────────

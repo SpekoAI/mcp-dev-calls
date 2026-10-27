@@ -10,7 +10,6 @@ import { afterHoursTestClock, allowedProvidersFromPins, type AppConfig } from ".
 import {
   DIAL_TOKEN_DEFAULT_TTL_SECONDS,
   AUTH_NEXT_STEP,
-  DIAL_INTENT_LANGUAGE,
   DIAL_STT_KEYWORDS,
   EGRESS_CONFIRM_POLL_SECONDS,
   EGRESS_CONFIRM_WINDOW_SECONDS,
@@ -63,6 +62,13 @@ import {
   scanCalleeTurnsForOptOut,
 } from "../safety/guard.js";
 import { buildFirstMessage, buildSystemPrompt, sanitizeName } from "../safety/prompt.js";
+import {
+  DEFAULT_CALL_LANGUAGE,
+  isEnglish,
+  normalizeCallLanguage,
+  SUPPORTED_CALL_LANGUAGES,
+  unsupportedLanguageMessage,
+} from "../safety/language.js";
 import { MAX_CALLER_NAME_CHARS } from "../constants.js";
 import { ensureDialAgent, resetDialAgent } from "../speko/agent.js";
 import { isAuthFailure, SpekoApiError, type SpekoClient } from "../speko/client.js";
@@ -177,6 +183,23 @@ export async function makeCall(input: MakeCallInput, deps: MakeCallDeps): Promis
         "concurrently with the next one, which is exactly what serialized calls forbid.",
       "Place this call with wait:true (blocking) so only one call runs at a time, or unset " +
         "SPEKO_SERIALIZE_CALLS to allow concurrent calls (each gets an isolated per-call room).",
+    );
+  }
+
+  // The call language. Internal owner/OTP calls (prompt overrides) carry hand-written English
+  // scripts, so they are always English regardless of SPEKO_CALL_LANGUAGE.
+  const internalScript = deps.firstMessageOverride !== undefined || deps.systemPromptOverride !== undefined;
+  const requestedLanguage = internalScript ? null : input.language;
+  const language =
+    requestedLanguage == null || (typeof requestedLanguage === "string" && !requestedLanguage.trim())
+      ? internalScript
+        ? DEFAULT_CALL_LANGUAGE
+        : (deps.cfg.callLanguage ?? DEFAULT_CALL_LANGUAGE)
+      : normalizeCallLanguage(requestedLanguage);
+  if (!language) {
+    throw new RejectionError(
+      unsupportedLanguageMessage(requestedLanguage),
+      `Retry with language set to one of: ${SUPPORTED_CALL_LANGUAGES.join(", ")} (for example "es" or "es-CO" for Spanish), or omit it for the server default.`,
     );
   }
 
@@ -342,16 +365,21 @@ export async function makeCall(input: MakeCallInput, deps: MakeCallDeps): Promis
       // time-to-first-token LLM, avoiding the multi-second dead air the balanced/accuracy modes
       // introduce. The actual LLM/TTS/STT models are pinned below via constraints
       // (cfg.llmPin / cfg.ttsPin / cfg.sttPin), not left to the selector.
-      intent: { language: DIAL_INTENT_LANGUAGE, optimizeFor: deps.cfg.optimizeFor },
+      // The dial's own intent.language PINS the platform session to that language: STT language,
+      // routing, and the platform's "respond only in X" directive follow it. The TTS voice does
+      // not: no voice is sent unless cfg.voice is set, so the pinned TTS model's default voice
+      // speaks (eleven_flash_v2_5 is multilingual; set SPEKO_DEMO_VOICE for a native accent).
+      intent: { language, optimizeFor: deps.cfg.optimizeFor },
       // A specific `voice` (cfg.voice) is safe ONLY because it's an ElevenLabs voice matching the
       // ElevenLabs TTS pin below — always confirm a new id against `speko voices --provider elevenlabs`
       // first. A voice id from a different provider (Cartesia/OpenAI) routes wrong and produces SILENT audio.
       ...(deps.cfg.voice ? { voice: deps.cfg.voice } : {}),
       constraints: { allowedProviders: allowedProvidersFromPins(deps.cfg) },
-      sttOptions: { keywords: [caller, businessName, ...DIAL_STT_KEYWORDS] },
+      // The base vocab hints are English words; only bias an English STT with them.
+      sttOptions: { keywords: [caller, businessName, ...(isEnglish(language) ? DIAL_STT_KEYWORDS : [])] },
       ttsOptions: { speed: deps.cfg.ttsSpeed ?? 1.0 },
       llm: { temperature: 0.5, maxTokens: 100 },
-      firstMessage: deps.firstMessageOverride ?? buildFirstMessage(caller, input.objective),
+      firstMessage: deps.firstMessageOverride ?? buildFirstMessage(caller, input.objective, language),
       systemPrompt:
         deps.systemPromptOverride?.(agentId != null) ??
         buildSystemPrompt(
@@ -361,6 +389,7 @@ export async function makeCall(input: MakeCallInput, deps: MakeCallDeps): Promis
           caller,
           input.behavior ?? null,
           agentId != null,
+          language,
         ),
       metadata: {
         source: deps.metadataSource ?? "speko-mcp-calls-demo",
