@@ -25,6 +25,7 @@ describe("MakeCallTool", () => {
       "greet_first",
       "after_hours_confirmation",
       "max_duration_seconds",
+      "language",
       "wait",
     ]);
     expect(
@@ -62,6 +63,7 @@ describe("MakeCallTool", () => {
       greet_first: false,
       after_hours_confirmation: "Bek asked me to call now",
       max_duration_seconds: 240,
+      language: "es-CO",
       wait: true,
     });
     expect(post).toHaveBeenCalledWith(
@@ -75,6 +77,7 @@ describe("MakeCallTool", () => {
         greet_first: false,
         after_hours_confirmation: "Bek asked me to call now",
         max_duration_seconds: 240,
+        language: "es-CO",
         wait: true,
       },
       expect.objectContaining({ timeoutMs: 270_000 }),

@@ -50,6 +50,15 @@ const schema = z.object({
     .int()
     .optional()
     .describe("Max seconds to wait for the call to finish; clamped to 30-300."),
+  language: z
+    .string()
+    .optional()
+    .describe(
+      "Language the WHOLE call is conducted in, as a BCP-47 tag: 'es' or 'es-CO' for Spanish, also pt, fr, de, it, en " +
+        "(a region suffix like -CO/-MX is allowed). Sets the spoken AI-disclosure opener, the assistant's replies, " +
+        "and speech recognition. Omit to use the server default (SPEKO_CALL_LANGUAGE, else English). " +
+        "Write objective/context in any language; the assistant speaks only this one.",
+    ),
   wait: z
     .boolean()
     .optional()
@@ -100,6 +109,7 @@ export default class MakeCallTool extends MCPTool {
           greet_first: input.greet_first,
           after_hours_confirmation: input.after_hours_confirmation,
           max_duration_seconds: input.max_duration_seconds,
+          language: input.language,
           wait: input.wait,
         },
         { timeoutMs: (maxWait + 30) * 1000, signal: this.abortSignal },
