@@ -170,10 +170,15 @@ function str(v: unknown): string | null {
   return typeof v === "string" ? v : null;
 }
 
-/** Corrupt a signed dial token without changing its shape (flip one signature char). */
+/**
+ * Corrupt a signed dial token without changing its shape (flip one signature char).
+ * Flips the FIRST signature char, not the last: a 32-byte HMAC is 43 base64url chars and the
+ * last one carries 2 unused low bits, so "A" -> "B" there decodes to the same bytes and the
+ * "tampered" token still verifies (a ~1-in-16 flake when the signature ends in "A").
+ */
 export function tamperDialToken(token: string): string {
-  const last = token.slice(-1);
-  return token.slice(0, -1) + (last === "A" ? "B" : "A");
+  const i = token.lastIndexOf(".") + 1;
+  return token.slice(0, i) + (token[i] === "A" ? "Q" : "A") + token.slice(i + 1);
 }
 
 /**
