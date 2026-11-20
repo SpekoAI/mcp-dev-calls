@@ -7,7 +7,7 @@
 > and the `OUTCOME:` (booked / not available) lands back in your terminal.
 
 A [Model Context Protocol](https://modelcontextprotocol.io) server for Claude Code, Claude
-Desktop, and any MCP client. Powered by [Speko](https://speko.ai).
+Desktop, and any MCP client. Powered by [Speko](https://speko.com).
 
 ## Setup — one command
 
